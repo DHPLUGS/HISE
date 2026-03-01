@@ -162,6 +162,7 @@ DECLARE_ID(ModulationBlockSize);
 DECLARE_ID(ExternalModulation);
 DECLARE_ID(ModColour);
 DECLARE_ID(ReceiveTargets);
+DECLARE_ID(MixProcess);
 
 struct Helpers
 {
@@ -186,6 +187,7 @@ struct Helpers
 			SubGroup,
 			SuspendOnSilence,
             CompileChannelAmount,
+			MixProcess,
 			TextToValueConverter,
 			ModulationBlockSize
 		};
@@ -217,6 +219,7 @@ struct Helpers
         returnIfDefault(CompileChannelAmount, 2);
 		returnIfDefault(TextToValueConverter, "Undefined");
 		returnIfDefault(ModulationBlockSize, 0);
+		returnIfDefault(MixProcess, true);
 		returnIfDefault(ExternalModulation, "Disabled");
 		returnIfDefault(ModColour, (int)HiseModulationColours::ColourId::ExtraMod);
 

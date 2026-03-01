@@ -57,6 +57,7 @@ public:
 		Smoothing,
 		Mode,
 		Enabled,
+		Mix,
 		numParameters
 	};
 
@@ -74,7 +75,7 @@ public:
 	SN_DESCRIPTION("A filter node");
 
 	SN_EMPTY_HANDLE_EVENT;
-	SN_EMPTY_INITIALISE;
+	void initialise(ObjectWithValueTree* n);
 
 	void createParameters(ParameterDataList& parameters);
 	void prepare(PrepareSpecs ps);
@@ -107,16 +108,52 @@ public:
 		if (enabled)
 		{
 			auto b = data.toAudioSampleBuffer();
-			FilterHelpers::RenderData r(b, 0, data.getNumSamples());
+			const int numSamples = data.getNumSamples();
+			const int numChannels = b.getNumChannels();
+
+			if (mixProcess && mix < 1.0f)
+			{
+				for (int ch = 0; ch < numChannels; ++ch)
+					dryBuffer.copyFrom(ch, 0, b, ch, 0, numSamples);
+			}
+
+			FilterHelpers::RenderData r(b, 0, numSamples);
 			filter.get().render(r);
+
+			if (mixProcess && mix < 1.0f)
+			{
+				for (int ch = 0; ch < numChannels; ++ch)
+				{
+					b.applyGain(ch, 0, numSamples, mix);
+					b.addFrom(ch, 0, dryBuffer, ch, 0, numSamples, 1.0f - mix);
+				}
+			}
 		}
-		
 	}
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		if(enabled)
-			filter.get().processFrame(data.begin(), data.size());
+		if (enabled)
+		{
+			if (mixProcess && mix < 1.0f)
+			{
+				float dry[16];
+				const int size = data.size();
+				jassert(size <= 16);
+
+				for (int i = 0; i < size; ++i)
+					dry[i] = data[i];
+
+				filter.get().processFrame(data.begin(), size);
+
+				for (int i = 0; i < size; ++i)
+					data[i] = data[i] * mix + dry[i] * (1.0f - mix);
+			}
+			else
+			{
+				filter.get().processFrame(data.begin(), data.size());
+			}
+		}
 	}
 	
 	void setFrequency(double newFrequency);
@@ -125,6 +162,9 @@ public:
 	void setMode(double newMode);
 	void setSmoothing(double newSmoothingTime);
 	void setEnabled(double isEnabled);
+	void setMix(double newMix);
+
+	static double getPlotValueStatic(void* obj, bool getMagnitude, double freqNorm);
 
 	DEFINE_PARAMETERS
 	{
@@ -134,6 +174,7 @@ public:
 		DEF_PARAMETER(Smoothing, FilterNodeBase);
 		DEF_PARAMETER(Mode, FilterNodeBase);
 		DEF_PARAMETER(Enabled, FilterNodeBase);
+		DEF_PARAMETER(Mix, FilterNodeBase);
 	}
 	SN_PARAMETER_MEMBER_FUNCTION;
 
@@ -141,6 +182,10 @@ public:
 
 	double sr = -1.0;
 	bool enabled = true;
+	float mix = 1.0f;
+	bool mixProcess = false;
+	AudioSampleBuffer dryBuffer;
+	valuetree::PropertyListener mixProcessListener;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(FilterNodeBase);
 };

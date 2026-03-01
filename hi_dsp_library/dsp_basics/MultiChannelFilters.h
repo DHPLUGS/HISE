@@ -632,11 +632,10 @@ public:
 
 	enum FilterType
 	{
-		LP = 0,
-		HP,
-		BP,
-		NOTCH,
-		ALLPASS,
+		LP = 0, HP, BP, NOTCH, ALLPASS,
+		LP24, LP36, LP48,
+		HP24, HP36, HP48,
+		BP24, NOTCH24,
 		numTypes
 	};
 
@@ -644,7 +643,9 @@ public:
 
 	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
 
-	FilterCoefficientData getCoefficients(double, double, double) const { return {}; }
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValueHighOrder(void* obj, bool getMagnitude, double freqNorm);
 
 	StateVariableFilterSubType();
 
@@ -663,6 +664,22 @@ private:
 	float v2[NUM_MAX_CHANNELS];
 
 	float k, g1, g2, g3, g4, x1, x2, gCoeff, RCoeff;
+
+	// Cascaded stage state (index 0 = stage 2, index 1 = stage 3, index 2 = stage 4)
+	float v0z_s[3][NUM_MAX_CHANNELS];
+	float z1_A_s[3][NUM_MAX_CHANNELS];
+	float v2_s[3][NUM_MAX_CHANNELS];
+
+	// Cascaded stage coefficients
+	float g1_s[3], g2_s[3], g3_s[3], g4_s[3];
+	float k_s[3];
+
+	// Stored for visualisation (getPlotValueHighOrder)
+	double storedSampleRate = 44100.0;
+	double storedFrequency = 1000.0;
+	float storedUserQ = 1.0f;
+
+	float outputGain = 1.0f;
 
 };
 

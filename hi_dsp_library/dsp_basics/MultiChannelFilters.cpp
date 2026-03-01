@@ -930,14 +930,19 @@ juce::Identifier StateVariableFilterSubType::getStaticId()
 
 juce::StringArray StateVariableFilterSubType::getModes() const
 {
-	return { "LP", "HP", "BP", "Notch", "Allpass" };
+	return { "LP", "HP", "BP", "Notch", "Allpass",
+	         "LP 24dB", "LP 36dB", "LP 48dB",
+	         "HP 24dB", "HP 36dB", "HP 48dB",
+	         "BP 24dB", "Notch 24dB" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> StateVariableFilterSubType::getCoefficientTypeList() const
 {
 	return { FilterHelpers::LowPassReso, FilterHelpers::HighPass,
-			 FilterHelpers::BandPass, FilterHelpers::Notch,
-			 FilterHelpers::AllPass };
+	         FilterHelpers::BandPass, FilterHelpers::Notch, FilterHelpers::AllPass,
+	         FilterHelpers::LowPassReso, FilterHelpers::LowPassReso, FilterHelpers::LowPassReso,
+	         FilterHelpers::HighPass, FilterHelpers::HighPass, FilterHelpers::HighPass,
+	         FilterHelpers::BandPass, FilterHelpers::Notch };
 }
 
 StateVariableFilterSubType::StateVariableFilterSubType()
@@ -945,6 +950,9 @@ StateVariableFilterSubType::StateVariableFilterSubType()
 	memset(v0z, 0, sizeof(float)*NUM_MAX_CHANNELS);
 	memset(z1_A, 0, sizeof(float)*NUM_MAX_CHANNELS);
 	memset(v2, 0, sizeof(float)*NUM_MAX_CHANNELS);
+	memset(v0z_s, 0, sizeof(v0z_s));
+	memset(z1_A_s, 0, sizeof(z1_A_s));
+	memset(v2_s, 0, sizeof(v2_s));
 }
 
 void StateVariableFilterSubType::reset(int numChannels)
@@ -952,6 +960,12 @@ void StateVariableFilterSubType::reset(int numChannels)
 	memset(v0z, 0, sizeof(float)*numChannels);
 	memset(z1_A, 0, sizeof(float)*numChannels);
 	memset(v2, 0, sizeof(float)*numChannels);
+	for (int s = 0; s < 3; ++s)
+	{
+		memset(v0z_s[s], 0, sizeof(float)*numChannels);
+		memset(z1_A_s[s], 0, sizeof(float)*numChannels);
+		memset(v2_s[s], 0, sizeof(float)*numChannels);
+	}
 }
 
 void StateVariableFilterSubType::setType(int t)
@@ -959,8 +973,33 @@ void StateVariableFilterSubType::setType(int t)
 	type = (FilterType)t;
 }
 
-void StateVariableFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+// Helper: compute SVF stage coefficients for a given g (bilinear gain) and k (1/Q)
+static void computeSVFStageCoeffs(float g, float k_b,
+	float& g1_, float& g2_, float& g3_, float& g4_, float& k_out)
 {
+	k_out = k_b;
+	const float ginv = g / (1.0f + g * (g + k_b));
+	g1_ = ginv;
+	g2_ = 2.0f * (g + k_b) * ginv;
+	g3_ = g * ginv;
+	g4_ = 2.0f * ginv;
+}
+
+// Butterworth k values (k = 1/Q) for secondary stages
+// LP24/HP24: 1 extra stage (stage 2 Q = 1.3066)
+static constexpr float kButterworth24[1] = { 1.0f / 1.3066f };
+// LP36/HP36: 2 extra stages (Q = 0.7071, 1.9319)
+static constexpr float kButterworth36[2] = { 1.0f / 0.7071f, 1.0f / 1.9319f };
+// LP48/HP48: 3 extra stages (Q = 0.6013, 0.8999, 2.5629)
+static constexpr float kButterworth48[3] = { 1.0f / 0.6013f, 1.0f / 0.8999f, 1.0f / 2.5629f };
+
+void StateVariableFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	outputGain = (float)gain;
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedUserQ      = (float)q;
+
 	const float scaledQ = jlimit<float>(0.0f, 9.999f, (float)q * 0.1f);
 
 	if (type == FilterType::ALLPASS)
@@ -971,9 +1010,9 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
 		float wa = (2.0f / T) * tan(wd * T / 2.0f);
 
 		// Calculate g (gain element of integrator)
-		gCoeff = wa * T / 2.0f;			// Calculate g (gain element of integrator)
+		gCoeff = wa * T / 2.0f;
 
-										// Calculate Zavalishin's R from Q (referred to as damping parameter)
+		// Calculate Zavalishin's R from Q (referred to as damping parameter)
 		RCoeff = 1.0f / (2.0f * (float)q);
 
 		x1 = (2.0f * RCoeff + gCoeff);
@@ -982,15 +1021,190 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
 	else
 	{
 		float g = (float)tan(double_Pi * frequency / sampleRate);
-		//float damping = 1.0f / res;
-		//k = damping;
-		k = 1.0f - 0.99f * scaledQ;
-		float ginv = g / (1.0f + g * (g + k));
-		g1 = ginv;
-		g2 = 2.0f * (g + k) * ginv;
-		g3 = g * ginv;
-		g4 = 2.0f * ginv;
+
+		if (type == LP24 || type == HP24 ||
+		    type == LP36 || type == HP36 ||
+		    type == LP48 || type == HP48)
+		{
+			// Proportional Butterworth scaling: all stage k values scale together.
+			// sf = raw user Q param; neutral at 1.0 → pure Butterworth on every stage.
+			static constexpr float kBw1_24 = 1.0f / 0.5412f;
+			static constexpr float kBw1_36 = 1.0f / 0.5176f;
+			static constexpr float kBw1_48 = 1.0f / 0.5098f;
+
+			const float rawSf = jmax(0.001f, (float)q);
+			const float sf = (rawSf <= 1.0f) ? rawSf : 1.0f + (rawSf - 1.0f) * 0.5f;
+			const float* kTable;
+			int numExtra;
+			if      (type == LP24 || type == HP24) { k = kBw1_24 / sf; kTable = kButterworth24; numExtra = 1; }
+			else if (type == LP36 || type == HP36) { k = kBw1_36 / sf; kTable = kButterworth36; numExtra = 2; }
+			else                                   { k = kBw1_48 / sf; kTable = kButterworth48; numExtra = 3; }
+
+			float ginv = g / (1.0f + g * (g + k));
+			g1 = ginv;
+			g2 = 2.0f * (g + k) * ginv;
+			g3 = g * ginv;
+			g4 = 2.0f * ginv;
+
+			for (int s = 0; s < numExtra; ++s)
+				computeSVFStageCoeffs(g, kTable[s] / sf, g1_s[s], g2_s[s], g3_s[s], g4_s[s], k_s[s]);
+		}
+		else
+		{
+			k = 1.0f - 0.99f * scaledQ;
+			float ginv = g / (1.0f + g * (g + k));
+			g1 = ginv;
+			g2 = 2.0f * (g + k) * ginv;
+			g3 = g * ginv;
+			g4 = 2.0f * ginv;
+
+			if (type == BP24 || type == NOTCH24)
+			{
+				// Both stages use user Q — copy stage-1 coefficients
+				g1_s[0] = g1; g2_s[0] = g2; g3_s[0] = g3; g4_s[0] = g4; k_s[0] = k;
+			}
+		}
 	}
+}
+
+FilterCoefficientData StateVariableFilterSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+	if (type >= LP24)
+	{
+		auto* m = const_cast<StateVariableFilterSubType*>(this);
+		if (storedSampleRate > 0.0)
+			m->storedFrequency = freqNorm * storedSampleRate;
+		m->storedUserQ = (float)q;
+
+		FilterCoefficientData cd;
+		cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();
+		cd.customFunction = getPlotValueHighOrder;
+		cd.obj = m;
+		return cd;
+	}
+	return {};
+}
+
+double StateVariableFilterSubType::getPlotValueHighOrder(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<StateVariableFilterSubType*>(obj);
+	const double sr = typed->storedSampleRate;
+	const double fc = typed->storedFrequency;
+	const double rawUserQ = (double)typed->storedUserQ;
+	const double userQ = (rawUserQ <= 1.0) ? rawUserQ : 1.0 + (rawUserQ - 1.0) * 0.5;
+
+	static const double q24[] = { 0.5412, 1.3066 };
+	static const double q36[] = { 0.5176, 0.7071, 1.9319 };
+	static const double q48[] = { 0.5098, 0.6013, 0.8999, 2.5629 };
+
+	int numStages;
+	const double* qTable;
+
+	switch (typed->type)
+	{
+	case LP24: case HP24:
+		numStages = 2; qTable = q24; break;
+	case BP24: case NOTCH24:
+		numStages = 2; qTable = nullptr; break;
+	case LP36: case HP36:
+		numStages = 3; qTable = q36; break;
+	case LP48: case HP48:
+		numStages = 4; qTable = q48; break;
+	default:
+		return getMagnitude ? 1.0 : 0.0;
+	}
+
+	double result = getMagnitude ? 1.0 : 0.0;
+
+	for (int s = 0; s < numStages; ++s)
+	{
+		const double stageQ = (qTable != nullptr) ? qTable[s] * userQ : userQ;
+
+ 		FilterCoefficientData stageCd;
+		stageCd.second = 1;
+		switch (typed->type)
+		{
+		case LP24: case LP36: case LP48:
+			stageCd.first = IIRCoefficients::makeLowPass(sr, fc, stageQ);  break;
+		case HP24: case HP36: case HP48:
+			stageCd.first = IIRCoefficients::makeHighPass(sr, fc, stageQ); break;
+		case BP24:
+			stageCd.first = IIRCoefficients::makeBandPass(sr, fc, stageQ); break;
+		case NOTCH24:
+			stageCd.first = IIRCoefficients::makeNotchFilter(sr, fc, stageQ); break;
+		default: break;
+		}
+
+		const double v = FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&stageCd, getMagnitude, freqNorm);
+		if (getMagnitude) result *= v;
+		else              result += v;
+	}
+
+	return result;
+}
+
+// ---------------------------------------------------------------------------
+// Inline helpers for single-sample SVF stage processing
+// ---------------------------------------------------------------------------
+
+static inline void runLPStage(float in, float& out, int c,
+	float* v0z_, float* z1A_, float* v2_,
+	float g1_, float g2_, float g3_, float g4_)
+{
+	const float v1z = z1A_[c], v2z = v2_[c];
+	const float v3 = in + v0z_[c] - 2.0f * v2z;
+	z1A_[c] += g1_ * v3 - g2_ * v1z;
+	v2_[c]  += g3_ * v3 + g4_ * v1z;
+	v0z_[c]  = in;
+	out = v2_[c];
+}
+
+static inline void runHPStage(float in, float& out, int c,
+	float* v0z_, float* z1A_, float* v2_,
+	float g1_, float g2_, float g3_, float g4_, float k_)
+{
+	const float v1z = z1A_[c], v2z = v2_[c];
+	const float v3 = in + v0z_[c] - 2.0f * v2z;
+	z1A_[c] += g1_ * v3 - g2_ * v1z;
+	v2_[c]  += g3_ * v3 + g4_ * v1z;
+	v0z_[c]  = in;
+	out = in - k_ * z1A_[c] - v2_[c];
+}
+
+static inline void runBPStage(float in, float& out, int c,
+	float* v0z_, float* z1A_, float* v2_,
+	float g1_, float g2_, float g3_, float g4_)
+{
+	const float v1z = z1A_[c], v2z = v2_[c];
+	const float v3 = in + v0z_[c] - 2.0f * v2z;
+	z1A_[c] += g1_ * v3 - g2_ * v1z;
+	v2_[c]  += g3_ * v3 + g4_ * v1z;
+	v0z_[c]  = in;
+	out = z1A_[c];
+}
+
+static inline void runNotchStage(float in, float& out, int c,
+	float* v0z_, float* z1A_, float* v2_,
+	float g1_, float g2_, float g3_, float g4_, float k_)
+{
+	const float v1z = z1A_[c], v2z = v2_[c];
+	const float v3 = in + v0z_[c] - 2.0f * v2z;
+	z1A_[c] += g1_ * v3 - g2_ * v1z;
+	v2_[c]  += g3_ * v3 + g4_ * v1z;
+	v0z_[c]  = in;
+	out = in - k_ * z1A_[c];
+}
+
+static inline void runAPStage(float in, float& out, int c,
+	float* z1A_, float* v2_,
+	float gCoeff_, float x1_, float x2_, float RCoeff_)
+{
+	const float HP = (in - x1_ * z1A_[c] - v2_[c]) * x2_;
+	const float BP = HP * gCoeff_ + z1A_[c];
+	const float LP = BP * gCoeff_ + v2_[c];
+	z1A_[c] = gCoeff_ * HP + BP;
+	v2_[c]  = gCoeff_ * BP + LP;
+	out = in - 4.0f * RCoeff_ * BP;
 }
 
 void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
@@ -1014,7 +1228,7 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 				z1_A[c] += g1 * v3 - g2 * v1z;
 				v2[c] += g3 * v3 + g4 * v1z;
 				v0z[c] = v0;
-				d[i] = v2[c];
+				d[i] = v2[c] * outputGain;
 			}
 		}
 
@@ -1035,7 +1249,7 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 				z1_A[c] += g1 * v3 - g2 * v1z;
 				v2[c] += g3 * v3 + g4 * v1z;
 				v0z[c] = v0;
-				d[i] = z1_A[c];
+				d[i] = z1_A[c] * outputGain;
 			}
 		}
 
@@ -1057,7 +1271,7 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 				z1_A[c] += g1 * v3 - g2 * v1z;
 				v2[c] += g3 * v3 + g4 * v1z;
 				v0z[c] = v0;
-				d[i] = v0 - k * z1_A[c] - v2[c];
+				d[i] = (v0 - k * z1_A[c] - v2[c]) * outputGain;
 			}
 		}
 
@@ -1080,7 +1294,7 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 				v2[c] = gCoeff * BP + LP;
 
 				const float AP = input - (4.0f * RCoeff * BP);
-				d[i] = AP;
+				d[i] = AP * outputGain;
 			}
 		}
 		break;
@@ -1100,10 +1314,136 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 				z1_A[c] += g1 * v3 - g2 * v1z;
 				v2[c] += g3 * v3 + g4 * v1z;
 				v0z[c] = v0;
-				d[i] = v0 - k * z1_A[c];
+				d[i] = (v0 - k * z1_A[c]) * outputGain;
 			}
 		}
 
+		break;
+	}
+	case LP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s;
+				runLPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+				runLPStage(s,    d[i], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case LP36:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s, s2;
+				runLPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+				runLPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+				runLPStage(s2,   d[i], c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case LP48:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s, s2, s3;
+				runLPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+				runLPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+				runLPStage(s2,   s3,   c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1]);
+				runLPStage(s3,   d[i], c, v0z_s[2], z1_A_s[2], v2_s[2], g1_s[2], g2_s[2], g3_s[2], g4_s[2]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case HP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s;
+				runHPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+				runHPStage(s,    d[i], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case HP36:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s, s2;
+				runHPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+				runHPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+				runHPStage(s2,   d[i], c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1], k_s[1]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case HP48:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s, s2, s3;
+				runHPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+				runHPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+				runHPStage(s2,   s3,   c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1], k_s[1]);
+				runHPStage(s3,   d[i], c, v0z_s[2], z1_A_s[2], v2_s[2], g1_s[2], g2_s[2], g3_s[2], g4_s[2], k_s[2]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case BP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s;
+				runBPStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+				runBPStage(s,    d[i], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+				d[i] *= outputGain;
+			}
+		}
+		break;
+	}
+	case NOTCH24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; i++)
+			{
+				float s;
+				runNotchStage(d[i], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+				runNotchStage(s,    d[i], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+				d[i] *= outputGain;
+			}
+		}
 		break;
 	}
 	default:
@@ -1127,7 +1467,7 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 			z1_A[c] += g1 * v3 - g2 * v1z;
 			v2[c] += g3 * v3 + g4 * v1z;
 			v0z[c] = v0;
-			d[c] = v2[c];
+			d[c] = v2[c] * outputGain;
 		}
 
 		break;
@@ -1143,7 +1483,7 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 			z1_A[c] += g1 * v3 - g2 * v1z;
 			v2[c] += g3 * v3 + g4 * v1z;
 			v0z[c] = v0;
-			d[c] = z1_A[c];
+			d[c] = z1_A[c] * outputGain;
 		}
 
 		break;
@@ -1160,7 +1500,7 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 			z1_A[c] += g1 * v3 - g2 * v1z;
 			v2[c] += g3 * v3 + g4 * v1z;
 			v0z[c] = v0;
-			d[c] = v0 - k * z1_A[c] - v2[c];
+			d[c] = (v0 - k * z1_A[c] - v2[c]) * outputGain;
 		}
 
 		break;
@@ -1170,7 +1510,7 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 		for (int c = 0; c < numChannels; c++)
 		{
 			const float input = d[c];
-			const float HP = (input - x1 * z1_A[c] - v2[c]) / x2;
+			const float HP = (input - x1 * z1_A[c] - v2[c]) * x2;
 			const float BP = HP * gCoeff + z1_A[c];
 			const float LP = BP * gCoeff + v2[c];
 
@@ -1178,7 +1518,7 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 			v2[c] = gCoeff * BP + LP;
 
 			const float AP = input - (4.0f * RCoeff * BP);
-			d[c] = AP;
+			d[c] = AP * outputGain;
 		}
 		break;
 	}
@@ -1194,9 +1534,103 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 			z1_A[c] += g1 * v3 - g2 * v1z;
 			v2[c] += g3 * v3 + g4 * v1z;
 			v0z[c] = v0;
-			d[c] = v0 - k * z1_A[c];
+			d[c] = (v0 - k * z1_A[c]) * outputGain;
 		}
 
+		break;
+	}
+	case LP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s;
+			runLPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+			runLPStage(s,    d[c], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case LP36:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s, s2;
+			runLPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+			runLPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+			runLPStage(s2,   d[c], c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case LP48:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s, s2, s3;
+			runLPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+			runLPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+			runLPStage(s2,   s3,   c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1]);
+			runLPStage(s3,   d[c], c, v0z_s[2], z1_A_s[2], v2_s[2], g1_s[2], g2_s[2], g3_s[2], g4_s[2]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case HP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s;
+			runHPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+			runHPStage(s,    d[c], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case HP36:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s, s2;
+			runHPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+			runHPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+			runHPStage(s2,   d[c], c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1], k_s[1]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case HP48:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s, s2, s3;
+			runHPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+			runHPStage(s,    s2,   c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+			runHPStage(s2,   s3,   c, v0z_s[1], z1_A_s[1], v2_s[1], g1_s[1], g2_s[1], g3_s[1], g4_s[1], k_s[1]);
+			runHPStage(s3,   d[c], c, v0z_s[2], z1_A_s[2], v2_s[2], g1_s[2], g2_s[2], g3_s[2], g4_s[2], k_s[2]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case BP24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s;
+			runBPStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4);
+			runBPStage(s,    d[c], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0]);
+			d[c] *= outputGain;
+		}
+		break;
+	}
+	case NOTCH24:
+	{
+		for (int c = 0; c < numChannels; c++)
+		{
+			float s;
+			runNotchStage(d[c], s,    c, v0z,      z1_A,      v2,      g1,      g2,      g3,      g4,      k);
+			runNotchStage(s,    d[c], c, v0z_s[0], z1_A_s[0], v2_s[0], g1_s[0], g2_s[0], g3_s[0], g4_s[0], k_s[0]);
+			d[c] *= outputGain;
+		}
 		break;
 	}
 	default:

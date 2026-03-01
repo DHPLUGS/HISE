@@ -102,7 +102,11 @@ FilterDataObject::CoefficientData FilterNodeBase<FilterType, NV>::getApproximate
 	if (!enabled)
 		return {};
 
-	return filter.getFirst().getApproximateCoefficients();
+	FilterCoefficientData cd;
+	cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();
+	cd.customFunction = FilterNodeBase::getPlotValueStatic;
+	cd.obj = const_cast<FilterNodeBase*>(this);
+	return cd;
 }
 
 template <class FilterType, int NV>
@@ -128,6 +132,8 @@ void FilterNodeBase<FilterType, NV>::prepare(PrepareSpecs ps)
 
 	if (auto fd = dynamic_cast<FilterDataObject*>(this->externalData.obj))
 		fd->setSampleRate(ps.sampleRate);
+
+	dryBuffer.setSize(c, ps.blockSize);
 }
 
 template <class FilterType, int NV>
@@ -151,7 +157,10 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 	}
 	{
 		DEFINE_PARAMETERDATA(FilterNodeBase, Gain);
-		p.setRange({ -18, 18 });
+		if (getStaticId() == Identifier("svf"))
+			p.setRange({ -100.0, 12.0 });
+		else
+			p.setRange({ -18.0, 18.0 });
 		p.setSkewForCentre(0.0);
 		p.info.textConverter = parameter::pod::Decibel;
 		p.setDefaultValue(0.0);
@@ -178,14 +187,55 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 
 		parameters.add(std::move(p));
 	}
+	{
+		DEFINE_PARAMETERDATA(FilterNodeBase, Mix);
+		p.setRange({ 0.0, 1.0 });
+		p.setDefaultValue(1.0);
+		parameters.add(std::move(p));
+	}
 }
 
+
+template <class FilterType, int NV>
+void FilterNodeBase<FilterType, NV>::initialise(ObjectWithValueTree* n)
+{
+	auto nodeTree = n->getValueTree();
+
+	if (!nodeTree.hasProperty(PropertyIds::MixProcess))
+		nodeTree.setProperty(PropertyIds::MixProcess, true, nullptr);
+
+	mixProcessListener.setCallback(nodeTree, { PropertyIds::MixProcess },
+		valuetree::AsyncMode::Synchronously,
+		[this](const Identifier&, const var& newValue)
+		{
+			mixProcess = (bool)newValue;
+		});
+}
 
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setSmoothing(double newSmoothingTime)
 {
 	for (auto& f : filter)
 		f.setSmoothingTime(newSmoothingTime);
+}
+
+template <class FilterType, int NV>
+void FilterNodeBase<FilterType, NV>::setMix(double newMix)
+{
+	mix = (float)newMix;
+	this->sendCoefficientUpdateMessage();
+}
+
+template <class FilterType, int NV>
+double FilterNodeBase<FilterType, NV>::getPlotValueStatic(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<FilterNodeBase*>(obj);
+
+	auto innerCd = typed->filter.getFirst().getApproximateCoefficients();
+	double wetValue = innerCd.getFilterPlotValue(getMagnitude, freqNorm);
+	double dryValue = getMagnitude ? 1.0 : 0.0;
+
+	return wetValue * typed->mix + dryValue * (1.0 - typed->mix);
 }
 
 #define DEFINE_FILTER_NODE_TEMPIMPL(className) template class FilterNodeBase<hise::MultiChannelFilter<className>, 1>; \

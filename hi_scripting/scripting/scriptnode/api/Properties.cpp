@@ -865,7 +865,8 @@ juce::PropertyComponent* PropertyHelpers::createPropertyComponent(ProcessorWithS
 		propId == AllowCompilation ||
 		propId == HasTail ||
 		propId == SuspendOnSilence ||
-		propId == AllowPolyphonic)
+		propId == AllowPolyphonic ||
+		propId == MixProcess)
 		return new ToggleButtonPropertyComponent(d, id, um);
     
 #if HISE_INCLUDE_SNEX
