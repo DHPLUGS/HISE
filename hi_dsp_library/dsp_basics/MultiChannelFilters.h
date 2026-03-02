@@ -694,9 +694,12 @@ public:
 
 	enum Mode
 	{
-		OnePole = 0,
-		TwoPole,
-		FourPole,
+		LP_OnePole  = 0,
+		LP_TwoPole,
+		LP_FourPole,
+		HP_OnePole,
+		HP_TwoPole,
+		HP_FourPole,
 		numModes
 	};
 
@@ -709,7 +712,9 @@ public:
 
 	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
 
-	FilterCoefficientData getCoefficients(double, double, double) const { return {}; }
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
 
 	void setType(int t);
 	void reset(int numChannels);
@@ -725,7 +730,7 @@ private:
 		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 	}
 
-	Mode mode = FourPole;
+	Mode mode = LP_FourPole;
 
 	// Per-channel integrator states: s[stage][channel]
 	double s[4][NUM_MAX_CHANNELS] = {};
@@ -740,6 +745,11 @@ private:
 	// Previous buffer coefficients for interpolation
 	double G_prev  = 0.0;
 	double fb_prev = 0.0;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	float  storedQ          = 0.3f;
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(MoogLadderSubType);

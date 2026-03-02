@@ -285,7 +285,7 @@ void MultiChannelFilter<FilterSubType>::updateEvery64Frame()
 template <class FilterSubType>
 void MultiChannelFilter<FilterSubType>::update(FilterHelpers::RenderData& renderData)
 {
-	
+
 
 	const auto f = renderData.applyModValue(frequency.getNextValue());
 
@@ -459,17 +459,19 @@ juce::Identifier MoogLadderSubType::getStaticId()
 
 juce::StringArray MoogLadderSubType::getModes() const
 {
-	return { "One Pole", "Two Poles", "Four Poles" };
+	return { "LP One Pole", "LP Two Poles", "LP Four Poles",
+		     "HP One Pole", "HP Two Poles", "HP Four Poles" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> MoogLadderSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::LowPass, FilterHelpers::LowPassReso, FilterHelpers::Ladder24db };
+	return { FilterHelpers::LowPass, FilterHelpers::LowPassReso, FilterHelpers::Ladder24db,
+		     FilterHelpers::HighPass, FilterHelpers::HighPass,   FilterHelpers::HighPass };
 }
 
 void MoogLadderSubType::setType(int t)
 {
-	mode = (Mode)t;
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
 }
 
 void MoogLadderSubType::reset(int numChannels)
@@ -480,6 +482,8 @@ void MoogLadderSubType::reset(int numChannels)
 
 void MoogLadderSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
+	storedSampleRate = sampleRate;
+
 	// Moog-specific minimum frequency floor, independent of global FilterLimitValues
 	auto lFrequency = jmax(20.0, FilterLimits::limitFrequency(frequency));
 
@@ -496,7 +500,68 @@ void MoogLadderSubType::updateCoefficients(double sampleRate, double frequency, 
 	//   Q = 0.3   → fb = 0.0  (no resonance)
 	//   Q ≈ 5.15  → fb ≈ 1.75 (moderate resonance, midpoint)
 	//   Q = 9.999 → fb = 3.5  (just below self-oscillation)
-	fb = jmin(3.5, jmax(0.0, (q - 0.3) * (3.5 / 9.699)));
+	fb = jmin(3.8, jmax(0.0, (q - 0.3) * (3.8 / 9.699)));
+}
+
+FilterCoefficientData MoogLadderSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+	// getApproximateCoefficients() discards any FilterCoefficientData that lacks a
+	// customFunction — the switch(CoefficientType) fallback overrides it. The only
+	// way to return our own coefficients is through the custom-function early exit.
+	auto* m = const_cast<MoogLadderSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = freqNorm * storedSampleRate;
+	m->storedQ = (float)q;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double MoogLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<MoogLadderSubType*>(obj);
+	const double sr = typed->storedSampleRate;
+
+	// Recompute G and fb from stored frequency/Q (same formulas as updateCoefficients),
+	// so the graph always matches the currently displayed frequency and Q parameters.
+	const double freq  = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+	const double g_val = std::tan(double_Pi * freq / sr);
+	const double G     = g_val / (1.0 + g_val);
+	const double fb    = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
+
+	// Exact TPT one-pole LP transfer function evaluated at this frequency:
+	//   H_lp(z) = G*(1 + z^-1) / (1 - (1-2G)*z^-1),  z = e^(j2π·freqNorm)
+	const double omega = 2.0 * double_Pi * freqNorm;
+	const double a     = 1.0 - 2.0 * G;
+	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+	const std::complex<double> H  = G * (1.0 + e_neg) / (1.0 - a * e_neg);
+	const std::complex<double> H2 = H * H;
+	const std::complex<double> H4 = H2 * H2;
+
+	// Global feedback denominator: D = 1 + fb·H^4
+	// (linearised analysis — tanh ≈ identity, standard practice for graph display)
+	const std::complex<double> D = 1.0 + fb * H4;
+
+	// Numerator per mode:
+	//   LP taps: H^N           (H, H^2, H^4)
+	//   HP taps: (1-H)^N       (binomial complement from the processing implementation)
+	// Output transfer function = N / D for all modes.
+	std::complex<double> N;
+	switch (typed->mode)
+	{
+		case LP_OnePole:  N = H;                                  break;
+		case LP_TwoPole:  N = H2;                                 break;
+		case LP_FourPole: N = H4;                                 break;
+		case HP_OnePole:  { auto hm = 1.0 - H; N = hm; }         break;
+		case HP_TwoPole:  { auto hm = 1.0 - H; N = hm * hm; }    break;
+		case HP_FourPole: { auto hm = 1.0 - H; N = hm*hm*hm*hm; } break;
+		default:          N = H4;                                 break;
+	}
+
+	const std::complex<double> response = N / D;
+	return getMagnitude ? std::abs(response) : std::arg(response);
 }
 
 void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
@@ -520,24 +585,25 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			// Feedback with tanh nonlinearity on the feedback signal
 			const double u = input - fb_i * fastTanh(y4prev[c]);
 
-			// Stage 0 — tanh on stage input
-			const double v0 = G_i * (fastTanh(u) - s[0][c]);
-			const double y0 = v0 + s[0][c];
+			// Cache tanh values — reused for both LP stage coefficients and HP outputs
+			const double tu  = fastTanh(u);
+			const double v0  = G_i * (tu  - s[0][c]);
+			const double y0  = v0 + s[0][c];
 			s[0][c] = y0 + v0;
 
-			// Stage 1
-			const double v1 = G_i * (fastTanh(y0) - s[1][c]);
-			const double y1 = v1 + s[1][c];
+			const double ty0 = fastTanh(y0);
+			const double v1  = G_i * (ty0 - s[1][c]);
+			const double y1  = v1 + s[1][c];
 			s[1][c] = y1 + v1;
 
-			// Stage 2
-			const double v2 = G_i * (fastTanh(y1) - s[2][c]);
-			const double y2 = v2 + s[2][c];
+			const double ty1 = fastTanh(y1);
+			const double v2  = G_i * (ty1 - s[2][c]);
+			const double y2  = v2 + s[2][c];
 			s[2][c] = y2 + v2;
 
-			// Stage 3 (4th pole)
-			const double v3 = G_i * (fastTanh(y2) - s[3][c]);
-			const double y3 = v3 + s[3][c];
+			const double ty2 = fastTanh(y2);
+			const double v3  = G_i * (ty2 - s[3][c]);
+			const double y3  = v3 + s[3][c];
 			s[3][c] = y3 + v3;
 
 			y4prev[c] = y3;
@@ -545,10 +611,13 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			double out;
 			switch (mode)
 			{
-				case OnePole:  out = y0; break;
-				case TwoPole:  out = y1; break;
-				case FourPole: out = y3; break;
-				default:       out = y3; break;
+				case LP_OnePole:  out = y0;       break;
+				case LP_TwoPole:  out = y1;       break;
+				case LP_FourPole: out = y3;       break;
+				case HP_OnePole:  out = tu  - y0; break;
+				case HP_TwoPole:  out = tu - 2.0*y0 + y1;                    break;
+				case HP_FourPole: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3; break;
+				default:          out = y3;       break;
 			}
 
 			d[i] = (float)(out * norm);
@@ -568,20 +637,24 @@ void MoogLadderSubType::processFrame(float* frameData, int numChannels)
 
 		const double u = input - fb * fastTanh(y4prev[c]);
 
-		const double v0 = G * (fastTanh(u) - s[0][c]);
-		const double y0 = v0 + s[0][c];
+		const double tu  = fastTanh(u);
+		const double v0  = G * (tu  - s[0][c]);
+		const double y0  = v0 + s[0][c];
 		s[0][c] = y0 + v0;
 
-		const double v1 = G * (fastTanh(y0) - s[1][c]);
-		const double y1 = v1 + s[1][c];
+		const double ty0 = fastTanh(y0);
+		const double v1  = G * (ty0 - s[1][c]);
+		const double y1  = v1 + s[1][c];
 		s[1][c] = y1 + v1;
 
-		const double v2 = G * (fastTanh(y1) - s[2][c]);
-		const double y2 = v2 + s[2][c];
+		const double ty1 = fastTanh(y1);
+		const double v2  = G * (ty1 - s[2][c]);
+		const double y2  = v2 + s[2][c];
 		s[2][c] = y2 + v2;
 
-		const double v3 = G * (fastTanh(y2) - s[3][c]);
-		const double y3 = v3 + s[3][c];
+		const double ty2 = fastTanh(y2);
+		const double v3  = G * (ty2 - s[3][c]);
+		const double y3  = v3 + s[3][c];
 		s[3][c] = y3 + v3;
 
 		y4prev[c] = y3;
@@ -589,10 +662,13 @@ void MoogLadderSubType::processFrame(float* frameData, int numChannels)
 		double out;
 		switch (mode)
 		{
-			case OnePole:  out = y0; break;
-			case TwoPole:  out = y1; break;
-			case FourPole: out = y3; break;
-			default:       out = y3; break;
+			case LP_OnePole:  out = y0;       break;
+			case LP_TwoPole:  out = y1;       break;
+			case LP_FourPole: out = y3;       break;
+			case HP_OnePole:  out = tu  - y0; break;
+			case HP_TwoPole:  out = ty0 - y1; break;
+			case HP_FourPole: out = ty2 - y3; break;
+			default:          out = y3;       break;
 		}
 
 		frameData[c] = (float)(out * norm);
@@ -679,7 +755,7 @@ void SimpleOnePoleSubType::updateCoefficients(double sampleRate, double frequenc
 		a0 = (float)(1.0 - x);
 		b1 = (float)-x;
 	}
-	
+
 }
 
 void SimpleOnePoleSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
@@ -2235,7 +2311,7 @@ double FilterHelpers::RenderData::applyModValue(double f) const
 
 	f *= 19980.0;
 	f += 20.0;
-	
+
 	return f;
 }
 
