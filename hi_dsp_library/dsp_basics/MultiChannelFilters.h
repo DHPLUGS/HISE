@@ -99,6 +99,7 @@ public:
 		RingmodFilterSubType,
 		LinkwitzRiley,
 		MoogLadderSubType,
+		Korg35SubType,
 		numFilterSubTypes
 	};
 
@@ -753,6 +754,75 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
+
+
+// ============================================================================
+// Korg35SubType
+// Korg 35 LP / HP filter — Simper TPT resolved topology.
+//   LP: 2-pole lowpass with resonance (K-feedback into stage-2 output)
+//   HP: 1-pole highpass with resonance
+// ============================================================================
+
+class Korg35SubType
+{
+public:
+
+	enum Mode
+	{
+		LP = 0,
+		HP,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	Korg35SubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	Mode mode = LP;
+
+	// Per-channel integrator states
+	double s1[NUM_MAX_CHANNELS] = {};
+	double s2[NUM_MAX_CHANNELS] = {};
+	double s3[NUM_MAX_CHANNELS] = {};
+
+	// Current buffer coefficients
+	double G      = 0.0;   // TPT stage coefficient g/(1+g)
+	double K      = 0.0;   // resonance coefficient [0, 2]
+	double alpha0 = 1.0;   // global normalisation 1/(1 - K*G*(1-G))
+	double B3     = 0.0;   // state-3 feedback weight (mode-dependent)
+	double B2     = 0.0;   // state-2 feedback weight (mode-dependent)
+
+	// Previous buffer coefficients for per-sample interpolation
+	double G_prev      = 0.0;
+	double K_prev      = 0.0;
+	double alpha0_prev = 1.0;
+	double B3_prev     = 0.0;
+	double B2_prev     = 0.0;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	float  storedQ          = 0.3f;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(Korg35SubType);
 
 
 }

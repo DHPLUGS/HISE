@@ -677,6 +677,284 @@ void MoogLadderSubType::processFrame(float* frameData, int numChannels)
 
 DEFINE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
 
+// ============================================================================
+// Korg35SubType
+// Korg 35 LP / HP filter — Simper TPT resolved topology.
+//   LP: 2-pole lowpass with resonance
+//   HP: 1-pole highpass with resonance
+// Coefficients derived from:
+//   g = tan(pi*fc/fs),  G = g/(1+g),  K in [0,2]
+//   alpha0 = 1/(1 - K*G*(1-G))
+//   LP: B3 = K*(1-G)^2,  B2 = -(1-G)
+//   HP: B3 = (1-G),      B2 = -G*(1-G)
+// ============================================================================
+
+Korg35SubType::Korg35SubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	// Initialise so first buffer interpolates from a valid state
+	G_prev = G; K_prev = K; alpha0_prev = alpha0; B3_prev = B3; B2_prev = B2;
+}
+
+hise::FilterHelpers::FilterSubType Korg35SubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::Korg35SubType;
+}
+
+juce::Identifier Korg35SubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("korg35");
+}
+
+juce::StringArray Korg35SubType::getModes() const
+{
+	return { "LP", "HP" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> Korg35SubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::LowPass, FilterHelpers::HighPass };
+}
+
+void Korg35SubType::setType(int t)
+{
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+}
+
+void Korg35SubType::reset(int /*numChannels*/)
+{
+	memset(s1, 0, sizeof(s1));
+	memset(s2, 0, sizeof(s2));
+	memset(s3, 0, sizeof(s3));
+}
+
+void Korg35SubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+{
+	storedSampleRate = sampleRate;
+
+	const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+	const double g  = std::tan(double_Pi * fc / sampleRate);
+	G = g / (1.0 + g);
+
+	// K spans [0, 2] as Q spans [1/sqrt(2), 10]
+	// At Q=10: K = 2*(10-1/sqrt(2))/(10-1/sqrt(2)) = 2.0 exactly
+	const double sqHalf = 1.0 / std::sqrt(2.0);   // ~0.70711
+	K = jmin(2.0, jmax(0.0, 2.0 * (q - sqHalf) / (10.0 - sqHalf)));
+
+	const double oneMinusG = 1.0 - G;
+	alpha0 = 1.0 / (1.0 - K * G * oneMinusG);
+
+	if (mode == LP)
+	{
+		B3 = K * oneMinusG * oneMinusG;   // K*(1-G)^2
+		B2 = -oneMinusG;                  // -(1-G)
+	}
+	else // HP
+	{
+		B3 =  oneMinusG;                  // (1-G)
+		B2 = -G * oneMinusG;              // -G*(1-G)
+	}
+}
+
+FilterCoefficientData Korg35SubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+	// Use the custom-function path so getApproximateCoefficients() forwards our
+	// own plot evaluation instead of falling through to the generic biquad switch.
+	auto* m = const_cast<Korg35SubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = freqNorm * storedSampleRate;
+	m->storedQ = (float)q;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double Korg35SubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<Korg35SubType*>(obj);
+	const double sr   = typed->storedSampleRate;
+	const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+	const double g_v  = std::tan(double_Pi * freq / sr);
+	const double Gv   = g_v / (1.0 + g_v);
+	const double a    = 1.0 - 2.0 * Gv;
+
+	const double sqHalf = 1.0 / std::sqrt(2.0);
+	const double Kv   = jmin(2.0, jmax(0.0, 2.0 * ((double)typed->storedQ - sqHalf) / (10.0 - sqHalf)));
+
+	const double oneMinusG = 1.0 - Gv;
+	const double alpha0v   = 1.0 / (1.0 - Kv * Gv * oneMinusG);
+
+	double B3v, B2v;
+	if (typed->mode == LP)
+	{
+		B3v = Kv * oneMinusG * oneMinusG;
+		B2v = -oneMinusG;
+	}
+	else
+	{
+		B3v =  oneMinusG;
+		B2v = -Gv * oneMinusG;
+	}
+
+	// H(z) = G*(1+z^-1)/(1-a*z^-1)   — single TPT one-pole LP transfer function
+	// P(z) = 2G*z^-1/(1-a*z^-1)       — state (memory register) transfer function
+	const double omega = 2.0 * double_Pi * freqNorm;
+	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+	const std::complex<double> denom_pole = 1.0 - a * e_neg;
+	const std::complex<double> H = Gv * (1.0 + e_neg) / denom_pole;
+	const std::complex<double> P = 2.0 * Gv * e_neg / denom_pole;
+
+	std::complex<double> response;
+	if (typed->mode == LP)
+	{
+		// H_LP = alpha0*H^2 / (1 - alpha0*P*(B3_LP + B2_LP*K*H))
+		// (Note: B2 term includes an extra H because stage-2 input is K*lp3=K*H*sig)
+		const std::complex<double> num = alpha0v * H * H;
+		const std::complex<double> den = 1.0 - alpha0v * P * (B3v + B2v * Kv * H);
+		response = num / den;
+	}
+	else
+	{
+		// H_HP = alpha0*(1-H) / (1 - alpha0*P*K*(B3_HP*(1-H) + B2_HP))
+		const std::complex<double> oneMinusH = 1.0 - H;
+		const std::complex<double> num = alpha0v * oneMinusH;
+		const std::complex<double> den = 1.0 - alpha0v * P * Kv * (B3v * oneMinusH + B2v);
+		response = num / den;
+	}
+
+	return getMagnitude ? std::abs(response) : std::arg(response);
+}
+
+void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	// Snapshot current target coefficients
+	const double G_t      = G;
+	const double K_t      = K;
+	const double a0_t     = alpha0;
+	const double B3_t     = B3;
+	const double B2_t     = B2;
+
+	const int numChannels = buffer.getNumChannels();
+	const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+
+	for (int n = 0; n < numSamples; ++n)
+	{
+		// Linearly interpolate coefficients across the buffer
+		const double t       = n * inv;
+		const double G_i     = G_prev     + t * (G_t   - G_prev);
+		const double K_i     = K_prev     + t * (K_t   - K_prev);
+		const double a0_i    = alpha0_prev + t * (a0_t  - alpha0_prev);
+		const double B3_i    = B3_prev    + t * (B3_t  - B3_prev);
+		const double B2_i    = B2_prev    + t * (B2_t  - B2_prev);
+
+		for (int c = 0; c < numChannels; ++c)
+		{
+			const double x = buffer.getSample(c, startSample + n);
+
+			if (mode == LP)
+			{
+				// Stage 1: LP, input = x
+				const double v1  = G_i * (x       - s1[c]);
+				const double lp1 = v1  + s1[c];
+				s1[c] += 2.0 * v1;
+
+				// Mixing point
+				const double sig = a0_i * (lp1 + B3_i * s3[c] + B2_i * s2[c]);
+
+				// Stage 3: LP, input = sig
+				const double v3  = G_i * (sig  - s3[c]);
+				const double lp3 = v3  + s3[c];
+				s3[c] += 2.0 * v3;
+
+				// Stage 2: LP, input = K*lp3
+				const double v2 = G_i * (K_i * lp3 - s2[c]);
+				s2[c] += 2.0 * v2;
+
+				buffer.setSample(c, startSample + n, (float)lp3);
+			}
+			else // HP
+			{
+				// Stage 1: LP then HP complement
+				const double v1  = G_i * (x       - s1[c]);
+				const double lp1 = v1  + s1[c];
+				s1[c] += 2.0 * v1;
+				const double hp1 = x - lp1;
+
+				// Mixing point (output)
+				const double sig = a0_i * (hp1 + B3_i * s3[c] + B2_i * s2[c]);
+
+				// Stage 2: LP, input = K*sig
+				const double v2  = G_i * (K_i * sig - s2[c]);
+				const double lp2 = v2  + s2[c];
+				s2[c] += 2.0 * v2;
+				const double hp2 = K_i * sig - lp2;
+
+				// Stage 3: LP, input = hp2
+				const double v3 = G_i * (hp2 - s3[c]);
+				s3[c] += 2.0 * v3;
+
+				buffer.setSample(c, startSample + n, (float)sig);
+			}
+		}
+	}
+
+	// Store end-of-buffer coefficients as the start of the next buffer
+	G_prev      = G_t;
+	K_prev      = K_t;
+	alpha0_prev = a0_t;
+	B3_prev     = B3_t;
+	B2_prev     = B2_t;
+}
+
+void Korg35SubType::processFrame(float* frameData, int numChannels)
+{
+	for (int c = 0; c < numChannels; ++c)
+	{
+		const double x = frameData[c];
+
+		if (mode == LP)
+		{
+			const double v1  = G * (x   - s1[c]);
+			const double lp1 = v1 + s1[c];
+			s1[c] += 2.0 * v1;
+
+			const double sig = alpha0 * (lp1 + B3 * s3[c] + B2 * s2[c]);
+
+			const double v3  = G * (sig  - s3[c]);
+			const double lp3 = v3 + s3[c];
+			s3[c] += 2.0 * v3;
+
+			const double v2 = G * (K * lp3 - s2[c]);
+			s2[c] += 2.0 * v2;
+
+			frameData[c] = (float)lp3;
+		}
+		else // HP
+		{
+			const double v1  = G * (x   - s1[c]);
+			const double lp1 = v1 + s1[c];
+			s1[c] += 2.0 * v1;
+			const double hp1 = x - lp1;
+
+			const double sig = alpha0 * (hp1 + B3 * s3[c] + B2 * s2[c]);
+
+			const double v2  = G * (K * sig - s2[c]);
+			const double lp2 = v2 + s2[c];
+			s2[c] += 2.0 * v2;
+			const double hp2 = K * sig - lp2;
+
+			const double v3 = G * (hp2 - s3[c]);
+			s3[c] += 2.0 * v3;
+
+			frameData[c] = (float)sig;
+		}
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;
