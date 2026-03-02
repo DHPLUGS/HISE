@@ -955,6 +955,207 @@ void Korg35SubType::processFrame(float* frameData, int numChannels)
 
 DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
 
+// ============================================================================
+// OberheimSubType
+// Oberheim two-integrator SVF with cubic nonlinear saturation on integrator 1.
+//
+// Signal flow per sample (derived from Faust letrec):
+//   hpf  = (x - s2 - FBs1*s1) * alpha0
+//   v1   = g*hpf + s1                       // pre-saturation integrator 1 sum
+//   bpf  = cubicnl(v1) = v1 - v1^3/3        // BPF — only cubicnl point
+//   lpf  = g*bpf + s2                        // LPF
+//   bsf  = lpf + hpf                         // BSF = LP + HP
+//   s1  := g*hpf + bpf                       // = 2*g*hpf + s1 in linear case
+//   s2  := s2 + 2*g*bpf
+// ============================================================================
+
+OberheimSubType::OberheimSubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	// Initialise so first buffer interpolates from a valid state
+	g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+}
+
+hise::FilterHelpers::FilterSubType OberheimSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::OberheimSubType;
+}
+
+juce::Identifier OberheimSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("oberheim");
+}
+
+juce::StringArray OberheimSubType::getModes() const
+{
+	return { "LP", "HP", "BP", "BSF" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> OberheimSubType::getCoefficientTypeList() const
+{
+	// BSF uses LowPass as the nearest fallback type; custom plot handles display correctly
+	return { FilterHelpers::LowPass, FilterHelpers::HighPass,
+	         FilterHelpers::BandPass, FilterHelpers::LowPass };
+}
+
+void OberheimSubType::setType(int t)
+{
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+}
+
+void OberheimSubType::reset(int /*numChannels*/)
+{
+	memset(s1, 0, sizeof(s1));
+	memset(s2, 0, sizeof(s2));
+}
+
+void OberheimSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+{
+	storedSampleRate = sampleRate;
+
+	const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+	g = std::tan(double_Pi * fc / sampleRate);
+
+	// R = 1/(2*Q); guard against Q <= 0 even though the slider is bounded to [0.3, 9.999]
+	const double R = 1.0 / (2.0 * jmax(0.01, q));
+	FBs1   = 2.0 * R + g;
+	alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+}
+
+FilterCoefficientData OberheimSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+	// Use the custom-function path so getApproximateCoefficients() forwards our
+	// own plot evaluation instead of falling through to the generic biquad switch.
+	auto* m = const_cast<OberheimSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = freqNorm * storedSampleRate;
+	m->storedQ = (float)q;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double OberheimSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<OberheimSubType*>(obj);
+	const double sr   = typed->storedSampleRate;
+	const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+	const double gv   = std::tan(double_Pi * freq / sr);
+	const double Rv   = 1.0 / (2.0 * jmax(0.01, (double)typed->storedQ));
+	const double FBv  = 2.0 * Rv + gv;
+	const double a0v  = 1.0 / (1.0 + 2.0 * Rv * gv + gv * gv);
+
+	// z-domain SVF transfer functions (linear / no cubicnl for display):
+	//   e_neg = e^(-jw),  w = 2*pi*freqNorm
+	//
+	//   D     = (1-e_neg)^2 + 2*g*alpha0*e_neg*( FBs1*(1-e_neg) + g*(1+e_neg) )
+	//   H_HP  = alpha0*(1-e_neg)^2 / D
+	//   H_LP  = g^2*alpha0*(1+e_neg)^2 / D
+	//   H_BP  = g*alpha0*(1-e_neg^2) / D
+	//   H_BSF = alpha0*((1-e_neg)^2 + g^2*(1+e_neg)^2) / D
+	const double omega = 2.0 * double_Pi * freqNorm;
+	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+
+	const std::complex<double> one_m = 1.0 - e_neg;   // (1 - e^{-jw})
+	const std::complex<double> one_p = 1.0 + e_neg;   // (1 + e^{-jw})
+
+	const std::complex<double> D =
+		one_m * one_m
+		+ 2.0 * gv * a0v * e_neg * (FBv * one_m + gv * one_p);
+
+	std::complex<double> N;
+	switch (typed->mode)
+	{
+		case LP:  N = gv * gv * a0v * one_p * one_p;          break;
+		case HP:  N = a0v * one_m * one_m;                    break;
+		case BP:  N = gv * a0v * (one_m * one_p);             break;
+		case BSF: N = a0v * (one_m * one_m + gv * gv * one_p * one_p); break;
+		default:  N = gv * gv * a0v * one_p * one_p;          break;
+	}
+
+	const std::complex<double> response = N / D;
+	return getMagnitude ? std::abs(response) : std::arg(response);
+}
+
+void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	// Snapshot current target coefficients
+	const double g_t     = g;
+	const double a0_t    = alpha0;
+	const double FBs1_t  = FBs1;
+
+	const int numChannels = buffer.getNumChannels();
+	const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+
+	for (int n = 0; n < numSamples; ++n)
+	{
+		// Linearly interpolate coefficients across the buffer
+		const double t     = n * inv;
+		const double g_i   = g_prev     + t * (g_t    - g_prev);
+		const double a0_i  = alpha0_prev + t * (a0_t   - alpha0_prev);
+		const double fb_i  = FBs1_prev  + t * (FBs1_t - FBs1_prev);
+
+		for (int c = 0; c < numChannels; ++c)
+		{
+			const double x   = buffer.getSample(c, startSample + n);
+			const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
+			const double v1  = g_i * hpf + s1[c];
+			const double bpf = v1 - v1 * v1 * v1 / 3.0;
+			const double lpf = g_i * bpf + s2[c];
+
+			s1[c] = g_i * hpf + bpf;
+			s2[c] = s2[c] + 2.0 * g_i * bpf;
+
+			double out;
+			switch (mode)
+			{
+				case LP:  out = lpf;        break;
+				case HP:  out = hpf;        break;
+				case BP:  out = bpf;        break;
+				case BSF: out = lpf + hpf;  break;
+				default:  out = lpf;        break;
+			}
+
+			buffer.setSample(c, startSample + n, (float)out);
+		}
+	}
+
+	g_prev      = g_t;
+	alpha0_prev = a0_t;
+	FBs1_prev   = FBs1_t;
+}
+
+void OberheimSubType::processFrame(float* frameData, int numChannels)
+{
+	for (int c = 0; c < numChannels; ++c)
+	{
+		const double x   = frameData[c];
+		const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
+		const double v1  = g * hpf + s1[c];
+		const double bpf = v1 - v1 * v1 * v1 / 3.0;
+		const double lpf = g * bpf + s2[c];
+
+		s1[c] = g * hpf + bpf;
+		s2[c] = s2[c] + 2.0 * g * bpf;
+
+		double out;
+		switch (mode)
+		{
+			case LP:  out = lpf;        break;
+			case HP:  out = hpf;        break;
+			case BP:  out = bpf;        break;
+			case BSF: out = lpf + hpf;  break;
+			default:  out = lpf;        break;
+		}
+
+		frameData[c] = (float)out;
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(OberheimSubType);
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;

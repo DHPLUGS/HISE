@@ -100,6 +100,7 @@ public:
 		LinkwitzRiley,
 		MoogLadderSubType,
 		Korg35SubType,
+		OberheimSubType,
 		numFilterSubTypes
 	};
 
@@ -823,6 +824,79 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(Korg35SubType);
+
+
+// ============================================================================
+// OberheimSubType
+// Oberheim two-integrator SVF with cubic nonlinear saturation on stage 1.
+//   cubicnl(x) = x - x^3/3  applied at the output of integrator 1 (BPF).
+//   Four simultaneous outputs: LP, HP, BP, BSF.
+//   Coefficients: g = tan(pi*fc/fs), R = 1/(2*Q),
+//                 FBs1 = 2*R + g,  alpha0 = 1/(1 + 2*R*g + g^2)
+// ============================================================================
+
+class OberheimSubType
+{
+public:
+
+	enum Mode
+	{
+		LP = 0,
+		HP,
+		BP,
+		BSF,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	OberheimSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static inline double cubicnl(double x)
+	{
+		return x - x * x * x / 3.0;
+	}
+
+	Mode mode = LP;
+
+	// Per-channel integrator states
+	double s1[NUM_MAX_CHANNELS] = {};
+	double s2[NUM_MAX_CHANNELS] = {};
+
+	// Current buffer coefficients
+	double g      = 0.0;   // bilinear pre-warped frequency: tan(pi*fc/fs)
+	double alpha0 = 1.0;   // input normalisation: 1/(1 + 2*R*g + g^2)
+	double FBs1   = 0.0;   // damping feedback: 2*R + g
+
+	// Previous buffer coefficients for per-sample interpolation
+	double g_prev      = 0.0;
+	double alpha0_prev = 1.0;
+	double FBs1_prev   = 0.0;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	float  storedQ          = 1.0f;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(OberheimSubType);
 
 
 }
