@@ -1722,6 +1722,7 @@ Factory::Factory(DspNetwork* n) :
 	registerPolyNode<df<ladder<1>>,			df<ladder<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
 	registerPolyNode<df<ring_mod<1>>,		df<ring_mod<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
 	registerPolyNode<df<moog<1>>,			df<moog<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
+	registerPolyNode<df<moog_ladder<1>>,	df<moog_ladder<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
 	registerPolyNode<df<allpass<1>>,		df<allpass<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
 	registerPolyNode<df<linkwitzriley<1>>,	df<linkwitzriley<NUM_POLYPHONIC_VOICES>>, filter_editor>();
 

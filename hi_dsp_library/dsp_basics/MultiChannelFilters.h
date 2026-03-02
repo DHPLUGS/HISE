@@ -98,6 +98,7 @@ public:
 		PhaseAllpassSubType,
 		RingmodFilterSubType,
 		LinkwitzRiley,
+		MoogLadderSubType,
 		numFilterSubTypes
 	};
 
@@ -687,4 +688,61 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(StateVariableFilterSubType);
 using StateVariableFilter = MultiChannelFilter<StateVariableFilterSubType>;
 
 
-} 
+class MoogLadderSubType
+{
+public:
+
+	enum Mode
+	{
+		OnePole = 0,
+		TwoPole,
+		FourPole,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	MoogLadderSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double, double, double) const { return {}; }
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static inline double fastTanh(double x)
+	{
+		const double x2 = x * x;
+		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
+	}
+
+	Mode mode = FourPole;
+
+	// Per-channel integrator states: s[stage][channel]
+	double s[4][NUM_MAX_CHANNELS] = {};
+	// Previous stage-4 output for 1-sample-delayed feedback
+	double y4prev[NUM_MAX_CHANNELS] = {};
+
+	// Current buffer coefficients
+	double G    = 0.0;   // bilinear stage coefficient g/(1+g)
+	double fb   = 0.0;   // feedback amount [0, 4]
+	double norm = 1.0;   // output normalisation
+
+	// Previous buffer coefficients for interpolation
+	double G_prev  = 0.0;
+	double fb_prev = 0.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
+
+
+}

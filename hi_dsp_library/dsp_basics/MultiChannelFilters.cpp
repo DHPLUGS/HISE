@@ -433,6 +433,174 @@ void MoogFilterSubType::processFrame(float* frameData, int numChannels)
 
 DEFINE_MULTI_CHANNEL_FILTER(MoogFilterSubType);
 
+// ============================================================================
+// MoogLadderSubType
+// Zavalishin bilinear TPT 4-pole Moog ladder filter with nonlinear saturation.
+// ============================================================================
+
+MoogLadderSubType::MoogLadderSubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	// Initialise coefficients so the first buffer interpolates from a valid state
+	updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
+	G_prev  = G;
+	fb_prev = fb;
+}
+
+hise::FilterHelpers::FilterSubType MoogLadderSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::MoogLadderSubType;
+}
+
+juce::Identifier MoogLadderSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("moog_ladder");
+}
+
+juce::StringArray MoogLadderSubType::getModes() const
+{
+	return { "One Pole", "Two Poles", "Four Poles" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> MoogLadderSubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::LowPass, FilterHelpers::LowPassReso, FilterHelpers::Ladder24db };
+}
+
+void MoogLadderSubType::setType(int t)
+{
+	mode = (Mode)t;
+}
+
+void MoogLadderSubType::reset(int numChannels)
+{
+	memset(s,      0, sizeof(s));
+	memset(y4prev, 0, sizeof(double) * numChannels);
+}
+
+void MoogLadderSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+{
+	// Moog-specific minimum frequency floor, independent of global FilterLimitValues
+	auto lFrequency = jmax(20.0, FilterLimits::limitFrequency(frequency));
+
+	// Bilinear pre-warped cutoff coefficient: g = tan(pi * fc / fs)
+	// Stage coefficient: G = g / (1 + g)  →  DC gain per stage = 1.0 (unity, inherent in bilinear)
+	const double g = std::tan(double_Pi * lFrequency / sampleRate);
+	G = g / (1.0 + g);
+
+	// Normalisation: unity DC gain is inherent in the bilinear formulation —
+	// H_lp(z=1) = G*2 / (2G) = 1.0 for every stage, so norm = 1.0 for all modes.
+	norm = 1.0;
+
+	// Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
+	//   Q = 0.3   → fb = 0.0  (no resonance)
+	//   Q ≈ 5.15  → fb ≈ 1.75 (moderate resonance, midpoint)
+	//   Q = 9.999 → fb = 3.5  (just below self-oscillation)
+	fb = jmin(3.5, jmax(0.0, (q - 0.3) * (3.5 / 9.699)));
+}
+
+void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const double G_t  = G;
+	const double fb_t = fb;
+
+	for (int c = 0; c < buffer.getNumChannels(); c++)
+	{
+		float* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			// Linear interpolation of coefficients across the buffer
+			const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
+			const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
+			const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
+
+			const double input = (double)d[i];
+
+			// Feedback with tanh nonlinearity on the feedback signal
+			const double u = input - fb_i * fastTanh(y4prev[c]);
+
+			// Stage 0 — tanh on stage input
+			const double v0 = G_i * (fastTanh(u) - s[0][c]);
+			const double y0 = v0 + s[0][c];
+			s[0][c] = y0 + v0;
+
+			// Stage 1
+			const double v1 = G_i * (fastTanh(y0) - s[1][c]);
+			const double y1 = v1 + s[1][c];
+			s[1][c] = y1 + v1;
+
+			// Stage 2
+			const double v2 = G_i * (fastTanh(y1) - s[2][c]);
+			const double y2 = v2 + s[2][c];
+			s[2][c] = y2 + v2;
+
+			// Stage 3 (4th pole)
+			const double v3 = G_i * (fastTanh(y2) - s[3][c]);
+			const double y3 = v3 + s[3][c];
+			s[3][c] = y3 + v3;
+
+			y4prev[c] = y3;
+
+			double out;
+			switch (mode)
+			{
+				case OnePole:  out = y0; break;
+				case TwoPole:  out = y1; break;
+				case FourPole: out = y3; break;
+				default:       out = y3; break;
+			}
+
+			d[i] = (float)(out * norm);
+		}
+	}
+
+	// Advance previous-buffer coefficients for next call
+	G_prev  = G_t;
+	fb_prev = fb_t;
+}
+
+void MoogLadderSubType::processFrame(float* frameData, int numChannels)
+{
+	for (int c = 0; c < numChannels; c++)
+	{
+		const double input = (double)frameData[c];
+
+		const double u = input - fb * fastTanh(y4prev[c]);
+
+		const double v0 = G * (fastTanh(u) - s[0][c]);
+		const double y0 = v0 + s[0][c];
+		s[0][c] = y0 + v0;
+
+		const double v1 = G * (fastTanh(y0) - s[1][c]);
+		const double y1 = v1 + s[1][c];
+		s[1][c] = y1 + v1;
+
+		const double v2 = G * (fastTanh(y1) - s[2][c]);
+		const double y2 = v2 + s[2][c];
+		s[2][c] = y2 + v2;
+
+		const double v3 = G * (fastTanh(y2) - s[3][c]);
+		const double y3 = v3 + s[3][c];
+		s[3][c] = y3 + v3;
+
+		y4prev[c] = y3;
+
+		double out;
+		switch (mode)
+		{
+			case OnePole:  out = y0; break;
+			case TwoPole:  out = y1; break;
+			case FourPole: out = y3; break;
+			default:       out = y3; break;
+		}
+
+		frameData[c] = (float)(out * norm);
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;
