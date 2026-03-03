@@ -101,6 +101,9 @@ public:
 		MoogLadderSubType,
 		Korg35SubType,
 		OberheimSubType,
+		TB303FilterSubType,
+		DiodeLadderSubType,
+		CombFilterSubType,
 		numFilterSubTypes
 	};
 
@@ -897,6 +900,231 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(OberheimSubType);
+
+
+// ============================================================================
+// TB303FilterSubType
+// Roland TB-303 diode ladder filter.
+//   LP four-pole ladder with:
+//     - Fixed 35 Hz input high-pass (approximates 303 input capacitor)
+//     - Asymmetric diode nonlinearity (fastTanh with alternating drive)
+//     - Resonance compensation (clamped bass boost at high resonance)
+// ============================================================================
+
+class TB303FilterSubType
+{
+public:
+
+	enum Mode
+	{
+		LP = 0,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	TB303FilterSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static inline double fastTanh(double x)
+	{
+		const double x2 = x * x;
+		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
+	}
+
+	Mode mode = LP;
+
+	// Per-channel integrator states: s[stage][channel]
+	double s[4][NUM_MAX_CHANNELS] = {};
+	// Previous stage-4 output for 1-sample-delayed feedback
+	double y4prev[NUM_MAX_CHANNELS] = {};
+	// Input HPF integrator state
+	double hp_s[NUM_MAX_CHANNELS] = {};
+	// Previous HPF output for resonance compensation
+	double hpf_prev[NUM_MAX_CHANNELS] = {};
+
+	// Current buffer coefficients
+	double G    = 0.0;   // bilinear stage coefficient g/(1+g)
+	double fb   = 0.0;   // feedback amount [0, 3.8]
+	double G_hp = 0.0;   // fixed 35 Hz input HPF coefficient
+
+	// Previous buffer coefficients for per-sample interpolation
+	double G_prev  = 0.0;
+	double fb_prev = 0.0;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	float  storedQ          = 0.3f;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
+
+
+// ============================================================================
+// DiodeLadderSubType
+// Doepfer A-102 / EMS VCS3 style diode ladder filter.
+//   Four-pole bilinear TPT ladder with diode saturation nonlinearity:
+//     diodeSat(x) = x / (1 + |x|)  — softer and cheaper than tanh.
+//   Three modes: LP (four-pole), HP and BP via binomial complement.
+// ============================================================================
+
+class DiodeLadderSubType
+{
+public:
+
+	enum Mode
+	{
+		LP = 0,
+		HP,
+		BP,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	DiodeLadderSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static inline double diodeSat(double x)
+	{
+		return x / (1.0 + std::abs(x));
+	}
+
+	Mode mode = LP;
+
+	// Per-channel integrator states: s[stage][channel]
+	double s[4][NUM_MAX_CHANNELS] = {};
+	// Previous stage-4 output for 1-sample-delayed feedback
+	double y4prev[NUM_MAX_CHANNELS] = {};
+
+	// Current buffer coefficients
+	double G  = 0.0;   // bilinear stage coefficient g/(1+g)
+	double fb = 0.0;   // feedback amount [0, 3.8]
+
+	// Previous buffer coefficients for per-sample interpolation
+	double G_prev  = 0.0;
+	double fb_prev = 0.0;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	float  storedQ          = 0.3f;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DiodeLadderSubType);
+
+
+// ============================================================================
+// CombFilterSubType
+// Musical comb filter with all-pass fractional delay interpolation.
+//   Frequency = fundamental frequency of comb peaks (20–5000 Hz)
+//   Q         = feedback lowpass damping (high Q = light damping)
+//   Gain      = feedback amount (0 dB = none, ±18 dB = ±max feedback)
+//   Modes: Comb    — positive feedback, peaks at f, 2f, 3f...
+//          InvComb — negative feedback, notches at f, 2f, 3f...
+//
+// Delay line is heap-allocated via std::vector to avoid ~1 MB class-layout
+// penalty per polyphonic voice.  Access: delayLine[c * maxDelayLine + pos].
+// ============================================================================
+
+class CombFilterSubType
+{
+public:
+
+	enum Mode
+	{
+		Comb = 0,
+		InvComb,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	CombFilterSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static constexpr int maxDelayLine = 8192;
+
+	Mode mode = Comb;
+
+	// Delay lines, heap-allocated to keep object size small.
+	// Layout: delayLine[c * maxDelayLine + pos]
+	std::vector<double> delayLine;
+
+	// Write head per channel
+	int writePos[NUM_MAX_CHANNELS] = {};
+
+	// All-pass interpolator state per channel
+	double ap_s[NUM_MAX_CHANNELS]      = {};   // previous output y[n-1]
+	double ap_s_prev[NUM_MAX_CHANNELS] = {};   // previous input  x[n-1]
+
+	// Feedback lowpass integrator state per channel
+	double fb_lp_s[NUM_MAX_CHANNELS] = {};
+
+	// Precomputed coefficients
+	double ap_coeff      = 0.0;    // all-pass η = (1-d)/(1+d)
+	double fb_lp_coeff   = 0.0;    // feedback LP speed α
+	double fb_gain       = 0.0;    // feedback amount [-0.99, 0.99]
+	double delayLength   = 100.0;  // fractional delay in samples
+	int    delayLengthInt = 100;   // floor(delayLength)
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 440.0;
+	float  storedQ          = 1.0f;
+	double storedGain       = 1.0;   // linear amplitude as received from framework
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(CombFilterSubType);
 
 
 }

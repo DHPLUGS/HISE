@@ -214,6 +214,9 @@ DEFINE_FILTER_NODE_TEMPLATE2(moog, MoogFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(moog_ladder, MoogLadderSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(korg35, Korg35SubType);
 DEFINE_FILTER_NODE_TEMPLATE2(oberheim, OberheimSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(tb303, TB303FilterSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(diode_ladder, DiodeLadderSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(comb, CombFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(svf_eq, StateVariableEqSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(linkwitzriley, LinkwitzRiley);
 
