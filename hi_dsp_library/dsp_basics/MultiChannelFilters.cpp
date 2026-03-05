@@ -1859,6 +1859,293 @@ void CombFilterSubType::processFrame(float* frameData, int numChannels)
 
 DEFINE_MULTI_CHANNEL_FILTER(CombFilterSubType);
 
+// ============================================================================
+// FormantFilterSubType
+// ============================================================================
+
+// [voiceType][vowel][formant][0=freqHz, 1=dB, 2=bandwidthHz]
+// Voices: Bass, Tenor, CTenor, Alto, Soprano
+// Vowels: u, o, a, e, i
+const float FormantFilterSubType::formantData[5][5][5][3] =
+{
+	// Bass
+	{
+		{{350,0,40},{600,-20,80},{2400,-32,100},{2675,-28,120},{2950,-36,120}},   // u
+		{{400,0,40},{750,-11,80},{2400,-21,100},{2600,-20,120},{2900,-40,120}},   // o
+		{{600,0,60},{1040,-7,70},{2250,-9,110},{2450,-9,120},{2750,-20,130}},     // a
+		{{400,0,40},{1620,-12,80},{2400,-9,100},{2800,-12,120},{3100,-18,120}},   // e
+		{{250,0,60},{1750,-30,90},{2600,-16,100},{3050,-22,120},{3340,-28,120}},  // i
+	},
+	// Tenor
+	{
+		{{350,0,40},{600,-20,60},{2700,-17,100},{2900,-14,120},{3300,-26,120}},   // u
+		{{400,0,40},{800,-10,80},{2600,-12,100},{2800,-12,120},{3000,-26,120}},   // o
+		{{650,0,80},{1080,-6,90},{2650,-7,120},{2900,-8,130},{3250,-22,140}},     // a
+		{{400,0,70},{1700,-14,80},{2600,-12,100},{3200,-14,120},{3580,-20,120}},  // e
+		{{290,0,40},{1870,-15,90},{2800,-18,100},{3250,-20,120},{3540,-30,120}},  // i
+	},
+	// CTenor
+	{
+		{{370,0,40},{630,-20,80},{2750,-23,100},{3000,-30,120},{3400,-34,120}},   // u
+		{{430,0,40},{820,-10,80},{2700,-26,100},{3000,-22,120},{3300,-34,120}},   // o
+		{{660,0,80},{1120,-6,90},{2750,-23,120},{3000,-24,130},{3350,-38,140}},   // a
+		{{440,0,70},{1800,-14,80},{2700,-18,100},{3000,-20,120},{3300,-20,120}},  // e
+		{{270,0,40},{1850,-24,90},{2900,-24,100},{3350,-36,120},{3590,-36,120}},  // i
+	},
+	// Alto
+	{
+		{{325,0,50},{700,-12,60},{2530,-30,170},{3500,-40,180},{4950,-64,200}},   // u
+		{{450,0,70},{800,-9,80},{2830,-16,100},{3500,-28,130},{4950,-35,135}},    // o
+		{{800,0,80},{1150,-4,90},{2800,-20,120},{3500,-36,130},{4950,-60,140}},   // a
+		{{400,0,60},{1600,-24,80},{2700,-20,120},{3300,-35,150},{4950,-60,200}},  // e
+		{{350,0,50},{1700,-20,100},{2700,-30,120},{3700,-36,150},{4950,-60,200}}, // i
+	},
+	// Soprano
+	{
+		{{325,0,50},{700,-16,60},{2700,-35,170},{3800,-40,180},{4950,-60,200}},   // u
+		{{450,0,70},{800,-11,80},{2830,-22,100},{3800,-22,130},{4950,-50,135}},   // o
+		{{800,0,80},{1150,-6,90},{2900,-32,120},{3900,-20,130},{4950,-50,140}},   // a
+		{{350,0,60},{2000,-20,100},{2800,-15,120},{3600,-40,150},{4950,-56,200}}, // e
+		{{270,0,60},{2140,-12,90},{2950,-26,100},{3900,-26,120},{4950,-44,120}},  // i
+	},
+};
+
+FormantFilterSubType::FormantFilterSubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	updateCoefficients(44100.0, 440.0, 0.5, 1.0);
+}
+
+hise::FilterHelpers::FilterSubType FormantFilterSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::FormantFilterSubType;
+}
+
+juce::Identifier FormantFilterSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("formant");
+}
+
+juce::StringArray FormantFilterSubType::getModes() const
+{
+	return { "Bass", "Tenor", "CTenor", "Alto", "Soprano" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> FormantFilterSubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::BandPass, FilterHelpers::BandPass,
+	         FilterHelpers::BandPass, FilterHelpers::BandPass,
+	         FilterHelpers::BandPass };
+}
+
+void FormantFilterSubType::setType(int t)
+{
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+}
+
+void FormantFilterSubType::reset(int /*numChannels*/)
+{
+	memset(x1, 0, sizeof(x1));
+	memset(x2, 0, sizeof(x2));
+	memset(y1, 0, sizeof(y1));
+	memset(y2, 0, sizeof(y2));
+}
+
+void FormantFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = (float)q;
+	storedGain       = gain;
+
+	// Voice type from mode parameter
+	const int voiceIndex = (int)mode;
+
+	// Vowel position: log scale so the perceptual vowel spread feels even
+	// freq=20 Hz → u (0.0),  freq=20000 Hz → i (1.0)
+	const double vowelPos  = jlimit(0.0, 1.0,
+		std::log(jmax(frequency, 20.0) / 20.0) / std::log(20000.0 / 20.0));
+	const double vowelIdxD = vowelPos * 4.0;
+	const int    v0        = jlimit(0, 3, (int)vowelIdxD);
+	const int    v1        = v0 + 1;
+	const double blend     = vowelIdxD - (double)v0;
+
+	// Color (Q): bandwidth scale 1x–3x — higher Q = narrower formants
+	const double bandwidthScale = 1.0 + (q - 0.3) / 9.6 * 2.0;
+
+	// Shift (Gain): gain arrives as linear amplitude → convert to dB
+	const double gainDB    = jlimit(-100.0, 100.0,
+		(double)Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f)));
+	const double freqScale = std::pow(2.0, gainDB / 18.0);
+
+	const float sr = (float)sampleRate;
+
+	for (int f = 0; f < 5; f++)
+	{
+		// Interpolate formant parameters between adjacent vowels
+		const double iFq = formantData[voiceIndex][v0][f][0] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][0] * blend;
+		const double idB = formantData[voiceIndex][v0][f][1] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][1] * blend;
+		const double iBW = formantData[voiceIndex][v0][f][2] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][2] * blend;
+
+		const float fc        = jlimit(20.0f, sr * 0.499f, (float)(iFq * freqScale));
+		const float Q_f       = fc / jmax(1.0f, (float)(iBW / bandwidthScale));
+		const float linearAmp = Decibels::decibelsToGain((float)idB);
+		const float gain_f    = linearAmp * Q_f;
+
+		const float omega = 2.0f * float_Pi * fc / sr;
+		const float alpha = 0.5f * sinf(omega) / jmax(0.001f, Q_f);
+		const float norm  = 1.0f / (1.0f + alpha);
+
+		b0[f] =  alpha * gain_f * norm;
+		b2[f] = -alpha * gain_f * norm;
+		a1[f] = -2.0f * cosf(omega) * norm;
+		a2[f] = (1.0f - alpha) * norm;
+	}
+}
+
+FilterCoefficientData FormantFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<FormantFilterSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ    = (float)q;
+	m->storedGain = gain;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double FormantFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	if (!getMagnitude)
+		return 0.0;
+
+	auto* typed = static_cast<FormantFilterSubType*>(obj);
+	const double sr = typed->storedSampleRate;
+
+	// Reconstruct parameters from stored display values
+	const int voiceIndex = (int)typed->mode;
+
+	const double vowelPos  = jlimit(0.0, 1.0,
+		std::log(jmax(typed->storedFrequency, 20.0) / 20.0) / std::log(20000.0 / 20.0));
+	const double vowelIdxD = vowelPos * 4.0;
+	const int    v0        = jlimit(0, 3, (int)vowelIdxD);
+	const int    v1        = v0 + 1;
+	const double blend     = vowelIdxD - (double)v0;
+
+	const double bandwidthScale = 1.0 + ((double)typed->storedQ - 0.3) / 9.6 * 2.0;
+
+	const double gainDB    = jlimit(-100.0, 100.0,
+		(double)Decibels::gainToDecibels(jmax((float)typed->storedGain, 1.0e-6f)));
+	const double freqScale = std::pow(2.0, gainDB / 18.0);
+
+	// freqNorm = inputFrequency / sampleRate (linear digital frequency, range 0–0.5).
+	// The FilterGraph already converts log-scale x → Hz → normFreq before calling us,
+	// so we evaluate the TF at the digital frequency omega = 2π·freqNorm directly —
+	// the same convention used by MoogLadder, DiodeLadder, CombFilter, etc.
+	const double w      = 2.0 * double_Pi * freqNorm;
+	const double cos_w  = std::cos(w);
+	const double cos_2w = std::cos(2.0 * w);
+
+	double totalMag = 0.0;
+
+	for (int f = 0; f < 5; f++)
+	{
+		const double iFq = formantData[voiceIndex][v0][f][0] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][0] * blend;
+		const double idB = formantData[voiceIndex][v0][f][1] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][1] * blend;
+		const double iBW = formantData[voiceIndex][v0][f][2] * (1.0 - blend)
+		                 + formantData[voiceIndex][v1][f][2] * blend;
+
+		const double fc    = jlimit(20.0, sr * 0.499, iFq * freqScale);
+		const double Q_f   = fc / jmax(1.0, iBW / bandwidthScale);
+		const double amp   = Decibels::decibelsToGain((float)idB);
+		const double gain_f = amp * Q_f;
+
+		const double omega  = 2.0 * double_Pi * fc / sr;
+		const double alpha  = 0.5 * std::sin(omega) / jmax(0.001, Q_f);
+		const double inv_n  = 1.0 / (1.0 + alpha);
+
+		const double b0_d   =  alpha * gain_f * inv_n;
+		const double b2_d   = -alpha * gain_f * inv_n;
+		const double a1_d   = -2.0 * std::cos(omega) * inv_n;
+		const double a2_d   = (1.0 - alpha) * inv_n;
+
+		// |H(e^jw)|² with b1=0:
+		// num = b0²+b2²+2*b0*b2*cos(2w)
+		// den = 1+a1²+a2²+2*a1*(1+a2)*cos(w)+2*a2*cos(2w)
+		const double num = b0_d*b0_d + b2_d*b2_d + 2.0*b0_d*b2_d*cos_2w;
+		const double den = 1.0 + a1_d*a1_d + a2_d*a2_d
+		                 + 2.0*a1_d*(1.0 + a2_d)*cos_w
+		                 + 2.0*a2_d*cos_2w;
+
+		if (den > 1.0e-12)
+			totalMag += std::sqrt(jmax(0.0, num / den));
+	}
+
+	return totalMag * 0.7;
+}
+
+void FormantFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const int numChannels = buffer.getNumChannels();
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		float* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			const float input = d[i];
+			float sum = 0.0f;
+
+			for (int f = 0; f < 5; f++)
+			{
+				// Direct Form I bandpass biquad (b1 = 0)
+				const float y = b0[f] * input + b2[f] * x2[c][f]
+				              - a1[f] * y1[c][f] - a2[f] * y2[c][f];
+				x2[c][f] = x1[c][f];
+				x1[c][f] = input;
+				y2[c][f] = y1[c][f];
+				y1[c][f] = y;
+				sum += y;
+			}
+
+			d[i] = sum * 0.7f;
+		}
+	}
+}
+
+void FormantFilterSubType::processFrame(float* frameData, int numChannels)
+{
+	for (int c = 0; c < numChannels; c++)
+	{
+		const float input = frameData[c];
+		float sum = 0.0f;
+
+		for (int f = 0; f < 5; f++)
+		{
+			const float y = b0[f] * input + b2[f] * x2[c][f]
+			              - a1[f] * y1[c][f] - a2[f] * y2[c][f];
+			x2[c][f] = x1[c][f];
+			x1[c][f] = input;
+			y2[c][f] = y1[c][f];
+			y1[c][f] = y;
+			sum += y;
+		}
+
+		frameData[c] = sum * 0.7f;
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;

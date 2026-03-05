@@ -104,6 +104,7 @@ public:
 		TB303FilterSubType,
 		DiodeLadderSubType,
 		CombFilterSubType,
+		FormantFilterSubType,
 		numFilterSubTypes
 	};
 
@@ -1125,6 +1126,79 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(CombFilterSubType);
+
+
+// ============================================================================
+// FormantFilterSubType
+// Vocal formant filter: 5 parallel bandpass biquads tuned to formant frequencies
+// interpolated across 5 vowels (u, o, a, e, i) and 5 voice types.
+//   Mode      → voice type (Bass, Tenor, CTenor, Alto, Soprano)
+//   Frequency → vowel position, log scale (20 Hz = u, 20 kHz = i)
+//   Q         → bandwidth scaling 1x–3x (Color: narrow=high Q)
+//   Gain      → formant frequency shift ±1 octave (Shift)
+// ============================================================================
+
+class FormantFilterSubType
+{
+public:
+
+	enum Mode
+	{
+		Bass    = 0,
+		Tenor   = 1,
+		CTenor  = 2,
+		Alto    = 3,
+		Soprano = 4,
+		numModes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	FormantFilterSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	// [voiceType][vowel][formant][0=freq, 1=dB, 2=bandwidth]
+	// Vowel order: u, o, a, e, i
+	static const float formantData[5][5][5][3];
+
+	Mode mode = Bass;
+
+	// Biquad coefficients for 5 formants (precomputed in updateCoefficients)
+	float b0[5] = {};   // feed-forward: input
+	float b2[5] = {};   // feed-forward: input delayed 2  (b1 = 0 for BP)
+	float a1[5] = {};   // feed-back: output delayed 1
+	float a2[5] = {};   // feed-back: output delayed 2
+
+	// Per-channel, per-formant Direct Form I state
+	float x1[NUM_MAX_CHANNELS][5] = {};
+	float x2[NUM_MAX_CHANNELS][5] = {};
+	float y1[NUM_MAX_CHANNELS][5] = {};
+	float y2[NUM_MAX_CHANNELS][5] = {};
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 440.0;
+	float  storedQ          = 0.5f;
+	double storedGain       = 1.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
 
 
 }
