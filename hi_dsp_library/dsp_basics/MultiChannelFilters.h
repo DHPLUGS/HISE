@@ -105,6 +105,7 @@ public:
 		DiodeLadderSubType,
 		CombFilterSubType,
 		FormantFilterSubType,
+		DisperserFilterSubType,
 		numFilterSubTypes
 	};
 
@@ -1199,6 +1200,64 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
+
+
+// ============================================================================
+// DisperserFilterSubType
+// Cascaded second-order allpass biquad filters (phaser-style disperser).
+//   Frequency → centre frequency of group delay peak (20–20000 Hz)
+//   Q         → sharpness of group delay peak (high Q = narrow, tall peak)
+//   Gain      → number of allpass stages mapped from ±18 dB range (1–16)
+//   Mode      → single mode only
+// ============================================================================
+
+class DisperserFilterSubType
+{
+public:
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	DisperserFilterSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static const int MAX_STAGES = 16;
+
+	// Precomputed normalised allpass biquad coefficients
+	// nb2=1.0, na1=nb1, na2=nb0
+	float nb0 = 0.0f;   // (1 - alpha) / (1 + alpha)
+	float nb1 = 0.0f;   // -2 * cos(omega) / (1 + alpha)
+	int   numStages = 1;
+
+	// Per-channel, per-stage Direct Form I state
+	float x1[NUM_MAX_CHANNELS][MAX_STAGES] = {};
+	float x2[NUM_MAX_CHANNELS][MAX_STAGES] = {};
+	float y1[NUM_MAX_CHANNELS][MAX_STAGES] = {};
+	float y2[NUM_MAX_CHANNELS][MAX_STAGES] = {};
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	double storedQ          = 1.0;
+	double storedGain       = 1.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DisperserFilterSubType);
 
 
 }

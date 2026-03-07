@@ -2146,6 +2146,202 @@ void FormantFilterSubType::processFrame(float* frameData, int numChannels)
 
 DEFINE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
 
+
+// ============================================================================
+// DisperserFilterSubType
+// ============================================================================
+
+DisperserFilterSubType::DisperserFilterSubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	updateCoefficients(44100.0, 1000.0, 1.0, 1.0);
+}
+
+hise::FilterHelpers::FilterSubType DisperserFilterSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::DisperserFilterSubType;
+}
+
+juce::Identifier DisperserFilterSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("disperser");
+}
+
+juce::StringArray DisperserFilterSubType::getModes() const
+{
+	return { "Disperser" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> DisperserFilterSubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::AllPass };
+}
+
+void DisperserFilterSubType::setType(int /*t*/)
+{
+	// Single mode only
+}
+
+void DisperserFilterSubType::reset(int /*numChannels*/)
+{
+	memset(x1, 0, sizeof(x1));
+	memset(x2, 0, sizeof(x2));
+	memset(y1, 0, sizeof(y1));
+	memset(y2, 0, sizeof(y2));
+}
+
+void DisperserFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = q;
+	storedGain       = gain;
+
+	const double omega    = 2.0 * double_Pi * frequency / sampleRate;
+	const double alpha    = std::sin(omega) / (2.0 * jmax(0.001, q));
+	const double a0       = 1.0 + alpha;
+
+	nb0 = (float)((1.0 - alpha) / a0);
+	nb1 = (float)((-2.0 * std::cos(omega)) / a0);
+
+	// Map gain (linear amplitude) ±18 dB → 1–MAX_STAGES allpass stages
+	const double gainDB = jlimit(-18.0, 18.0,
+		(double)Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f)));
+	numStages = 1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1));
+	numStages = jlimit(1, MAX_STAGES, numStages);
+}
+
+FilterCoefficientData DisperserFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<DisperserFilterSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ    = q;
+	m->storedGain = gain;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double DisperserFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	// We display phase response in the magnitude slot; phase slot returns 0.
+	if (!getMagnitude)
+		return 0.0;
+
+	auto* typed = static_cast<DisperserFilterSubType*>(obj);
+	const double sr = typed->storedSampleRate;
+
+	if (sr <= 0.0)
+		return 0.0;
+
+	// Reconstruct normalised biquad coefficients from stored parameters
+	const double freq     = jlimit(20.0, 20000.0, typed->storedFrequency);
+	const double q        = jmax(0.001, typed->storedQ);
+	const double gainDB   = jlimit(-18.0, 18.0,
+		(double)Decibels::gainToDecibels(jmax((float)typed->storedGain, 1.0e-6f)));
+
+	const double omega_c  = 2.0 * double_Pi * freq / sr;
+	const double alpha    = std::sin(omega_c) / (2.0 * q);
+	const double a0       = 1.0 + alpha;
+	const double nb0_d    = (1.0 - alpha) / a0;
+	const double nb1_d    = (-2.0 * std::cos(omega_c)) / a0;
+
+	const int ns = jlimit(1, MAX_STAGES,
+		1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1)));
+
+	// Phase of H(e^jw) for one second-order allpass stage at normalised frequency w.
+	// freqNorm = plotFreq / sampleRate, so w = 2π * freqNorm.
+	const double w = 2.0 * double_Pi * freqNorm;
+
+	auto phaseSingleStage = [&](double ww) -> double
+	{
+		const double cos_w  = std::cos(ww);
+		const double sin_w  = std::sin(ww);
+		const double cos_2w = std::cos(2.0 * ww);
+		const double sin_2w = std::sin(2.0 * ww);
+
+		// H(e^jw) = (nb0 + nb1*e^-jw + e^-2jw) / (1 + nb1*e^-jw + nb0*e^-2jw)
+		const double num_re = nb0_d + nb1_d * cos_w + cos_2w;
+		const double num_im =        -nb1_d * sin_w - sin_2w;
+		const double den_re = 1.0   + nb1_d * cos_w + nb0_d * cos_2w;
+		const double den_im =        -nb1_d * sin_w - nb0_d * sin_2w;
+
+		return std::atan2(num_im, num_re) - std::atan2(den_im, den_re);
+	};
+
+	// Single-stage phase is in [-π, 0]. Map to [0, 1] using cos to avoid
+	// wrapping artifacts from multiplying by ns before normalising:
+	//   DC (phase=0):      cos(ns*0   + ns*π) = cos(ns*π) → alternates ±1
+	//   Nyquist (phase=-π): cos(ns*(-π) + ns*π) = cos(0) = 1
+	// Offset by ns*π folds all stages so DC=1, Nyquist=0 regardless of ns.
+	const double phase1     = phaseSingleStage(w);   // single stage, range [-π, 0]
+	const double normalised = 0.5 + 0.5 * std::cos((double)ns * phase1 + double_Pi * (double)ns);
+	return jlimit(0.0, 1.0, normalised);
+}
+
+void DisperserFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const int   numChannels = buffer.getNumChannels();
+	const float _nb0        = nb0;
+	const float _nb1        = nb1;
+	const int   ns          = numStages;
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		float* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			float x = d[i];
+
+			for (int s = 0; s < ns; s++)
+			{
+				// Direct Form I: y = nb0*x + nb1*x1 + 1*x2 - nb1*y1 - nb0*y2
+				const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
+				              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
+				x2[c][s] = x1[c][s];
+				x1[c][s] = x;
+				y2[c][s] = y1[c][s];
+				y1[c][s] = y;
+				x = y;   // stage output feeds next stage
+			}
+
+			d[i] = x;
+		}
+	}
+}
+
+void DisperserFilterSubType::processFrame(float* frameData, int numChannels)
+{
+	const float _nb0 = nb0;
+	const float _nb1 = nb1;
+	const int   ns   = numStages;
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		float x = frameData[c];
+
+		for (int s = 0; s < ns; s++)
+		{
+			const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
+			              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
+			x2[c][s] = x1[c][s];
+			x1[c][s] = x;
+			y2[c][s] = y1[c][s];
+			y1[c][s] = y;
+			x = y;
+		}
+
+		frameData[c] = x;
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(DisperserFilterSubType);
+
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;
