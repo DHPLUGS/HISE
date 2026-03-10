@@ -967,194 +967,467 @@ DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
 //   bsf  = lpf + hpf                         // BSF = LP + HP
 //   s1  := g*hpf + bpf                       // = 2*g*hpf + s1 in linear case
 //   s2  := s2 + 2*g*bpf
+//
+// Morph mode: Gain parameter sweeps LP → BP → HP continuously.
+//   gain -18dB = pure LP, 0dB = pure BP, +18dB = pure HP
 // ============================================================================
 
 OberheimSubType::OberheimSubType()
 {
-	reset(NUM_MAX_CHANNELS);
-	// Initialise so first buffer interpolates from a valid state
-	g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+    reset(NUM_MAX_CHANNELS);
+    g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
 }
 
 hise::FilterHelpers::FilterSubType OberheimSubType::getFilterType()
 {
-	return FilterHelpers::FilterSubType::OberheimSubType;
+    return FilterHelpers::FilterSubType::OberheimSubType;
 }
 
 juce::Identifier OberheimSubType::getStaticId()
 {
-	RETURN_STATIC_IDENTIFIER("oberheim");
+    RETURN_STATIC_IDENTIFIER("oberheim");
 }
 
 juce::StringArray OberheimSubType::getModes() const
 {
-	return { "LP", "HP", "BP", "BSF" };
+    return { "LP", "HP", "BP", "BSF", "Morph" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> OberheimSubType::getCoefficientTypeList() const
 {
-	// BSF uses LowPass as the nearest fallback type; custom plot handles display correctly
-	return { FilterHelpers::LowPass, FilterHelpers::HighPass,
-	         FilterHelpers::BandPass, FilterHelpers::LowPass };
+    return { FilterHelpers::LowPass, FilterHelpers::HighPass,
+             FilterHelpers::BandPass, FilterHelpers::LowPass,
+             FilterHelpers::BandPass };
 }
 
 void OberheimSubType::setType(int t)
 {
-	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+    mode = (Mode)jlimit(0, (int)numModes - 1, t);
 }
 
 void OberheimSubType::reset(int /*numChannels*/)
 {
-	memset(s1, 0, sizeof(s1));
-	memset(s2, 0, sizeof(s2));
+    memset(s1, 0, sizeof(s1));
+    memset(s2, 0, sizeof(s2));
 }
 
-void OberheimSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+void OberheimSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
-	storedSampleRate = sampleRate;
+    storedSampleRate = sampleRate;
+    storedGain       = gain;
 
-	const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
-	g = std::tan(double_Pi * fc / sampleRate);
+    const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+    g = std::tan(double_Pi * fc / sampleRate);
 
-	// R = 1/(2*Q); guard against Q <= 0 even though the slider is bounded to [0.3, 9.999]
-	const double R = 1.0 / (2.0 * jmax(0.01, q));
-	FBs1   = 2.0 * R + g;
-	alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+    const double R = 1.0 / (2.0 * jmax(0.01, q * 0.5));
+    FBs1   = 2.0 * R + g;
+    alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+
+    // Morph: gain -18dB → morph=0.0 (pure LP), 0dB → 0.5 (pure BP), +18dB → 1.0 (pure HP)
+    const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+    // Four-stage sweep: -18dB=LP, -6dB=BP, +6dB=HP, +18dB=BSF
+    morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
 }
 
-FilterCoefficientData OberheimSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+FilterCoefficientData OberheimSubType::getCoefficients(double freqNorm, double q, double gain) const
 {
-	// Use the custom-function path so getApproximateCoefficients() forwards our
-	// own plot evaluation instead of falling through to the generic biquad switch.
-	auto* m = const_cast<OberheimSubType*>(this);
-	if (storedSampleRate > 0.0)
-		m->storedFrequency = freqNorm * storedSampleRate;
-	m->storedQ = (float)q;
+    auto* m = const_cast<OberheimSubType*>(this);
+    if (storedSampleRate > 0.0)
+        m->storedFrequency = freqNorm * storedSampleRate;
+    m->storedQ    = (float)q;
+    m->storedGain = gain;
 
-	FilterCoefficientData cd;
-	cd.customFunction = getPlotValue;
-	cd.obj = m;
-	return cd;
+    // Recompute morph from gain so plot updates live
+    const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+    m->morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+
+    FilterCoefficientData cd;
+    cd.customFunction = getPlotValue;
+    cd.obj = m;
+    return cd;
 }
 
 double OberheimSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
 {
-	auto* typed = static_cast<OberheimSubType*>(obj);
-	const double sr   = typed->storedSampleRate;
-	const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
-	const double gv   = std::tan(double_Pi * freq / sr);
-	const double Rv   = 1.0 / (2.0 * jmax(0.01, (double)typed->storedQ));
-	const double FBv  = 2.0 * Rv + gv;
-	const double a0v  = 1.0 / (1.0 + 2.0 * Rv * gv + gv * gv);
+    auto* typed = static_cast<OberheimSubType*>(obj);
+    const double sr   = typed->storedSampleRate;
+    const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+    const double gv   = std::tan(double_Pi * freq / sr);
+    const double Rv   = 1.0 / (2.0 * jmax(0.01, (double)typed->storedQ));
+    const double FBv  = 2.0 * Rv + gv;
+    const double a0v  = 1.0 / (1.0 + 2.0 * Rv * gv + gv * gv);
 
-	// z-domain SVF transfer functions (linear / no cubicnl for display):
-	//   e_neg = e^(-jw),  w = 2*pi*freqNorm
-	//
-	//   D     = (1-e_neg)^2 + 2*g*alpha0*e_neg*( FBs1*(1-e_neg) + g*(1+e_neg) )
-	//   H_HP  = alpha0*(1-e_neg)^2 / D
-	//   H_LP  = g^2*alpha0*(1+e_neg)^2 / D
-	//   H_BP  = g*alpha0*(1-e_neg^2) / D
-	//   H_BSF = alpha0*((1-e_neg)^2 + g^2*(1+e_neg)^2) / D
-	const double omega = 2.0 * double_Pi * freqNorm;
-	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+    const double omega = 2.0 * double_Pi * freqNorm;
+    const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
-	const std::complex<double> one_m = 1.0 - e_neg;   // (1 - e^{-jw})
-	const std::complex<double> one_p = 1.0 + e_neg;   // (1 + e^{-jw})
+    const std::complex<double> one_m = 1.0 - e_neg;
+    const std::complex<double> one_p = 1.0 + e_neg;
 
-	const std::complex<double> D =
-		one_m * one_m
-		+ 2.0 * gv * a0v * e_neg * (FBv * one_m + gv * one_p);
+    const std::complex<double> D =
+        one_m * one_m
+        + 2.0 * gv * a0v * e_neg * (FBv * one_m + gv * one_p);
 
-	std::complex<double> N;
-	switch (typed->mode)
-	{
-		case LP:  N = gv * gv * a0v * one_p * one_p;          break;
-		case HP:  N = a0v * one_m * one_m;                    break;
-		case BP:  N = gv * a0v * (one_m * one_p);             break;
-		case BSF: N = a0v * (one_m * one_m + gv * gv * one_p * one_p); break;
-		default:  N = gv * gv * a0v * one_p * one_p;          break;
-	}
+    const std::complex<double> N_LP  = gv * gv * a0v * one_p * one_p;
+    const std::complex<double> N_HP  = a0v * one_m * one_m;
+    const std::complex<double> N_BP  = gv * a0v * (one_m * one_p);
+    const std::complex<double> N_BSF = a0v * (one_m * one_m + gv * gv * one_p * one_p);
 
-	const std::complex<double> response = N / D;
-	return getMagnitude ? std::abs(response) : std::arg(response);
+    std::complex<double> N;
+    switch (typed->mode)
+    {
+        case LP:  N = N_LP;  break;
+        case HP:  N = N_HP;  break;
+        case BP:  N = N_BP;  break;
+        case BSF: N = N_BSF; break;
+        case Morph:
+        {
+            const double mt = typed->morph * 3.0;
+            if (mt <= 1.0)
+                N = N_LP * (1.0 - mt) + N_BP * mt;
+            else if (mt <= 2.0)
+                N = N_BP * (2.0 - mt) + N_HP * (mt - 1.0);
+            else
+                N = N_HP * (3.0 - mt) + N_BSF * (mt - 2.0);
+            break;
+        }
+        default: N = N_LP; break;
+    }
+
+    const std::complex<double> response = N / D;
+    return getMagnitude ? std::abs(response) : std::arg(response);
 }
 
 void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	// Snapshot current target coefficients
-	const double g_t     = g;
-	const double a0_t    = alpha0;
-	const double FBs1_t  = FBs1;
+    const double g_t    = g;
+    const double a0_t   = alpha0;
+    const double FBs1_t = FBs1;
 
-	const int numChannels = buffer.getNumChannels();
-	const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+    const int numChannels = buffer.getNumChannels();
+    const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
 
-	for (int n = 0; n < numSamples; ++n)
-	{
-		// Linearly interpolate coefficients across the buffer
-		const double t     = n * inv;
-		const double g_i   = g_prev     + t * (g_t    - g_prev);
-		const double a0_i  = alpha0_prev + t * (a0_t   - alpha0_prev);
-		const double fb_i  = FBs1_prev  + t * (FBs1_t - FBs1_prev);
+    for (int n = 0; n < numSamples; ++n)
+    {
+        const double t    = n * inv;
+        const double g_i  = g_prev      + t * (g_t    - g_prev);
+        const double a0_i = alpha0_prev  + t * (a0_t   - alpha0_prev);
+        const double fb_i = FBs1_prev   + t * (FBs1_t - FBs1_prev);
 
-		for (int c = 0; c < numChannels; ++c)
-		{
-			const double x   = buffer.getSample(c, startSample + n);
-			const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
-			const double v1  = g_i * hpf + s1[c];
-			const double bpf = v1 - v1 * v1 * v1 / 3.0;
-			const double lpf = g_i * bpf + s2[c];
+        for (int c = 0; c < numChannels; ++c)
+        {
+            const double x   = buffer.getSample(c, startSample + n);
+            const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
+            const double v1  = g_i * hpf + s1[c];
+            const double bpf = v1 - v1 * v1 * v1 / 3.0;
+            const double lpf = g_i * bpf + s2[c];
 
-			s1[c] = g_i * hpf + bpf;
-			s2[c] = s2[c] + 2.0 * g_i * bpf;
+            s1[c] = g_i * hpf + bpf;
+            s2[c] = s2[c] + 2.0 * g_i * bpf;
 
-			double out;
-			switch (mode)
-			{
-				case LP:  out = lpf;        break;
-				case HP:  out = hpf;        break;
-				case BP:  out = bpf;        break;
-				case BSF: out = lpf + hpf;  break;
-				default:  out = lpf;        break;
-			}
+            double out;
+            if (mode == Morph)
+            {
+                const double mt = morph * 3.0;  // 0-3 across four stages
+                if (mt <= 1.0)
+                    out = lpf * (1.0 - mt) + bpf * mt;
+                else if (mt <= 2.0)
+                    out = bpf * (2.0 - mt) + hpf * (mt - 1.0);
+                else
+                    out = hpf * (3.0 - mt) + (lpf + hpf) * (mt - 2.0);
+            }
+            else
+            {
+                switch (mode)
+                {
+                    case LP:  out = lpf;       break;
+                    case HP:  out = hpf;       break;
+                    case BP:  out = bpf;       break;
+                    case BSF: out = lpf + hpf; break;
+                    default:  out = lpf;       break;
+                }
+            }
 
-			buffer.setSample(c, startSample + n, (float)out);
-		}
-	}
+            buffer.setSample(c, startSample + n, (float)out);
+        }
+    }
 
-	g_prev      = g_t;
-	alpha0_prev = a0_t;
-	FBs1_prev   = FBs1_t;
+    g_prev      = g_t;
+    alpha0_prev = a0_t;
+    FBs1_prev   = FBs1_t;
 }
 
 void OberheimSubType::processFrame(float* frameData, int numChannels)
 {
-	for (int c = 0; c < numChannels; ++c)
-	{
-		const double x   = frameData[c];
-		const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
-		const double v1  = g * hpf + s1[c];
-		const double bpf = v1 - v1 * v1 * v1 / 3.0;
-		const double lpf = g * bpf + s2[c];
+    for (int c = 0; c < numChannels; ++c)
+    {
+        const double x   = frameData[c];
+        const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
+        const double v1  = g * hpf + s1[c];
+        const double bpf = v1 - v1 * v1 * v1 / 3.0;
+        const double lpf = g * bpf + s2[c];
 
-		s1[c] = g * hpf + bpf;
-		s2[c] = s2[c] + 2.0 * g * bpf;
+        s1[c] = g * hpf + bpf;
+        s2[c] = s2[c] + 2.0 * g * bpf;
 
-		double out;
-		switch (mode)
-		{
-			case LP:  out = lpf;        break;
-			case HP:  out = hpf;        break;
-			case BP:  out = bpf;        break;
-			case BSF: out = lpf + hpf;  break;
-			default:  out = lpf;        break;
-		}
+        double out;
+        if (mode == Morph)
+        {
+            const double mt = morph * 3.0;  // 0-3 across four stages
+            if (mt <= 1.0)
+                out = lpf * (1.0 - mt) + bpf * mt;
+            else if (mt <= 2.0)
+                out = bpf * (2.0 - mt) + hpf * (mt - 1.0);
+            else
+                out = hpf * (3.0 - mt) + (lpf + hpf) * (mt - 2.0);
+        }
+        else
+        {
+            switch (mode)
+            {
+                case LP:  out = lpf;       break;
+                case HP:  out = hpf;       break;
+                case BP:  out = bpf;       break;
+                case BSF: out = lpf + hpf; break;
+                default:  out = lpf;       break;
+            }
+        }
 
-		frameData[c] = (float)out;
-	}
+        frameData[c] = (float)out;
+    }
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(OberheimSubType);
+
+// ============================================================================
+// WaspFilterSubType implementation
+// ============================================================================
+
+WaspFilterSubType::WaspFilterSubType()
+{
+    reset(NUM_MAX_CHANNELS);
+    g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+}
+
+hise::FilterHelpers::FilterSubType WaspFilterSubType::getFilterType()
+{
+    return FilterHelpers::FilterSubType::WaspFilterSubType;
+}
+
+juce::Identifier WaspFilterSubType::getStaticId()
+{
+    RETURN_STATIC_IDENTIFIER("wasp");
+}
+
+juce::StringArray WaspFilterSubType::getModes() const
+{
+    return { "LP", "HP", "BP", "BSF", "Morph" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> WaspFilterSubType::getCoefficientTypeList() const
+{
+    return { FilterHelpers::LowPass, FilterHelpers::HighPass,
+             FilterHelpers::BandPass, FilterHelpers::LowPass,
+             FilterHelpers::BandPass };
+}
+
+void WaspFilterSubType::setType(int t)
+{
+    mode = (Mode)jlimit(0, (int)numModes - 1, t);
+}
+
+void WaspFilterSubType::reset(int /*numChannels*/)
+{
+    memset(s1, 0, sizeof(s1));
+    memset(s2, 0, sizeof(s2));
+}
+
+void WaspFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+    storedSampleRate = sampleRate;
+    storedGain       = gain;
+
+    const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+    g = std::tan(double_Pi * fc / sampleRate);
+
+    // Wasp has a tighter Q range than Oberheim — maps to slightly higher damping
+    const double R = 1.0 / (2.0 * jmax(0.01, q));
+    FBs1   = 2.0 * R + g;
+    alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+
+    const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+    morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+}
+
+FilterCoefficientData WaspFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+    auto* m = const_cast<WaspFilterSubType*>(this);
+    if (storedSampleRate > 0.0)
+        m->storedFrequency = freqNorm * storedSampleRate;
+    m->storedQ    = (float)q;
+    m->storedGain = gain;
+
+    const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+    m->morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+
+    FilterCoefficientData cd;
+    cd.customFunction = getPlotValue;
+    cd.obj = m;
+    return cd;
+}
+
+double WaspFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+    auto* typed = static_cast<WaspFilterSubType*>(obj);
+    const double sr   = typed->storedSampleRate;
+    const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+    const double gv   = std::tan(double_Pi * freq / sr);
+    const double Rv   = 1.0 / (2.0 * jmax(0.01, (double)typed->storedQ));
+    const double FBv  = 2.0 * Rv + gv;
+    const double a0v  = 1.0 / (1.0 + 2.0 * Rv * gv + gv * gv);
+
+    const double omega = 2.0 * double_Pi * freqNorm;
+    const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+
+    const std::complex<double> one_m = 1.0 - e_neg;
+    const std::complex<double> one_p = 1.0 + e_neg;
+
+    const std::complex<double> D =
+        one_m * one_m
+        + 2.0 * gv * a0v * e_neg * (FBv * one_m + gv * one_p);
+
+    const std::complex<double> N_LP  = gv * gv * a0v * one_p * one_p;
+    const std::complex<double> N_HP  = a0v * one_m * one_m;
+    const std::complex<double> N_BP  = gv * a0v * (one_m * one_p);
+    const std::complex<double> N_BSF = a0v * (one_m * one_m + gv * gv * one_p * one_p);
+
+    std::complex<double> N;
+    switch (typed->mode)
+    {
+        case LP:  N = N_LP;  break;
+        case HP:  N = N_HP;  break;
+        case BP:  N = N_BP;  break;
+        case BSF: N = N_BSF; break;
+        case Morph:
+        {
+            const double mt = typed->morph * 3.0;
+            if (mt <= 1.0)
+                N = N_LP * (1.0 - mt) + N_BP * mt;
+            else if (mt <= 2.0)
+                N = N_BP * (2.0 - mt) + N_HP * (mt - 1.0);
+            else
+                N = N_HP * (3.0 - mt) + N_BSF * (mt - 2.0);
+            break;
+        }
+        default: N = N_LP; break;
+    }
+
+    const std::complex<double> response = N / D;
+    return getMagnitude ? std::abs(response) : std::arg(response);
+}
+
+void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+    const double g_t    = g;
+    const double a0_t   = alpha0;
+    const double FBs1_t = FBs1;
+
+    const int numChannels = buffer.getNumChannels();
+    const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+
+    for (int n = 0; n < numSamples; ++n)
+    {
+        const double t    = n * inv;
+        const double g_i  = g_prev      + t * (g_t    - g_prev);
+        const double a0_i = alpha0_prev  + t * (a0_t   - alpha0_prev);
+        const double fb_i = FBs1_prev   + t * (FBs1_t - FBs1_prev);
+
+        for (int c = 0; c < numChannels; ++c)
+        {
+            const double x   = buffer.getSample(c, startSample + n);
+
+            // CMOS inverter nonlinearity on both integrators
+            const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
+            const double v1  = g_i * hpf + s1[c];
+            const double bpf = wasp_nl(v1);
+            const double lpf = g_i * bpf + s2[c];
+
+            s1[c] = g_i * hpf + bpf;
+            s2[c] = s2[c] + 2.0 * g_i * bpf;
+
+            double out;
+            if (mode == Morph)
+            {
+                const double mt = morph * 3.0;
+                if (mt <= 1.0)
+                    out = lpf * (1.0 - mt) + bpf * mt;
+                else if (mt <= 2.0)
+                    out = bpf * (2.0 - mt) + hpf * (mt - 1.0);
+                else
+                    out = hpf * (3.0 - mt) + (lpf + hpf) * (mt - 2.0);
+            }
+            else
+            {
+                switch (mode)
+                {
+                    case LP:  out = lpf;       break;
+                    case HP:  out = hpf;       break;
+                    case BP:  out = bpf;       break;
+                    case BSF: out = lpf + hpf; break;
+                    default:  out = lpf;       break;
+                }
+            }
+
+            buffer.setSample(c, startSample + n, (float)out);
+        }
+    }
+
+    g_prev      = g_t;
+    alpha0_prev = a0_t;
+    FBs1_prev   = FBs1_t;
+}
+
+void WaspFilterSubType::processFrame(float* frameData, int numChannels)
+{
+    for (int c = 0; c < numChannels; ++c)
+    {
+        const double x   = frameData[c];
+
+        const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
+        const double v1  = g * hpf + s1[c];
+        const double bpf = wasp_nl(v1);
+        const double lpf = g * wasp_nl(bpf) + s2[c];
+
+        s1[c] = g * hpf + bpf;
+        s2[c] = s2[c] + 2.0 * g * bpf;
+
+        double out;
+        if (mode == Morph)
+        {
+            const double mt = morph * 3.0;
+            if (mt <= 1.0)
+                out = lpf * (1.0 - mt) + bpf * mt;
+            else if (mt <= 2.0)
+                out = bpf * (2.0 - mt) + hpf * (mt - 1.0);
+            else
+                out = hpf * (3.0 - mt) + (lpf + hpf) * (mt - 2.0);
+        }
+        else
+        {
+            switch (mode)
+            {
+                case LP:  out = lpf;       break;
+                case HP:  out = hpf;       break;
+                case BP:  out = bpf;       break;
+                case BSF: out = lpf + hpf; break;
+                default:  out = lpf;       break;
+            }
+        }
+
+        frameData[c] = (float)out;
+    }
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(WaspFilterSubType);
 
 // ============================================================================
 // TB303FilterSubType
@@ -1169,241 +1442,241 @@ DEFINE_MULTI_CHANNEL_FILTER(OberheimSubType);
 
 TB303FilterSubType::TB303FilterSubType()
 {
-	reset(NUM_MAX_CHANNELS);
-	// Initialise coefficients so the first buffer interpolates from a valid state
-	updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
-	G_prev  = G;
-	fb_prev = fb;
+    reset(NUM_MAX_CHANNELS);
+    // Initialise coefficients so the first buffer interpolates from a valid state
+    updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
+    G_prev  = G;
+    fb_prev = fb;
 }
 
 hise::FilterHelpers::FilterSubType TB303FilterSubType::getFilterType()
 {
-	return FilterHelpers::FilterSubType::TB303FilterSubType;
+    return FilterHelpers::FilterSubType::TB303FilterSubType;
 }
 
 juce::Identifier TB303FilterSubType::getStaticId()
 {
-	RETURN_STATIC_IDENTIFIER("tb303");
+    RETURN_STATIC_IDENTIFIER("tb303");
 }
 
 juce::StringArray TB303FilterSubType::getModes() const
 {
-	return { "Low Pass" };
+    return { "Low Pass" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> TB303FilterSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::LowPassReso };
+    return { FilterHelpers::LowPassReso };
 }
 
 void TB303FilterSubType::setType(int t)
 {
-	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+    mode = (Mode)jlimit(0, (int)numModes - 1, t);
 }
 
 void TB303FilterSubType::reset(int numChannels)
 {
-	memset(s,        0, sizeof(s));
-	memset(y4prev,   0, sizeof(double) * numChannels);
-	memset(hp_s,     0, sizeof(double) * numChannels);
-	memset(hpf_prev, 0, sizeof(double) * numChannels);
+    memset(s,        0, sizeof(s));
+    memset(y4prev,   0, sizeof(double) * numChannels);
+    memset(hp_s,     0, sizeof(double) * numChannels);
+    memset(hpf_prev, 0, sizeof(double) * numChannels);
 }
 
 void TB303FilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
-	q = jmin(9.0, q);
-	storedSampleRate = sampleRate;
+    q = jmin(9.0, q);
+    storedSampleRate = sampleRate;
 
-	// Fixed 35 Hz input HPF coefficient (approximates the 303 input capacitor)
-	const double g_hp = std::tan(double_Pi * 35.0 / sampleRate);
-	G_hp = g_hp / (1.0 + g_hp);
+    // Fixed 35 Hz input HPF coefficient (approximates the 303 input capacitor)
+    const double g_hp = std::tan(double_Pi * 35.0 / sampleRate);
+    G_hp = g_hp / (1.0 + g_hp);
 
-	// Bilinear pre-warped ladder cutoff: g = tan(pi*fc/fs), G = g/(1+g)
-	const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
-	const double g  = std::tan(double_Pi * fc / sampleRate);
-	G  = g / (1.0 + g);
+    // Bilinear pre-warped ladder cutoff: g = tan(pi*fc/fs), G = g/(1+g)
+    const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+    const double g  = std::tan(double_Pi * fc / sampleRate);
+    G  = g / (1.0 + g);
 
-	// Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
-	fb = jmin(3.5, jmax(0.0, (q - 0.3) * (3.5 / 9.699)));
+    // Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
+    fb = jmin(3.5, jmax(0.0, (q - 0.3) * (4.5 / 9.699)));
 
-	// More aggressive resonance reduction above 2kHz
-	const double freqScale = 1.0 - jmax(0.0, (fc - 2000.0) / 18000.0);
-	fb *= freqScale;
+    // More aggressive resonance reduction above 2kHz
+    const double freqScale = 1.0 - jmax(0.0, (fc - 2000.0) / 18000.0);
+    fb *= freqScale;
 }
 
 FilterCoefficientData TB303FilterSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
 {
-	auto* m = const_cast<TB303FilterSubType*>(this);
-	if (storedSampleRate > 0.0)
-		m->storedFrequency = freqNorm * storedSampleRate;
-	m->storedQ = (float)q;
+    auto* m = const_cast<TB303FilterSubType*>(this);
+    if (storedSampleRate > 0.0)
+        m->storedFrequency = freqNorm * storedSampleRate;
+    m->storedQ = (float)q;
 
-	FilterCoefficientData cd;
-	cd.customFunction = getPlotValue;
-	cd.obj = m;
-	return cd;
+    FilterCoefficientData cd;
+    cd.customFunction = getPlotValue;
+    cd.obj = m;
+    return cd;
 }
 
 double TB303FilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
 {
-	auto* typed = static_cast<TB303FilterSubType*>(obj);
-	const double sr   = typed->storedSampleRate;
-	const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
-	const double g_v  = std::tan(double_Pi * freq / sr);
-	const double G_v  = g_v / (1.0 + g_v);
-	const double fb_v = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
+    auto* typed = static_cast<TB303FilterSubType*>(obj);
+    const double sr   = typed->storedSampleRate;
+    const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+    const double g_v  = std::tan(double_Pi * freq / sr);
+    const double G_v  = g_v / (1.0 + g_v);
+    const double fb_v = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
 
-	// Input HPF coefficient (fixed 35 Hz)
-	const double g_hp_v = std::tan(double_Pi * 35.0 / sr);
-	const double G_hp_v = g_hp_v / (1.0 + g_hp_v);
+    // Input HPF coefficient (fixed 35 Hz)
+    const double g_hp_v = std::tan(double_Pi * 35.0 / sr);
+    const double G_hp_v = g_hp_v / (1.0 + g_hp_v);
 
-	// z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
-	const double omega = 2.0 * double_Pi * freqNorm;
-	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+    // z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
+    const double omega = 2.0 * double_Pi * freqNorm;
+    const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
-	// Single TPT LP stage: H = G*(1+z^-1) / (1-(1-2G)*z^-1)
-	const double a = 1.0 - 2.0 * G_v;
-	const std::complex<double> H  = G_v * (1.0 + e_neg) / (1.0 - a * e_neg);
-	const std::complex<double> H2 = H * H;
-	const std::complex<double> H4 = H2 * H2;
+    // Single TPT LP stage: H = G*(1+z^-1) / (1-(1-2G)*z^-1)
+    const double a = 1.0 - 2.0 * G_v;
+    const std::complex<double> H  = G_v * (1.0 + e_neg) / (1.0 - a * e_neg);
+    const std::complex<double> H2 = H * H;
+    const std::complex<double> H4 = H2 * H2;
 
-	// Global feedback denominator: D = 1 + fb*H4
-	const std::complex<double> D = 1.0 + fb_v * H4;
+    // Global feedback denominator: D = 1 + fb*H4
+    const std::complex<double> D = 1.0 + fb_v * H4;
 
-	// Input HPF approximation: HPF = 1 - H_hp  (LP complement of fixed-corner stage)
-	const double a_hp = 1.0 - 2.0 * G_hp_v;
-	const std::complex<double> H_hp = G_hp_v * (1.0 + e_neg) / (1.0 - a_hp * e_neg);
-	const std::complex<double> HPF  = 1.0 - H_hp;
+    // Input HPF approximation: HPF = 1 - H_hp  (LP complement of fixed-corner stage)
+    const double a_hp = 1.0 - 2.0 * G_hp_v;
+    const std::complex<double> H_hp = G_hp_v * (1.0 + e_neg) / (1.0 - a_hp * e_neg);
+    const std::complex<double> HPF  = 1.0 - H_hp;
 
-	const std::complex<double> response = (H4 / D) * HPF;
-	return getMagnitude ? std::abs(response) : std::arg(response);
+    const std::complex<double> response = (H4 / D) * HPF;
+    return getMagnitude ? std::abs(response) : std::arg(response);
 }
 
 void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	const double G_t  = G;
-	const double fb_t = fb;
+    const double G_t  = G;
+    const double fb_t = fb;
 
-	for (int c = 0; c < buffer.getNumChannels(); c++)
-	{
-		float* d = buffer.getWritePointer(c, startSample);
+    for (int c = 0; c < buffer.getNumChannels(); c++)
+    {
+        float* d = buffer.getWritePointer(c, startSample);
 
-		for (int i = 0; i < numSamples; i++)
-		{
-			// Linear interpolation of coefficients across the buffer
-			const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
-			const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
-			const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
+        for (int i = 0; i < numSamples; i++)
+        {
+            // Linear interpolation of coefficients across the buffer
+            const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
+            const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
+            const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
 
-			const double input = (double)d[i];
+            const double input = (double)d[i];
 
-			// Input HPF: fixed 35 Hz one-pole TPT highpass
-			const double v_hp  = G_hp * (input - hp_s[c]);
-			const double lp_hp = v_hp + hp_s[c];
-			hp_s[c] = lp_hp + v_hp;
-			const double hpf_out = input - lp_hp;
+            // Input HPF: fixed 35 Hz one-pole TPT highpass
+            const double v_hp  = G_hp * (input - hp_s[c]);
+            const double lp_hp = v_hp + hp_s[c];
+            hp_s[c] = lp_hp + v_hp;
+            const double hpf_out = input - lp_hp;
 
-			// Resonance compensation: clamped bass boost at high resonance
-			const double comp_coeff  = jmin(0.5, fb_i * 0.3);
-			const double compensated = hpf_out + comp_coeff * hpf_prev[c];
-			hpf_prev[c] = hpf_out;
+            // Resonance compensation: clamped bass boost at high resonance
+            const double comp_coeff  = jmin(0.5, fb_i * 0.3);
+            const double compensated = hpf_out + comp_coeff * hpf_prev[c];
+            hpf_prev[c] = hpf_out;
 
-			// Four-pole diode ladder with feedback
-			const double u = compensated - fb_i * fastTanh(y4prev[c]);
+            // Four-pole diode ladder with feedback
+            const double u = compensated - fb_i * fastTanh(y4prev[c]);
 
-			// Stage 0 — even, drive 1.1
-			const double v0 = G_i * (fastTanh(u  * 1.1) - s[0][c]);
-			const double y0 = v0 + s[0][c];
-			s[0][c] = y0 + v0;
+            // Stage 0 — even, drive 1.1
+            const double v0 = G_i * (fastTanh(u  * 1.1) - s[0][c]);
+            const double y0 = v0 + s[0][c];
+            s[0][c] = y0 + v0;
 
-			// Stage 1 — odd, drive 0.9
-			const double v1 = G_i * (fastTanh(y0 * 0.9) - s[1][c]);
-			const double y1 = v1 + s[1][c];
-			s[1][c] = y1 + v1;
+            // Stage 1 — odd, drive 0.9
+            const double v1 = G_i * (fastTanh(y0 * 0.9) - s[1][c]);
+            const double y1 = v1 + s[1][c];
+            s[1][c] = y1 + v1;
 
-			// Stage 2 — even, drive 1.1
-			const double v2 = G_i * (fastTanh(y1 * 1.1) - s[2][c]);
-			const double y2 = v2 + s[2][c];
-			s[2][c] = y2 + v2;
+            // Stage 2 — even, drive 1.1
+            const double v2 = G_i * (fastTanh(y1 * 1.1) - s[2][c]);
+            const double y2 = v2 + s[2][c];
+            s[2][c] = y2 + v2;
 
-			// Stage 3 — odd, drive 0.9
-			const double v3 = G_i * (fastTanh(y2 * 0.9) - s[3][c]);
-			const double y3 = v3 + s[3][c];
-			s[3][c] = y3 + v3;
+            // Stage 3 — odd, drive 0.9
+            const double v3 = G_i * (fastTanh(y2 * 0.9) - s[3][c]);
+            const double y3 = v3 + s[3][c];
+            s[3][c] = y3 + v3;
 
-			y4prev[c] = y3;
+            y4prev[c] = y3;
 
-			const double leak = 0.9999;
-			s[0][c]     *= leak;
-			s[1][c]     *= leak;
-			s[2][c]     *= leak;
-			s[3][c]     *= leak;
-			y4prev[c]   *= leak;
-			hp_s[c]     *= leak;
-			hpf_prev[c] *= leak;
+            const double leak = 0.9999;
+            s[0][c]     *= leak;
+            s[1][c]     *= leak;
+            s[2][c]     *= leak;
+            s[3][c]     *= leak;
+            y4prev[c]   *= leak;
+            hp_s[c]     *= leak;
+            hpf_prev[c] *= leak;
 
-			d[i] = (float)y3;
-		}
-	}
+            d[i] = (float)y3;
+        }
+    }
 
-	// Advance previous-buffer coefficients for next call
-	G_prev  = G_t;
-	fb_prev = fb_t;
+    // Advance previous-buffer coefficients for next call
+    G_prev  = G_t;
+    fb_prev = fb_t;
 }
 
 void TB303FilterSubType::processFrame(float* frameData, int numChannels)
 {
-	for (int c = 0; c < numChannels; c++)
-	{
-		const double input = (double)frameData[c];
+    for (int c = 0; c < numChannels; c++)
+    {
+        const double input = (double)frameData[c];
 
-		// Input HPF: fixed 35 Hz one-pole TPT highpass
-		const double v_hp  = G_hp * (input - hp_s[c]);
-		const double lp_hp = v_hp + hp_s[c];
-		hp_s[c] = lp_hp + v_hp;
-		const double hpf_out = input - lp_hp;
+        // Input HPF: fixed 35 Hz one-pole TPT highpass
+        const double v_hp  = G_hp * (input - hp_s[c]);
+        const double lp_hp = v_hp + hp_s[c];
+        hp_s[c] = lp_hp + v_hp;
+        const double hpf_out = input - lp_hp;
 
-		// Resonance compensation: clamped bass boost at high resonance
-		const double comp_coeff  = jmin(0.5, fb * 0.3);
-		const double compensated = hpf_out + comp_coeff * hpf_prev[c];
-		hpf_prev[c] = hpf_out;
+        // Resonance compensation: clamped bass boost at high resonance
+        const double comp_coeff  = jmin(0.5, fb * 0.3);
+        const double compensated = hpf_out + comp_coeff * hpf_prev[c];
+        hpf_prev[c] = hpf_out;
 
-		// Four-pole diode ladder with feedback
-		const double u = compensated - fb * fastTanh(y4prev[c]);
+        // Four-pole diode ladder with feedback
+        const double u = compensated - fb * fastTanh(y4prev[c]);
 
-		// Stage 0 — even, drive 1.1
-		const double v0 = G * (fastTanh(u  * 1.1) - s[0][c]);
-		const double y0 = v0 + s[0][c];
-		s[0][c] = y0 + v0;
+        // Stage 0 — even, drive 1.1
+        const double v0 = G * (fastTanh(u  * 1.1) - s[0][c]);
+        const double y0 = v0 + s[0][c];
+        s[0][c] = y0 + v0;
 
-		// Stage 1 — odd, drive 0.9
-		const double v1 = G * (fastTanh(y0 * 0.9) - s[1][c]);
-		const double y1 = v1 + s[1][c];
-		s[1][c] = y1 + v1;
+        // Stage 1 — odd, drive 0.9
+        const double v1 = G * (fastTanh(y0 * 0.9) - s[1][c]);
+        const double y1 = v1 + s[1][c];
+        s[1][c] = y1 + v1;
 
-		// Stage 2 — even, drive 1.1
-		const double v2 = G * (fastTanh(y1 * 1.1) - s[2][c]);
-		const double y2 = v2 + s[2][c];
-		s[2][c] = y2 + v2;
+        // Stage 2 — even, drive 1.1
+        const double v2 = G * (fastTanh(y1 * 1.1) - s[2][c]);
+        const double y2 = v2 + s[2][c];
+        s[2][c] = y2 + v2;
 
-		// Stage 3 — odd, drive 0.9
-		const double v3 = G * (fastTanh(y2 * 0.9) - s[3][c]);
-		const double y3 = v3 + s[3][c];
-		s[3][c] = y3 + v3;
+        // Stage 3 — odd, drive 0.9
+        const double v3 = G * (fastTanh(y2 * 0.9) - s[3][c]);
+        const double y3 = v3 + s[3][c];
+        s[3][c] = y3 + v3;
 
-		y4prev[c] = y3;
+        y4prev[c] = y3;
 
-		const double leak = 0.9999;
-		s[0][c]     *= leak;
-		s[1][c]     *= leak;
-		s[2][c]     *= leak;
-		s[3][c]     *= leak;
-		y4prev[c]   *= leak;
-		hp_s[c]     *= leak;
-		hpf_prev[c] *= leak;
+        const double leak = 0.9999;
+        s[0][c]     *= leak;
+        s[1][c]     *= leak;
+        s[2][c]     *= leak;
+        s[3][c]     *= leak;
+        y4prev[c]   *= leak;
+        hp_s[c]     *= leak;
+        hpf_prev[c] *= leak;
 
-		frameData[c] = (float)y3;
-	}
+        frameData[c] = (float)y3;
+    }
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
@@ -1422,226 +1695,226 @@ DEFINE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
 
 DiodeLadderSubType::DiodeLadderSubType()
 {
-	reset(NUM_MAX_CHANNELS);
-	// Initialise coefficients so the first buffer interpolates from a valid state
-	updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
-	G_prev  = G;
-	fb_prev = fb;
+    reset(NUM_MAX_CHANNELS);
+    // Initialise coefficients so the first buffer interpolates from a valid state
+    updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
+    G_prev  = G;
+    fb_prev = fb;
 }
 
 hise::FilterHelpers::FilterSubType DiodeLadderSubType::getFilterType()
 {
-	return FilterHelpers::FilterSubType::DiodeLadderSubType;
+    return FilterHelpers::FilterSubType::DiodeLadderSubType;
 }
 
 juce::Identifier DiodeLadderSubType::getStaticId()
 {
-	RETURN_STATIC_IDENTIFIER("diode_ladder");
+    RETURN_STATIC_IDENTIFIER("diode_ladder");
 }
 
 juce::StringArray DiodeLadderSubType::getModes() const
 {
-	return { "Low Pass", "High Pass", "Band Pass" };
+    return { "Low Pass", "High Pass", "Band Pass" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> DiodeLadderSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::LowPassReso, FilterHelpers::HighPass, FilterHelpers::BandPass };
+    return { FilterHelpers::LowPassReso, FilterHelpers::HighPass, FilterHelpers::BandPass };
 }
 
 void DiodeLadderSubType::setType(int t)
 {
-	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+    mode = (Mode)jlimit(0, (int)numModes - 1, t);
 }
 
 void DiodeLadderSubType::reset(int numChannels)
 {
-	memset(s,      0, sizeof(s));
-	memset(y4prev, 0, sizeof(double) * numChannels);
+    memset(s,      0, sizeof(s));
+    memset(y4prev, 0, sizeof(double) * numChannels);
 }
 
 void DiodeLadderSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
-	q = jmin(9.0, q);
-	storedSampleRate = sampleRate;
+    q = jmin(9.0, q);
+    storedSampleRate = sampleRate;
 
-	const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
-	const double g  = std::tan(double_Pi * fc / sampleRate);
-	G  = g / (1.0 + g);
+    const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+    const double g  = std::tan(double_Pi * fc / sampleRate);
+    G  = g / (1.0 + g);
 
-	// Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
-	fb = jmin(3.5, jmax(0.0, (q - 0.3) * (3.5 / 9.699)));
+    // Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
+    fb = jmin(3.5, jmax(0.0, (q - 0.3) * (4.5 / 9.699)));
 
-	// More aggressive resonance reduction above 2kHz
-	const double freqScale = 1.0 - jmax(0.0, (fc - 2000.0) / 18000.0);
-	fb *= freqScale;
+    // More aggressive resonance reduction above 2kHz
+    const double freqScale = 1.0 - jmax(0.0, (fc - 2000.0) / 18000.0);
+    fb *= freqScale;
 }
 
 FilterCoefficientData DiodeLadderSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
 {
-	auto* m = const_cast<DiodeLadderSubType*>(this);
-	if (storedSampleRate > 0.0)
-		m->storedFrequency = freqNorm * storedSampleRate;
-	m->storedQ = (float)q;
+    auto* m = const_cast<DiodeLadderSubType*>(this);
+    if (storedSampleRate > 0.0)
+        m->storedFrequency = freqNorm * storedSampleRate;
+    m->storedQ = (float)q;
 
-	FilterCoefficientData cd;
-	cd.customFunction = getPlotValue;
-	cd.obj = m;
-	return cd;
+    FilterCoefficientData cd;
+    cd.customFunction = getPlotValue;
+    cd.obj = m;
+    return cd;
 }
 
 double DiodeLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
 {
-	auto* typed = static_cast<DiodeLadderSubType*>(obj);
-	const double sr   = typed->storedSampleRate;
-	const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
-	const double g_v  = std::tan(double_Pi * freq / sr);
-	const double G_v  = g_v / (1.0 + g_v);
-	const double fb_v = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
+    auto* typed = static_cast<DiodeLadderSubType*>(obj);
+    const double sr   = typed->storedSampleRate;
+    const double freq = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+    const double g_v  = std::tan(double_Pi * freq / sr);
+    const double G_v  = g_v / (1.0 + g_v);
+    const double fb_v = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
 
-	// z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
-	// (linear approximation: diodeSat ≈ identity for small signals)
-	const double omega = 2.0 * double_Pi * freqNorm;
-	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+    // z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
+    // (linear approximation: diodeSat ≈ identity for small signals)
+    const double omega = 2.0 * double_Pi * freqNorm;
+    const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
-	// Single TPT LP stage: H = G*(1+z^-1) / (1-(1-2G)*z^-1)
-	const double a = 1.0 - 2.0 * G_v;
-	const std::complex<double> H  = G_v * (1.0 + e_neg) / (1.0 - a * e_neg);
-	const std::complex<double> H2 = H * H;
-	const std::complex<double> H4 = H2 * H2;
+    // Single TPT LP stage: H = G*(1+z^-1) / (1-(1-2G)*z^-1)
+    const double a = 1.0 - 2.0 * G_v;
+    const std::complex<double> H  = G_v * (1.0 + e_neg) / (1.0 - a * e_neg);
+    const std::complex<double> H2 = H * H;
+    const std::complex<double> H4 = H2 * H2;
 
-	// Global feedback denominator: D = 1 + fb*H4
-	const std::complex<double> D = 1.0 + fb_v * H4;
+    // Global feedback denominator: D = 1 + fb*H4
+    const std::complex<double> D = 1.0 + fb_v * H4;
 
-	std::complex<double> N;
-	switch (typed->mode)
-	{
-		case LP: N = H4;                                                    break;
-		case HP: { auto hm = 1.0 - H; N = hm * hm * hm * hm; }            break;
-		case BP: { auto hm = 1.0 - H; N = hm * hm; }                      break;
-		default: N = H4;                                                    break;
-	}
+    std::complex<double> N;
+    switch (typed->mode)
+    {
+        case LP: N = H4;                                                    break;
+        case HP: { auto hm = 1.0 - H; N = hm * hm * hm * hm; }            break;
+        case BP: { auto hm = 1.0 - H; N = hm * hm; }                      break;
+        default: N = H4;                                                    break;
+    }
 
-	const std::complex<double> response = N / D;
-	return getMagnitude ? std::abs(response) : std::arg(response);
+    const std::complex<double> response = N / D;
+    return getMagnitude ? std::abs(response) : std::arg(response);
 }
 
 void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	const double G_t  = G;
-	const double fb_t = fb;
+    const double G_t  = G;
+    const double fb_t = fb;
 
-	for (int c = 0; c < buffer.getNumChannels(); c++)
-	{
-		float* d = buffer.getWritePointer(c, startSample);
+    for (int c = 0; c < buffer.getNumChannels(); c++)
+    {
+        float* d = buffer.getWritePointer(c, startSample);
 
-		for (int i = 0; i < numSamples; i++)
-		{
-			// Linear interpolation of coefficients across the buffer
-			const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
-			const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
-			const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
+        for (int i = 0; i < numSamples; i++)
+        {
+            // Linear interpolation of coefficients across the buffer
+            const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
+            const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
+            const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
 
-			const double input = (double)d[i];
+            const double input = (double)d[i];
 
-			const double u = input - fb_i * diodeSat(y4prev[c]);
+            const double u = input - fb_i * diodeSat(y4prev[c]);
 
-			// Cache diodeSat values — reused for HP/BP output modes
-			const double tu  = diodeSat(u);
-			const double v0  = G_i * (tu  - s[0][c]);
-			const double y0  = v0 + s[0][c];
-			s[0][c] = y0 + v0;
+            // Cache diodeSat values — reused for HP/BP output modes
+            const double tu  = diodeSat(u);
+            const double v0  = G_i * (tu  - s[0][c]);
+            const double y0  = v0 + s[0][c];
+            s[0][c] = y0 + v0;
 
-			const double ty0 = diodeSat(y0);
-			const double v1  = G_i * (ty0 - s[1][c]);
-			const double y1  = v1 + s[1][c];
-			s[1][c] = y1 + v1;
+            const double ty0 = diodeSat(y0);
+            const double v1  = G_i * (ty0 - s[1][c]);
+            const double y1  = v1 + s[1][c];
+            s[1][c] = y1 + v1;
 
-			const double ty1 = diodeSat(y1);
-			const double v2  = G_i * (ty1 - s[2][c]);
-			const double y2  = v2 + s[2][c];
-			s[2][c] = y2 + v2;
+            const double ty1 = diodeSat(y1);
+            const double v2  = G_i * (ty1 - s[2][c]);
+            const double y2  = v2 + s[2][c];
+            s[2][c] = y2 + v2;
 
-			const double ty2 = diodeSat(y2);
-			const double v3  = G_i * (ty2 - s[3][c]);
-			const double y3  = v3 + s[3][c];
-			s[3][c] = y3 + v3;
+            const double ty2 = diodeSat(y2);
+            const double v3  = G_i * (ty2 - s[3][c]);
+            const double y3  = v3 + s[3][c];
+            s[3][c] = y3 + v3;
 
-			y4prev[c] = y3;
+            y4prev[c] = y3;
 
-			const double leak = 0.9999;
-			s[0][c]   *= leak;
-			s[1][c]   *= leak;
-			s[2][c]   *= leak;
-			s[3][c]   *= leak;
-			y4prev[c] *= leak;
+            const double leak = 0.9999;
+            s[0][c]   *= leak;
+            s[1][c]   *= leak;
+            s[2][c]   *= leak;
+            s[3][c]   *= leak;
+            y4prev[c] *= leak;
 
-			double out;
-			switch (mode)
-			{
-				case LP: out = y3;                                             break;
-				case HP: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3;          break;
-				case BP: out = tu - 2.0*y0 + y1;                             break;
-				default: out = y3;                                             break;
-			}
+            double out;
+            switch (mode)
+            {
+                case LP: out = y3;                                             break;
+                case HP: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3;          break;
+                case BP: out = tu - 2.0*y0 + y1;                             break;
+                default: out = y3;                                             break;
+            }
 
-			d[i] = (float)out;
-		}
-	}
+            d[i] = (float)out;
+        }
+    }
 
-	// Advance previous-buffer coefficients for next call
-	G_prev  = G_t;
-	fb_prev = fb_t;
+    // Advance previous-buffer coefficients for next call
+    G_prev  = G_t;
+    fb_prev = fb_t;
 }
 
 void DiodeLadderSubType::processFrame(float* frameData, int numChannels)
 {
-	for (int c = 0; c < numChannels; c++)
-	{
-		const double input = (double)frameData[c];
+    for (int c = 0; c < numChannels; c++)
+    {
+        const double input = (double)frameData[c];
 
-		const double u = input - fb * diodeSat(y4prev[c]);
+        const double u = input - fb * diodeSat(y4prev[c]);
 
-		const double tu  = diodeSat(u);
-		const double v0  = G * (tu  - s[0][c]);
-		const double y0  = v0 + s[0][c];
-		s[0][c] = y0 + v0;
+        const double tu  = diodeSat(u);
+        const double v0  = G * (tu  - s[0][c]);
+        const double y0  = v0 + s[0][c];
+        s[0][c] = y0 + v0;
 
-		const double ty0 = diodeSat(y0);
-		const double v1  = G * (ty0 - s[1][c]);
-		const double y1  = v1 + s[1][c];
-		s[1][c] = y1 + v1;
+        const double ty0 = diodeSat(y0);
+        const double v1  = G * (ty0 - s[1][c]);
+        const double y1  = v1 + s[1][c];
+        s[1][c] = y1 + v1;
 
-		const double ty1 = diodeSat(y1);
-		const double v2  = G * (ty1 - s[2][c]);
-		const double y2  = v2 + s[2][c];
-		s[2][c] = y2 + v2;
+        const double ty1 = diodeSat(y1);
+        const double v2  = G * (ty1 - s[2][c]);
+        const double y2  = v2 + s[2][c];
+        s[2][c] = y2 + v2;
 
-		const double ty2 = diodeSat(y2);
-		const double v3  = G * (ty2 - s[3][c]);
-		const double y3  = v3 + s[3][c];
-		s[3][c] = y3 + v3;
+        const double ty2 = diodeSat(y2);
+        const double v3  = G * (ty2 - s[3][c]);
+        const double y3  = v3 + s[3][c];
+        s[3][c] = y3 + v3;
 
-		y4prev[c] = y3;
+        y4prev[c] = y3;
 
-		const double leak = 0.9999;
-		s[0][c]   *= leak;
-		s[1][c]   *= leak;
-		s[2][c]   *= leak;
-		s[3][c]   *= leak;
-		y4prev[c] *= leak;
+        const double leak = 0.9999;
+        s[0][c]   *= leak;
+        s[1][c]   *= leak;
+        s[2][c]   *= leak;
+        s[3][c]   *= leak;
+        y4prev[c] *= leak;
 
-		double out;
-		switch (mode)
-		{
-			case LP: out = y3;                                             break;
-			case HP: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3;          break;
-			case BP: out = tu - 2.0*y0 + y1;                             break;
-			default: out = y3;                                             break;
-		}
+        double out;
+        switch (mode)
+        {
+            case LP: out = y3;                                             break;
+            case HP: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3;          break;
+            case BP: out = tu - 2.0*y0 + y1;                             break;
+            default: out = y3;                                             break;
+        }
 
-		frameData[c] = (float)out;
-	}
+        frameData[c] = (float)out;
+    }
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(DiodeLadderSubType);
@@ -1684,12 +1957,18 @@ juce::Identifier CombFilterSubType::getStaticId()
 
 juce::StringArray CombFilterSubType::getModes() const
 {
-	return { "Comb", "Inv Comb" };
+	return { "Comb", "Inv Comb",
+	         "Feedforward", "Inv Feedforward",
+	         "Flanger", "Inv Flanger",
+	         "Flanger FB", "Inv Flanger FB" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> CombFilterSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::LowPass, FilterHelpers::LowPass };
+	return { FilterHelpers::LowPass, FilterHelpers::LowPass,
+	         FilterHelpers::LowPass, FilterHelpers::LowPass,
+	         FilterHelpers::LowPass, FilterHelpers::LowPass,
+	         FilterHelpers::LowPass, FilterHelpers::LowPass };
 }
 
 void CombFilterSubType::setType(int t)
@@ -1704,34 +1983,90 @@ void CombFilterSubType::reset(int numChannels)
 	memset(ap_s,      0, sizeof(double) * numChannels);
 	memset(ap_s_prev, 0, sizeof(double) * numChannels);
 	memset(fb_lp_s,   0, sizeof(double) * numChannels);
+	memset(lp_s,      0, sizeof(float)  * numChannels);
 }
 
 void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
 	storedSampleRate = sampleRate;
 	storedGain       = gain;
+	storedQ          = (float)q;
 
-	// gain arrives as linear amplitude — convert to dB for a symmetric mapping:
-	//   0 dB  (gain ≈ 1.0)   →  fb_gain =  0.00  (no feedback)
-	//  +18 dB (gain ≈ 7.943) →  fb_gain = +0.99  (max positive)
-	//  -18 dB (gain ≈ 0.126) →  fb_gain = -0.99  (max negative)
+	// Modes that use the new parameter mapping:
+	//   Q   → feedback depth (fb_gain 0–0.95)
+	//   Gain → bidirectional LP/HP in the feedback/feedforward path
+	// FlangerFB/FlangerFBInv are excluded — they use the legacy Gain→fb_gain mapping.
+	const bool useNewMapping = (mode == Comb          || mode == InvComb          ||
+	                            mode == FeedforwardComb || mode == FeedforwardInvComb ||
+	                            mode == Flanger         || mode == FlangerInv);
+
 	const double gain_dB = Decibels::gainToDecibels(jmax(gain, 1.0e-6));
-	fb_gain = jlimit(-0.99, 0.99, gain_dB / 18.0);
 
-	// Clamp frequency to musically useful range
-	const double fc = jlimit(20.0, 5000.0, frequency);
-	storedFrequency = fc;
+	if (useNewMapping)
+	{
+		// Q → feedback depth: q=0.3 → 0%, q=9.9 → 95%
+		fb_gain = jlimit(0.0, 0.95, 0.95 * (q - 0.3) / 9.6);
 
-	// Delay length: sampleRate / fundamental frequency
-	delayLength    = sampleRate / fc;
+		// Gain → bidirectional feedback filter:
+		//   gain_dB < 0: LP, cutoff log-sweeps 200 Hz (−18 dB) → 20 kHz (0 dB)
+		//   gain_dB > 0: HP, cutoff log-sweeps  20 Hz ( 0 dB) → 10 kHz (+18 dB)
+		//   gain_dB ≈ 0: passthrough (lp_coeff = 0 → one-pole update becomes identity)
+		if (gain_dB < -0.1)
+		{
+			const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);  // 0 at −18 dB, 1 at 0 dB
+			const double lp_cutoff = 200.0 * std::pow(100.0, t);           // log-sweep 200 → 20000 Hz
+			lp_coeff = (float)std::exp(-2.0 * double_Pi * lp_cutoff / sampleRate);
+			fb_is_hp = false;
+		}
+		else if (gain_dB > 0.1)
+		{
+			const double t = jlimit(0.0, 1.0, gain_dB / 18.0);             // 0 at 0 dB, 1 at +18 dB
+			const double hp_cutoff = 20.0 * std::pow(500.0, t);             // log-sweep 20 → 10000 Hz
+			lp_coeff = (float)std::exp(-2.0 * double_Pi * hp_cutoff / sampleRate);
+			fb_is_hp = true;
+		}
+		else
+		{
+			// Passthrough: lp_coeff = 0 → lp_s[c] = ap_out each sample → identity
+			lp_coeff = 0.0f;
+			fb_is_hp = false;
+		}
+	}
+	else
+	{
+		// FlangerFB / FlangerFBInv: legacy Gain → feedback depth mapping
+		fb_gain = jlimit(-0.99, 0.99, gain_dB / 18.0);
+	}
+
+	const bool isFlanger = (mode == Flanger || mode == FlangerInv ||
+	                        mode == FlangerFB || mode == FlangerFBInv);
+
+	if (isFlanger)
+	{
+		// Map frequency 20–20000 Hz to flanger delay range, inverted:
+		//   low  freq → long  delay (~20 ms, slow whoosh)
+		//   high freq → short delay (~0.1 ms, high-pitched shimmer)
+		const double fc = jlimit(20.0, 20000.0, frequency);
+		storedFrequency = fc;
+		const double t  = (fc - 20.0) / (20000.0 - 20.0);
+		delayLength     = sampleRate * 0.0001 * std::pow(200.0, 1.0 - t);
+	}
+	else
+	{
+		// Comb / feedforward: delay = period of the fundamental
+		const double fc = jlimit(20.0, 5000.0, frequency);
+		storedFrequency = fc;
+		delayLength     = sampleRate / fc;
+	}
+
 	delayLengthInt = jlimit(1, maxDelayLine - 1, (int)std::floor(delayLength));
 
 	// All-pass fractional interpolation coefficient: η = (1-d)/(1+d)
 	const double delayFrac = delayLength - (double)delayLengthInt;
 	ap_coeff = (1.0 - delayFrac) / (1.0 + delayFrac);
 
-	// Feedback lowpass coefficient:
-	//   Low Q  → α near 0   → only DC feeds back (heavy HF damping)
+	// FlangerFB: lowpass in the feedback write path
+	//   Low Q  → α near 0   → heavy HF damping in feedback loop
 	//   High Q → α near 0.99 → light damping, HF sustained longer
 	fb_lp_coeff = jlimit(0.0, 0.99, 1.0 - (1.0 / (q * 2.0)));
 }
@@ -1739,8 +2074,6 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 FilterCoefficientData CombFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
 {
 	auto* m = const_cast<CombFilterSubType*>(this);
-	if (storedSampleRate > 0.0)
-		m->storedFrequency = jlimit(20.0, 5000.0, freqNorm * storedSampleRate);
 	m->storedQ    = (float)q;
 	m->storedGain = gain;
 
@@ -1752,44 +2085,99 @@ FilterCoefficientData CombFilterSubType::getCoefficients(double freqNorm, double
 
 double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
 {
+	if (!getMagnitude) return 0.0;
+
 	auto* typed = static_cast<CombFilterSubType*>(obj);
-	const double sr   = typed->storedSampleRate;
-	const double freq = jlimit(20.0, 5000.0, typed->storedFrequency);
-	const double N    = sr / freq;   // delay length in samples
 
-	// Recompute from stored parameters
-	const double gain_dB = Decibels::gainToDecibels(jmax(typed->storedGain, 1.0e-6));
-	double fb_gain_v     = jlimit(-0.99, 0.99, gain_dB / 18.0);
-	if (typed->mode == InvComb)
-		fb_gain_v = -fb_gain_v;
-
-	const double fb_lp_v = jlimit(0.0, 0.99,
-		1.0 - (1.0 / (jmax(0.01, (double)typed->storedQ) * 2.0)));
+	const bool isCombFB      = (typed->mode == Comb || typed->mode == InvComb);
+	const bool isFeedforward = (typed->mode == FeedforwardComb    || typed->mode == FeedforwardInvComb ||
+	                            typed->mode == Flanger             || typed->mode == FlangerInv);
+	const bool isInv         = (typed->mode == InvComb            || typed->mode == FeedforwardInvComb ||
+	                            typed->mode == FlangerInv          || typed->mode == FlangerFBInv);
 
 	const double omega = 2.0 * double_Pi * freqNorm;
-	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
-	// Feedback LP transfer function: H_lp(z) = α / (1 - (1-α)·z^-1)
-	const double alpha = fb_lp_v;
-	const std::complex<double> H_lp = (alpha > 0.0)
+	// Helper: evaluate the one-pole feedback filter magnitude at the current omega.
+	// Used by isCombFB and isFeedforward branches (both use lp_coeff / fb_is_hp).
+	// Returns 1.0 for passthrough (lp_coeff < ε).
+	const auto filterMag = [&]() -> double
+	{
+		const double c = (double)typed->lp_coeff;
+		if (c < 1.0e-6) return 1.0;
+		const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+		const std::complex<double> H_LP = (1.0 - c) / (1.0 - c * e_neg);
+		return typed->fb_is_hp ? std::abs(std::complex<double>(1.0, 0.0) - H_LP)
+		                       : std::abs(H_LP);
+	};
+
+	if (isCombFB)
+	{
+		// fb_gain is Q-controlled (always ≥ 0); isInv flips sign for display.
+		// Effective feedback at ω: fb_eff = fb_signed × |H_filter(ω)|
+		// Comb magnitude:   |H|² = 1 / (1 + fb_eff² − 2·fb_eff·cos(ωD))
+		// Normalised so resonance peak = 1.
+		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
+		const double fb_signed = isInv ? -fb_raw : fb_raw;
+		const double fb_eff    = jlimit(-0.90, 0.90, fb_signed * filterMag());
+
+		const double D       = typed->storedSampleRate / jmax(typed->storedFrequency, 1.0);
+		const double mag     = 1.0 / std::sqrt(jmax(0.0001, 1.0 + fb_eff*fb_eff - 2.0*fb_eff*std::cos(omega*D)));
+		const double max_mag = 1.0 / jmax(1.0 - fb_raw, 1.0e-6);
+		return jlimit(0.0, 1.0, mag / max_mag);
+	}
+
+	if (isFeedforward)
+	{
+		// fb_gain is Q-controlled (always ≥ 0); isInv flips sign for display.
+		// Effective feedforward gain at ω: fb_eff = fb_signed × |H_filter(ω)|
+		// Feedforward magnitude: |H|² = 1 + fb_eff² + 2·fb_eff·cos(ωD)
+		// Normalised by (1 + fb_raw) so peak = 1 when filter is flat.
+		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
+		const double fb_signed = isInv ? -fb_raw : fb_raw;
+		const double fb_eff    = fb_signed * filterMag();
+
+		const double D   = typed->delayLength;
+		const double mag = std::sqrt(jmax(0.0001, 1.0 + fb_eff*fb_eff + 2.0*fb_eff*std::cos(omega*D)));
+		return jlimit(0.0, 1.0, mag / (1.0 + fb_raw + 1.0e-12));
+	}
+
+	// FlangerFB / FlangerFBInv: legacy Gain → feedback depth, Q → internal LP damping.
+	// fb sourced from Gain (unchanged).
+	const double gain_dB = Decibels::gainToDecibels(jmax(typed->storedGain, 1.0e-6));
+	double g = jlimit(-0.99, 0.99, gain_dB / 18.0);
+	if (isInv) g = -g;
+
+	const std::complex<double> z_neg_N(std::cos(omega * typed->delayLength),
+	                                   -std::sin(omega * typed->delayLength));
+
+	// H_lp(z) = α / (1 − (1−α)·z^{−1})
+	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+	const double alpha = typed->fb_lp_coeff;
+	const std::complex<double> H_fb = (alpha > 1.0e-6)
 		? alpha / (1.0 - (1.0 - alpha) * e_neg)
 		: std::complex<double>(0.0, 0.0);
 
-	// Fractional delay of N samples: z^-N = e^(-jωN)
-	const std::complex<double> z_neg_N(std::cos(omega * N), -std::sin(omega * N));
+	const std::complex<double> num = 1.0 + g * z_neg_N * (1.0 - H_fb);
+	const std::complex<double> den = 1.0 - g * H_fb * z_neg_N;
 
-	// Comb TF: H = 1 / (1 - fb_gain · z^-N · H_lp)
-	const std::complex<double> denom = 1.0 - fb_gain_v * z_neg_N * H_lp;
-	if (std::abs(denom) < 1.0e-10)
-		return getMagnitude ? 10.0 : 0.0;
+	if (std::abs(den) < 1.0e-10)
+		return 10.0;
 
-	const std::complex<double> H = 1.0 / denom;
-	return getMagnitude ? std::abs(H) : std::arg(H);
+	return std::abs(num / den);
 }
 
 void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	const double effective_fb = (mode == InvComb) ? -fb_gain : fb_gain;
+	const bool isInv = (mode == InvComb || mode == FeedforwardInvComb ||
+	                    mode == FlangerInv || mode == FlangerFBInv);
+	const double effective_fb = isInv ? -fb_gain : fb_gain;
+
+	// FeedforwardComb / FeedforwardInvComb produce phaser-style notches
+	// (comb peaks at multiples of f) without any feedback resonance.
+	const bool isFeedforward = (mode == FeedforwardComb || mode == FeedforwardInvComb ||
+	                            mode == Flanger          || mode == FlangerInv);
+	const bool isCombFB      = (mode == Comb || mode == InvComb);
+
 	const int numChannels = buffer.getNumChannels();
 
 	for (int c = 0; c < numChannels; c++)
@@ -1810,16 +2198,35 @@ void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			ap_s_prev[c] = delayed_raw;
 			ap_s[c]      = ap_out;
 
-			// Feedback one-pole lowpass damping
-			fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
+			double output;
 
-			// Comb mix
-			const double output = input + effective_fb * fb_lp_s[c];
+			if (isFeedforward)
+			{
+				// Feedforward: y[n] = x[n] + g * filtered(x[n-D])
+				// Gain-controlled LP/HP applied to the delayed signal before mixing.
+				// Only dry input is written to the delay buffer (no feedback).
+				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+				const float ff_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
+				output = input + effective_fb * (double)ff_filtered;
+				dl[writePos[c]] = input;
+			}
+			else if (isCombFB)
+			{
+				// Feedback comb: Gain-controlled LP/HP applied to delayed signal in feedback path.
+				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+				const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
+				output = input + effective_fb * (double)fb_filtered;
+				dl[writePos[c]] = output;
+			}
+			else
+			{
+				// FlangerFB: LP in the write path via fb_lp_coeff (unchanged)
+				output = input + effective_fb * ap_out;
+				fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
+				dl[writePos[c]] = input + effective_fb * fb_lp_s[c];
+			}
 
-			// Write and advance
-			dl[writePos[c]] = output;
 			writePos[c] = (writePos[c] + 1) % maxDelayLine;
-
 			d[i] = (float)output;
 		}
 	}
@@ -1827,7 +2234,13 @@ void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 
 void CombFilterSubType::processFrame(float* frameData, int numChannels)
 {
-	const double effective_fb = (mode == InvComb) ? -fb_gain : fb_gain;
+	const bool isInv = (mode == InvComb || mode == FeedforwardInvComb ||
+	                    mode == FlangerInv || mode == FlangerFBInv);
+	const double effective_fb = isInv ? -fb_gain : fb_gain;
+
+	const bool isFeedforward = (mode == FeedforwardComb || mode == FeedforwardInvComb ||
+	                            mode == Flanger          || mode == FlangerInv);
+	const bool isCombFB      = (mode == Comb || mode == InvComb);
 
 	for (int c = 0; c < numChannels; c++)
 	{
@@ -1843,19 +2256,39 @@ void CombFilterSubType::processFrame(float* frameData, int numChannels)
 		ap_s_prev[c] = delayed_raw;
 		ap_s[c]      = ap_out;
 
-		// Feedback one-pole lowpass damping
-		fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
+		double output;
 
-		// Comb mix
-		const double output = input + effective_fb * fb_lp_s[c];
+		if (isFeedforward)
+		{
+			// Feedforward: Gain-controlled LP/HP applied to the delayed signal.
+			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+			const float ff_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
+			output = input + effective_fb * (double)ff_filtered;
+			dl[writePos[c]] = input;
+		}
+		else if (isCombFB)
+		{
+			// Feedback comb: Gain-controlled LP/HP applied to delayed signal in feedback path.
+			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+			const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
+			output = input + effective_fb * (double)fb_filtered;
+			dl[writePos[c]] = output;
+		}
+		else
+		{
+			// FlangerFB: LP in the write path via fb_lp_coeff (unchanged)
+			output = input + effective_fb * ap_out;
+			fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
+			dl[writePos[c]] = input + effective_fb * fb_lp_s[c];
+		}
 
-		// Write and advance
-		dl[writePos[c]] = output;
 		writePos[c] = (writePos[c] + 1) % maxDelayLine;
-
 		frameData[c] = (float)output;
 	}
 }
+
+
+
 
 DEFINE_MULTI_CHANNEL_FILTER(CombFilterSubType);
 
@@ -2342,6 +2775,234 @@ void DisperserFilterSubType::processFrame(float* frameData, int numChannels)
 DEFINE_MULTI_CHANNEL_FILTER(DisperserFilterSubType);
 
 
+// ============================================================================
+// ZDFDiodeLadderSubType implementation
+// ============================================================================
+
+hise::FilterHelpers::FilterSubType ZDFDiodeLadderSubType::getFilterType()
+{
+    return FilterHelpers::FilterSubType::ZDFDiodeLadderSubType;
+}
+
+juce::Identifier ZDFDiodeLadderSubType::getStaticId()
+{
+    RETURN_STATIC_IDENTIFIER("zdf_diode");
+}
+
+ZDFDiodeLadderSubType::ZDFDiodeLadderSubType()
+{
+    memset(z0, 0, sizeof(z0));
+    memset(z1, 0, sizeof(z1));
+    memset(z2, 0, sizeof(z2));
+    memset(z3, 0, sizeof(z3));
+}
+
+juce::StringArray ZDFDiodeLadderSubType::getModes() const
+{
+    return { "ZDF Diode LP"};
+}
+
+Array<hise::FilterHelpers::CoefficientType> ZDFDiodeLadderSubType::getCoefficientTypeList() const
+{
+    return { FilterHelpers::LowPassReso };
+}
+
+FilterCoefficientData ZDFDiodeLadderSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+    auto* m = const_cast<ZDFDiodeLadderSubType*>(this);
+    if (storedSampleRate > 0.0)
+        m->storedFrequency = freqNorm * storedSampleRate;
+    m->storedQ = q;
+
+    FilterCoefficientData cd;
+    cd.customFunction = getPlotValue;
+    cd.obj = m;
+    return cd;
+}
+
+void ZDFDiodeLadderSubType::setType(int t)
+{
+    mode = 0;
+}
+
+void ZDFDiodeLadderSubType::reset(int /*numChannels*/)
+{
+    memset(z0, 0, sizeof(z0));
+    memset(z1, 0, sizeof(z1));
+    memset(z2, 0, sizeof(z2));
+    memset(z3, 0, sizeof(z3));
+}
+
+void ZDFDiodeLadderSubType::updateCoefficients(double sampleRate, double frequency,
+                                                double q, double /*gain*/)
+{
+    storedSampleRate = sampleRate;
+    storedFrequency  = frequency;
+    storedQ          = q;
+
+    k        = jlimit(0.0, 20.0, (q - 0.3) / (9.9 - 0.3) * 20.0);
+    amp_comp = 1.0 + 0.5 * k;
+
+    const double wc_raw = double_Pi * frequency / sampleRate;
+    wc4  = 2.0 * std::tan(0.5 * wc_raw);
+    wc2  = wc4 * wc4;
+    wc3  = wc2 * wc4;
+    wc4p = wc3 * wc4;
+
+    const double denom = 1.0 + 8.0*wc4 + 20.0*wc2 + 16.0*wc3 + 2.0*wc4p;
+    b = (denom == 0.0) ? 0.0 : 1.0 / denom;
+    g = 2.0 * wc4p * b;
+}
+
+void ZDFDiodeLadderSubType::processSamples(AudioSampleBuffer& buffer,
+                                            int startSample, int numSamples)
+{
+    const int numChannels = buffer.getNumChannels();
+
+    for (int c = 0; c < numChannels; c++)
+    {
+        float* d = buffer.getWritePointer(c, startSample);
+
+        for (int i = 0; i < numSamples; i++)
+        {
+            const double interp     = (numSamples > 1)
+                                    ? (double)i / (double)(numSamples - 1) : 1.0;
+            const double k_i        = k_prev        + (k        - k_prev)        * interp;
+            const double amp_comp_i = amp_comp_prev + (amp_comp - amp_comp_prev) * interp;
+
+            const double xn = (double)d[i];
+
+            const double sv = (z0[c]*wc3
+                             + z1[c]*(wc2 + 2.0*wc3)
+                             + z2[c]*(wc4 + 4.0*wc2 + 2.0*wc3)
+                             + z3[c]*(1.0 + 6.0*wc4 + 9.0*wc2
+                                          + 2.0*wc3)) * b;
+
+            const double denom_fb = 1.0 + g * k_i;
+            const double y4 = (denom_fb == 0.0) ? 0.0
+                            : (g * xn + sv) / denom_fb;
+            const double y0 = std::tanh(xn - k_i * y4);
+
+            const double y1 = (y0*(2.0*wc4 + 12.0*wc2 + 20.0*wc3 + 8.0*wc4p)
+                             + z0[c]*(1.0 + 6.0*wc4 + 10.0*wc2 + 4.0*wc3)
+                             + z1[c]*(2.0*wc4 + 8.0*wc2 + 6.0*wc3)
+                             + z2[c]*(2.0*wc2 + 4.0*wc3)
+                             + z3[c]*2.0*wc3) * b;
+
+            const double y2 = (y0*(2.0*wc2 + 8.0*wc3 + 6.0*wc4p)
+                             + z0[c]*(wc4 + 4.0*wc2 + 3.0*wc3)
+                             + z1[c]*(1.0 + 6.0*wc4 + 11.0*wc2 + 6.0*wc3)
+                             + z2[c]*(wc4 + 4.0*wc2 + 4.0*wc3)
+                             + z3[c]*(wc2 + 2.0*wc3)) * b;
+
+            const double y3 = (y0*(2.0*wc3 + 4.0*wc4p)
+                             + z0[c]*(wc2 + 2.0*wc3)
+                             + z1[c]*(wc4 + 4.0*wc2 + 4.0*wc3)
+                             + z2[c]*(1.0 + 6.0*wc4 + 10.0*wc2 + 4.0*wc3)
+                             + z3[c]*(wc4 + 4.0*wc2 + 2.0*wc3)) * b;
+
+            const double y4out = g * y0 + sv;
+
+            z0[c] += 4.0*wc4*(y0 - y1 + y2);
+            z1[c] += 2.0*wc4*(y1 - 2.0*y2 + y3);
+            z2[c] += 2.0*wc4*(y2 - 2.0*y3 + y4out);
+            z3[c] += 2.0*wc4*(y3 - 2.0*y4out);
+
+            const double lp = amp_comp_i * y4out;
+            const double hp = xn - y4out;
+            d[i] = (float)(mode == 1 ? hp : lp);
+        }
+    }
+
+    k_prev        = k;
+    amp_comp_prev = amp_comp;
+}
+
+void ZDFDiodeLadderSubType::processFrame(float* frameData, int numChannels)
+{
+    const double k_i        = k;
+    const double amp_comp_i = amp_comp;
+
+    for (int c = 0; c < numChannels; c++)
+    {
+        const double xn = (double)frameData[c];
+
+        const double sv = (z0[c]*wc3
+                         + z1[c]*(wc2 + 2.0*wc3)
+                         + z2[c]*(wc4 + 4.0*wc2 + 2.0*wc3)
+                         + z3[c]*(1.0 + 6.0*wc4 + 9.0*wc2
+                                      + 2.0*wc3)) * b;
+
+        const double denom_fb = 1.0 + g * k_i;
+        const double y4 = (denom_fb == 0.0) ? 0.0
+                        : (g * xn + sv) / denom_fb;
+        const double y0 = std::tanh(xn - k_i * y4);
+
+        const double y1 = (y0*(2.0*wc4 + 12.0*wc2 + 20.0*wc3 + 8.0*wc4p)
+                         + z0[c]*(1.0 + 6.0*wc4 + 10.0*wc2 + 4.0*wc3)
+                         + z1[c]*(2.0*wc4 + 8.0*wc2 + 6.0*wc3)
+                         + z2[c]*(2.0*wc2 + 4.0*wc3)
+                         + z3[c]*2.0*wc3) * b;
+
+        const double y2 = (y0*(2.0*wc2 + 8.0*wc3 + 6.0*wc4p)
+                         + z0[c]*(wc4 + 4.0*wc2 + 3.0*wc3)
+                         + z1[c]*(1.0 + 6.0*wc4 + 11.0*wc2 + 6.0*wc3)
+                         + z2[c]*(wc4 + 4.0*wc2 + 4.0*wc3)
+                         + z3[c]*(wc2 + 2.0*wc3)) * b;
+
+        const double y3 = (y0*(2.0*wc3 + 4.0*wc4p)
+                         + z0[c]*(wc2 + 2.0*wc3)
+                         + z1[c]*(wc4 + 4.0*wc2 + 4.0*wc3)
+                         + z2[c]*(1.0 + 6.0*wc4 + 10.0*wc2 + 4.0*wc3)
+                         + z3[c]*(wc4 + 4.0*wc2 + 2.0*wc3)) * b;
+
+        const double y4out = g * y0 + sv;
+
+        z0[c] += 4.0*wc4*(y0 - y1 + y2);
+        z1[c] += 2.0*wc4*(y1 - 2.0*y2 + y3);
+        z2[c] += 2.0*wc4*(y2 - 2.0*y3 + y4out);
+        z3[c] += 2.0*wc4*(y3 - 2.0*y4out);
+
+        const double lp = amp_comp_i * y4out;
+        const double hp = xn - y4out;
+        frameData[c] = (float)(mode == 1 ? hp : lp);
+    }
+}
+
+double ZDFDiodeLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+    auto* typed = static_cast<ZDFDiodeLadderSubType*>(obj);
+    const double sr = typed->storedSampleRate;
+
+    const double freq  = jmax(20.0, jmin(sr * 0.499, typed->storedFrequency));
+    const double g_val = std::tan(double_Pi * freq / sr);
+    const double G     = g_val / (1.0 + g_val);
+    const double fb    = jmin(3.9, jmax(0.0, (typed->storedQ - 0.3) * (3.8 / 9.699)));
+
+    const double omega = 2.0 * double_Pi * freqNorm;
+    const double a     = 1.0 - 2.0 * G;
+    const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
+    const std::complex<double> H  = G * (1.0 + e_neg) / (1.0 - a * e_neg);
+    const std::complex<double> H2 = H * H;
+    const std::complex<double> H4 = H2 * H2;
+
+    if (typed->mode == 1)
+    {
+        const std::complex<double> hm = 1.0 - H;
+        const std::complex<double> N  = hm*hm*hm*hm;
+        const std::complex<double> D  = 1.0 + fb * H4;
+        return getMagnitude ? std::abs(N / D) : std::arg(N / D);
+    }
+
+    const std::complex<double> D        = 1.0 + fb * H4;
+    const std::complex<double> response = H4 / D;
+    return getMagnitude ? std::abs(response) : std::arg(response);
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(ZDFDiodeLadderSubType);
+
+
+
 hise::FilterHelpers::FilterSubType SimpleOnePoleSubType::getFilterType()
 {
 	return FilterHelpers::FilterSubType::SimpleOnePoleSubType;
@@ -2502,34 +3163,34 @@ DEFINE_MULTI_CHANNEL_FILTER(SimpleOnePoleSubType);
 
 hise::FilterHelpers::FilterSubType RingmodFilterSubType::getFilterType()
 {
-	return FilterHelpers::FilterSubType::RingmodFilterSubType;
+    return FilterHelpers::FilterSubType::RingmodFilterSubType;
 }
 
 juce::Identifier RingmodFilterSubType::getStaticId()
 {
-	RETURN_STATIC_IDENTIFIER("ring_mod");
+    RETURN_STATIC_IDENTIFIER("ring_mod");
 }
 
 juce::StringArray RingmodFilterSubType::getModes() const
 {
-	return { "RingMod" };
+    return { "RingMod" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> RingmodFilterSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::AllPass };
+    return { FilterHelpers::AllPass };
 }
 
 void RingmodFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
-	uptimeDelta = frequency / sampleRate * 2.0 * double_Pi;
-	oscGain = jmap<float>((float)q, 0.3f, 9.9f, 0.0f, 1.0f);
-	oscGain = jlimit<float>(0.0f, 1.0f, oscGain);
+    uptimeDelta = frequency / sampleRate * 2.0 * double_Pi;
+    oscGain = jmap<float>((float)q, 0.3f, 9.9f, 0.0f, 1.0f);
+    oscGain = jlimit<float>(0.0f, 1.0f, oscGain);
 }
 
 void RingmodFilterSubType::reset(int /*numChannels*/)
 {
-	uptime = 0.0;
+    uptime = 0.0;
 }
 
 void RingmodFilterSubType::setType(int /*t*/)
@@ -2539,36 +3200,36 @@ void RingmodFilterSubType::setType(int /*t*/)
 
 void RingmodFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	const float invGain = 1.0f - oscGain;
+    const float invGain = 1.0f - oscGain;
 
-	int numChannels = buffer.getNumChannels();
+    int numChannels = buffer.getNumChannels();
 
-	for (int i = 0; i < numSamples; i++)
-	{
-		const float oscValue = oscGain * (float)std::sin(uptime);;
+    for (int i = 0; i < numSamples; i++)
+    {
+        const float oscValue = oscGain * (float)std::sin(uptime);;
 
-		for (int c = 0; c < numChannels; c++)
-		{
-			const float input = buffer.getSample(c, i + startSample);
-			buffer.setSample(c, i + startSample, invGain * input + input * oscValue);
-		}
+        for (int c = 0; c < numChannels; c++)
+        {
+            const float input = buffer.getSample(c, i + startSample);
+            buffer.setSample(c, i + startSample, invGain * input + input * oscValue);
+        }
 
-		uptime += uptimeDelta;
-	}
+        uptime += uptimeDelta;
+    }
 }
 
 void RingmodFilterSubType::processFrame(float* d, int numChannels)
 {
-	const float invGain = 1.0f - oscGain;
-	const float oscValue = oscGain * (float)std::sin(uptime);;
+    const float invGain = 1.0f - oscGain;
+    const float oscValue = oscGain * (float)std::sin(uptime);;
 
-	for (int c = 0; c < numChannels; c++)
-	{
-		const float input = d[c];
-		d[c] = invGain * input + input * oscValue;
-	}
+    for (int c = 0; c < numChannels; c++)
+    {
+        const float input = d[c];
+        d[c] = invGain * input + input * oscValue;
+    }
 
-	uptime += uptimeDelta;
+    uptime += uptimeDelta;
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(RingmodFilterSubType);
@@ -2663,55 +3324,156 @@ juce::Identifier PhaseAllpassSubType::getStaticId()
 
 juce::StringArray PhaseAllpassSubType::getModes() const
 {
-	return { "All Pass" };
+	return { "Phaser 3",     "Phaser 6",     "Phaser 12",
+	         "Phaser 3 Inv", "Phaser 6 Inv", "Phaser 12 Inv" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> PhaseAllpassSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::AllPass };
+	return { FilterHelpers::AllPass, FilterHelpers::AllPass, FilterHelpers::AllPass,
+	         FilterHelpers::AllPass, FilterHelpers::AllPass, FilterHelpers::AllPass };
 }
 
 void PhaseAllpassSubType::processSamples(AudioSampleBuffer& b, int startSample, int numSamples)
 {
+	// numStages inside each InternalFilter controls 6-stage (AP12) or 12-stage (AP24) operation.
 	for (int c = 0; c < numFilters; c++)
-	{
 		for (int i = 0; i < numSamples; i++)
 		{
 			float* d = b.getWritePointer(c, i + startSample);
 			*d = filters[c].getNextSample(*d);
 		}
-	}
 }
 
 void PhaseAllpassSubType::processFrame(float* d, int numChannels)
 {
-	for (int i = 0; i < numChannels; i++)
-		d[i] = filters[i].getNextSample(d[i]);
+	for (int c = 0; c < numChannels; c++)
+		d[c] = filters[c].getNextSample(d[c]);
 }
 
-void PhaseAllpassSubType::setType(int /**/)
+void PhaseAllpassSubType::setType(int t)
 {
+	apMode = (Mode)jlimit(0, (int)numModes - 1, t);
 
+	const bool isInv = (apMode == Phaser3Inv || apMode == Phaser6Inv || apMode == Phaser12Inv);
+	const int  ns    = (apMode == Phaser12 || apMode == Phaser12Inv) ? 12
+	               : (apMode == Phaser3  || apMode == Phaser3Inv)  ? 3
+	               : 6;
+
+	for (int i = 0; i < numFilters; i++)
+	{
+		filters[i].numStages = ns;
+		filters[i].fb_inv    = isInv;
+		filters[i].reset();
+	}
 }
 
 void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
-	if (sampleRate <= 0.0f)
-	{
+	if (sampleRate <= 0.0)
 		return;
-	}
+
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = q;
+
+	const bool isInv = (apMode == Phaser3Inv || apMode == Phaser6Inv || apMode == Phaser12Inv);
+	const int  ns    = (apMode == Phaser12 || apMode == Phaser12Inv) ? 12
+	               : (apMode == Phaser3  || apMode == Phaser3Inv)  ? 3
+	               : 6;
 
 	for (int i = 0; i < numFilters; i++)
 	{
-		filters[i].fMin = (float)frequency;
-		filters[i].minDelay = (float)(frequency / (sampleRate / 2.0));
-		filters[i].feedback = (float)jmap<double>(q, 0.3, 9.9, 0.0, 0.99);
+		filters[i].fMin      = (float)frequency;
+		filters[i].minDelay  = (float)(frequency / (sampleRate / 2.0));
+		filters[i].feedback  = (float)jmap<double>(q, 0.3, 9.9, 0.0, 0.95);
+		filters[i].numStages = ns;
+		filters[i].fb_inv    = isInv;
 	}
 }
 
 void PhaseAllpassSubType::reset(int newNumChannels)
 {
 	numFilters = newNumChannels;
+
+	for (int i = 0; i < newNumChannels; i++)
+		filters[i].reset();
+}
+
+FilterCoefficientData PhaseAllpassSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+{
+	auto* m = const_cast<PhaseAllpassSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ = q;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double PhaseAllpassSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	if (!getMagnitude)
+		return 0.0;
+
+	auto* typed = static_cast<PhaseAllpassSubType*>(obj);
+	const double sr   = typed->storedSampleRate;
+	const double freq = jlimit(20.0, 20000.0, typed->storedFrequency);
+	const double q    = jmax(0.001, typed->storedQ);
+
+	const bool inv = (typed->apMode == Phaser3Inv ||
+	                  typed->apMode == Phaser6Inv  ||
+	                  typed->apMode == Phaser12Inv);
+
+	const int ns = (typed->apMode == Phaser3 || typed->apMode == Phaser3Inv) ? 3 :
+	               (typed->apMode == Phaser6 || typed->apMode == Phaser6Inv) ? 6 : 12;
+
+	if (sr <= 0.0)
+		return 0.5;
+
+	// Q maps to feedback depth: higher Q = more feedback = deeper notches.
+	const double fb = jmap(jlimit(0.3, 9.9, q), 0.3, 9.9, 0.0, 0.95);
+
+	const double w = 2.0 * double_Pi * freqNorm;
+
+	// Phase of one Schroeder first-order allpass stage at w.
+	// AllpassDelay: H(z) = (-a + z^{-1}) / (1 - a*z^{-1})
+	// where a = (1 - d) / (1 + d),  d = freq / (sr/2)
+	const double d      = jlimit(0.0, 1.0, freq / (sr / 2.0));
+	const double a      = (1.0 - d) / (1.0 + d);
+	const double cw     = std::cos(w);
+	const double sw     = std::sin(w);
+	const double num_re = -a + cw;
+	const double num_im = -sw;
+	const double den_re = 1.0 - a * cw;
+	const double den_im = a * sw;
+	const double phi1   = std::atan2(num_im, num_re) - std::atan2(den_im, den_re);
+
+	// Total phase of ns cascaded stages
+	const double Phi    = (double)ns * phi1;
+	const double cosPhi = std::cos(Phi);
+
+	// Standard non-inv phaser magnitude formula:
+	// |H|^2 = (1 + 2*(1-fb)*cosPhi + (1-fb)^2) / (1 - 2*fb*cosPhi + fb^2)
+	const double f1       = 1.0 - fb;
+	const double num_mag2 = 1.0 + 2.0 * f1 * cosPhi + f1 * f1;
+	const double den_mag2 = 1.0 - 2.0 * fb * cosPhi + fb * fb;
+
+	if (den_mag2 < 1.0e-12)
+		return inv ? 1.0 : 0.0;
+
+	const double mag    = std::sqrt(jmax(0.0, num_mag2 / den_mag2));
+	const double dcGain = (f1 > 1.0e-6) ? (2.0 - fb) / f1 : 1.0e6;
+	const double norm   = jlimit(0.0, 1.0, mag / dcGain);
+
+	// Inv modes: show 1 - normalised non-inv value so notches become peaks
+	// (baseline at bottom, peaks where normal mode has notches).
+	if (inv)
+		return jlimit(0.0, 1.0, 1.0 - norm);
+
+	return norm;
 }
 
 PhaseAllpassSubType::InternalFilter::InternalFilter()
@@ -2722,31 +3484,31 @@ PhaseAllpassSubType::InternalFilter::InternalFilter()
 void PhaseAllpassSubType::InternalFilter::reset()
 {
 	currentValue = 0.0f;
+
+	for (int s = 0; s < 12; s++)
+	{
+		allpassFilters[s].delay        = 0.0f;
+		allpassFilters[s].currentValue = 0.0f;
+	}
 }
 
 float PhaseAllpassSubType::InternalFilter::getNextSample(float input)
 {
-	float delayThisSample = minDelay;
+	const float delayCoefficient = AllpassDelay::getDelayCoefficient(minDelay);
 
-	const float delayCoefficient = AllpassDelay::getDelayCoefficient(delayThisSample);
+	for (int s = 0; s < numStages; s++)
+		allpassFilters[s].setDelay(delayCoefficient);
 
-	allpassFilters[0].setDelay(delayCoefficient);
-	allpassFilters[1].setDelay(delayCoefficient);
-	allpassFilters[2].setDelay(delayCoefficient);
-	allpassFilters[3].setDelay(delayCoefficient);
-	allpassFilters[4].setDelay(delayCoefficient);
-	allpassFilters[5].setDelay(delayCoefficient);
+	// currentValue holds pre-scaled feedback from the previous sample.
+	float x = input + currentValue;
 
-	float output = allpassFilters[0].getNextSample(
-		allpassFilters[1].getNextSample(
-			allpassFilters[2].getNextSample(
-				allpassFilters[3].getNextSample(
-					allpassFilters[4].getNextSample(
-						allpassFilters[5].getNextSample(input + currentValue * feedback))))));
+	for (int s = numStages - 1; s >= 0; s--)
+		x = allpassFilters[s].getNextSample(x);
 
-	currentValue = output;
+	const float rawFb = x * feedback;
+	currentValue = fb_inv ? -rawFb : rawFb;
 
-	return input + output;
+	return input + x;
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(PhaseAllpassSubType);
@@ -2842,7 +3604,7 @@ juce::StringArray StateVariableFilterSubType::getModes() const
 	return { "LP", "HP", "BP", "Notch", "Allpass",
 	         "LP 24dB", "LP 36dB", "LP 48dB",
 	         "HP 24dB", "HP 36dB", "HP 48dB",
-	         "BP 24dB", "Notch 24dB" };
+	         "BP 24dB", "Notch 24dB", "Morph" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> StateVariableFilterSubType::getCoefficientTypeList() const
@@ -2851,7 +3613,7 @@ Array<hise::FilterHelpers::CoefficientType> StateVariableFilterSubType::getCoeff
 	         FilterHelpers::BandPass, FilterHelpers::Notch, FilterHelpers::AllPass,
 	         FilterHelpers::LowPassReso, FilterHelpers::LowPassReso, FilterHelpers::LowPassReso,
 	         FilterHelpers::HighPass, FilterHelpers::HighPass, FilterHelpers::HighPass,
-	         FilterHelpers::BandPass, FilterHelpers::Notch };
+	         FilterHelpers::BandPass, FilterHelpers::Notch, FilterHelpers::BandPass };
 }
 
 StateVariableFilterSubType::StateVariableFilterSubType()
@@ -2904,7 +3666,7 @@ static constexpr float kButterworth48[3] = { 1.0f / 0.6013f, 1.0f / 0.8999f, 1.0
 
 void StateVariableFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
-	outputGain = (float)gain;
+    outputGain = (type == Morph) ? 1.0f : (float)gain;
 	storedSampleRate = sampleRate;
 	storedFrequency  = frequency;
 	storedUserQ      = (float)q;
@@ -2976,22 +3738,25 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
 	}
 }
 
-FilterCoefficientData StateVariableFilterSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+FilterCoefficientData StateVariableFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
 {
-	if (type >= LP24)
-	{
-		auto* m = const_cast<StateVariableFilterSubType*>(this);
-		if (storedSampleRate > 0.0)
-			m->storedFrequency = freqNorm * storedSampleRate;
-		m->storedUserQ = (float)q;
+    if (type >= LP24 || type == Morph)
+    {
+        auto* m = const_cast<StateVariableFilterSubType*>(this);
+        if (storedSampleRate > 0.0)
+            m->storedFrequency = freqNorm * storedSampleRate;
+        m->storedUserQ = (float)q;
 
-		FilterCoefficientData cd;
-		cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();
-		cd.customFunction = getPlotValueHighOrder;
-		cd.obj = m;
-		return cd;
-	}
-	return {};
+        const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+        m->morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+
+        FilterCoefficientData cd;
+        cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();
+        cd.customFunction = getPlotValueHighOrder;
+        cd.obj = m;
+        return cd;
+    }
+    return {};
 }
 
 double StateVariableFilterSubType::getPlotValueHighOrder(void* obj, bool getMagnitude, double freqNorm)
@@ -3009,6 +3774,32 @@ double StateVariableFilterSubType::getPlotValueHighOrder(void* obj, bool getMagn
 	int numStages;
 	const double* qTable;
 
+    if (typed->type == Morph)
+    {
+        const double q = (double)typed->storedUserQ;
+        const double stageQ = q;
+
+        FilterCoefficientData lp_cd, hp_cd, bp_cd, notch_cd;
+        lp_cd.second = hp_cd.second = bp_cd.second = notch_cd.second = 1;
+        lp_cd.first    = IIRCoefficients::makeLowPass(sr, fc, stageQ);
+        hp_cd.first    = IIRCoefficients::makeHighPass(sr, fc, stageQ);
+        bp_cd.first    = IIRCoefficients::makeBandPass(sr, fc, stageQ);
+        notch_cd.first = IIRCoefficients::makeNotchFilter(sr, fc, stageQ);
+
+        const double lp_v    = FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&lp_cd,    getMagnitude, freqNorm);
+        const double hp_v    = FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&hp_cd,    getMagnitude, freqNorm);
+        const double bp_v    = FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&bp_cd,    getMagnitude, freqNorm);
+        const double notch_v = FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&notch_cd, getMagnitude, freqNorm);
+
+        const double mt = typed->morph * 3.0;
+        if (mt <= 1.0)
+            return lp_v * (1.0 - mt) + bp_v * mt;
+        else if (mt <= 2.0)
+            return bp_v * (2.0 - mt) + hp_v * (mt - 1.0);
+        else
+            return hp_v * (3.0 - mt) + notch_v * (mt - 2.0);
+    }
+    
 	switch (typed->type)
 	{
 	case LP24: case HP24:
@@ -3355,6 +4146,42 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 		}
 		break;
 	}
+            
+        case Morph:
+        {
+            for (int c = 0; c < numChannels; c++)
+            {
+                float* d = buffer.getWritePointer(c, startSample);
+                for (int i = 0; i < numSamples; i++)
+                {
+                    const float v0  = d[i];
+                    const float v1z = z1_A[c];
+                    const float v2z = v2[c];
+                    const float v3  = v0 + v0z[c] - 2.0f * v2z;
+                    z1_A[c] += g1 * v3 - g2 * v1z;
+                    v2[c]   += g3 * v3 + g4 * v1z;
+                    v0z[c]   = v0;
+
+                    const float lp   = v2[c];
+                    const float bp   = z1_A[c];
+                    const float hp   = v0 - k * z1_A[c] - v2[c];
+                    const float notch = v0 - k * z1_A[c];
+
+                    const float mt = (float)(morph * 3.0);
+                    float out;
+                    if (mt <= 1.0f)
+                        out = lp * (1.0f - mt) + bp * mt;
+                    else if (mt <= 2.0f)
+                        out = bp * (2.0f - mt) + hp * (mt - 1.0f);
+                    else
+                        out = hp * (3.0f - mt) + notch * (mt - 2.0f);
+
+                    d[i] = out * outputGain;
+                }
+            }
+            break;
+        }
+            
 	default:
 		jassertfalse;
 		break;
@@ -3542,6 +4369,38 @@ void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 		}
 		break;
 	}
+            
+        case Morph:
+        {
+            for (int c = 0; c < numChannels; c++)
+            {
+                const float v0  = d[c];
+                const float v1z = z1_A[c];
+                const float v2z = v2[c];
+                const float v3  = v0 + v0z[c] - 2.0f * v2z;
+                z1_A[c] += g1 * v3 - g2 * v1z;
+                v2[c]   += g3 * v3 + g4 * v1z;
+                v0z[c]   = v0;
+
+                const float lp    = v2[c];
+                const float bp    = z1_A[c];
+                const float hp    = v0 - k * z1_A[c] - v2[c];
+                const float notch = v0 - k * z1_A[c];
+
+                const float mt = (float)(morph * 3.0);
+                float out;
+                if (mt <= 1.0f)
+                    out = lp * (1.0f - mt) + bp * mt;
+                else if (mt <= 2.0f)
+                    out = bp * (2.0f - mt) + hp * (mt - 1.0f);
+                else
+                    out = hp * (3.0f - mt) + notch * (mt - 2.0f);
+
+                d[c] = out * outputGain;
+            }
+            break;
+        }
+            
 	default:
 		jassertfalse;
 		break;

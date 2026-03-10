@@ -112,7 +112,7 @@ FilterDataObject::CoefficientData FilterNodeBase<FilterType, NV>::getApproximate
 template <class FilterType, int NV>
 void scriptnode::filters::FilterNodeBase<FilterType, NV>::onComplexDataEvent(hise::ComplexDataUIUpdaterBase::EventType e, var newValue)
 {
-	
+
 }
 
 template <class FilterType, int NV>
@@ -157,10 +157,7 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 	}
 	{
 		DEFINE_PARAMETERDATA(FilterNodeBase, Gain);
-		if (getStaticId() == Identifier("svf"))
-			p.setRange({ -100.0, 12.0 });
-		else
-			p.setRange({ -18.0, 18.0 });
+		p.setRange({ -18.0, 18.0 });
 		p.setSkewForCentre(0.0);
 		p.info.textConverter = parameter::pod::Decibel;
 		p.setDefaultValue(0.0);
@@ -210,6 +207,16 @@ void FilterNodeBase<FilterType, NV>::initialise(ObjectWithValueTree* n)
 		{
 			mixProcess = (bool)newValue;
 		});
+
+	if (!nodeTree.hasProperty(PropertyIds::WetOnly))
+		nodeTree.setProperty(PropertyIds::WetOnly, false, nullptr);
+
+	wetOnlyListener.setCallback(nodeTree, { PropertyIds::WetOnly },
+		valuetree::AsyncMode::Synchronously,
+		[this](const Identifier&, const var& newValue)
+		{
+			wetOnly = (bool)newValue;
+		});
 }
 
 template <class FilterType, int NV>
@@ -251,6 +258,7 @@ DEFINE_FILTER_NODE_TEMPIMPL(MoogFilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(MoogLadderSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(Korg35SubType);
 DEFINE_FILTER_NODE_TEMPIMPL(OberheimSubType);
+DEFINE_FILTER_NODE_TEMPIMPL(WaspFilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(TB303FilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(DiodeLadderSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(CombFilterSubType);
@@ -258,6 +266,7 @@ DEFINE_FILTER_NODE_TEMPIMPL(FormantFilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(DisperserFilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(StateVariableEqSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(LinkwitzRiley);
+DEFINE_FILTER_NODE_TEMPIMPL(ZDFDiodeLadderSubType);
 
 #undef DEFINE_FILTER_NODE_TEMPIMPL
 

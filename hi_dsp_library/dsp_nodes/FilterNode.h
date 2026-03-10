@@ -111,7 +111,11 @@ public:
 			const int numSamples = data.getNumSamples();
 			const int numChannels = b.getNumChannels();
 
-			if (mixProcess && mix < 1.0f)
+			// WetOnly (dry subtraction) is only meaningful for comb filters.
+			constexpr bool isCombFilter = std::is_same_v<typename FilterObject::SubType, hise::CombFilterSubType>;
+			const bool needsDry = (mixProcess && mix < 1.0f) || (isCombFilter && wetOnly);
+
+			if (needsDry)
 			{
 				for (int ch = 0; ch < numChannels; ++ch)
 					dryBuffer.copyFrom(ch, 0, b, ch, 0, numSamples);
@@ -128,6 +132,15 @@ public:
 					b.addFrom(ch, 0, dryBuffer, ch, 0, numSamples, 1.0f - mix);
 				}
 			}
+
+			if constexpr (isCombFilter)
+			{
+				if (wetOnly)
+				{
+					for (int ch = 0; ch < numChannels; ++ch)
+						b.addFrom(ch, 0, dryBuffer, ch, 0, numSamples, -1.0f);
+				}
+			}
 		}
 	}
 
@@ -135,7 +148,11 @@ public:
 	{
 		if (enabled)
 		{
-			if (mixProcess && mix < 1.0f)
+			// WetOnly (dry subtraction) is only meaningful for comb filters.
+			constexpr bool isCombFilter = std::is_same_v<typename FilterObject::SubType, hise::CombFilterSubType>;
+			const bool needsDry = (mixProcess && mix < 1.0f) || (isCombFilter && wetOnly);
+
+			if (needsDry)
 			{
 				float dry[16];
 				const int size = data.size();
@@ -146,8 +163,20 @@ public:
 
 				filter.get().processFrame(data.begin(), size);
 
-				for (int i = 0; i < size; ++i)
-					data[i] = data[i] * mix + dry[i] * (1.0f - mix);
+				if (mixProcess && mix < 1.0f)
+				{
+					for (int i = 0; i < size; ++i)
+						data[i] = data[i] * mix + dry[i] * (1.0f - mix);
+				}
+
+				if constexpr (isCombFilter)
+				{
+					if (wetOnly)
+					{
+						for (int i = 0; i < size; ++i)
+							data[i] -= dry[i];
+					}
+				}
 			}
 			else
 			{
@@ -184,8 +213,10 @@ public:
 	bool enabled = true;
 	float mix = 1.0f;
 	bool mixProcess = false;
+	bool wetOnly = false;
 	AudioSampleBuffer dryBuffer;
 	valuetree::PropertyListener mixProcessListener;
+	valuetree::PropertyListener wetOnlyListener;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(FilterNodeBase);
 };
@@ -214,6 +245,7 @@ DEFINE_FILTER_NODE_TEMPLATE2(moog, MoogFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(moog_ladder, MoogLadderSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(korg35, Korg35SubType);
 DEFINE_FILTER_NODE_TEMPLATE2(oberheim, OberheimSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(wasp, WaspFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(tb303, TB303FilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(diode_ladder, DiodeLadderSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(comb, CombFilterSubType);
@@ -221,6 +253,7 @@ DEFINE_FILTER_NODE_TEMPLATE2(formant, FormantFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(disperser, DisperserFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(svf_eq, StateVariableEqSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(linkwitzriley, LinkwitzRiley);
+DEFINE_FILTER_NODE_TEMPLATE2(zdf_diode, ZDFDiodeLadderSubType);
 
 #undef DEFINE_FILTER_NODE_TEMPLATE2
 

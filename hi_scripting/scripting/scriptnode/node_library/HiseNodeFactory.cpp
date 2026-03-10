@@ -1715,23 +1715,25 @@ Factory::Factory(DspNetwork* n) :
 {
 	using namespace data::ui;
 
-	registerPolyNode<df<one_pole<1>>,		df<one_pole<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
-	registerPolyNode<df<svf<1>>,			df<svf<NUM_POLYPHONIC_VOICES>>,			filter_editor>();
-	registerPolyNode<df<svf_eq<1>>,			df<svf_eq<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<biquad<1>>,			df<biquad<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<ladder<1>>,			df<ladder<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<ring_mod<1>>,		df<ring_mod<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
-	registerPolyNode<df<moog<1>>,			df<moog<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<moog_ladder<1>>,	df<moog_ladder<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
-	registerPolyNode<df<korg35<1>>,			df<korg35<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<oberheim<1>>,		df<oberheim<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
-	registerPolyNode<df<tb303<1>>,			df<tb303<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<diode_ladder<1>>,	df<diode_ladder<NUM_POLYPHONIC_VOICES>>,	filter_editor>();
+	registerPolyNode<df<one_pole<1>>,		df<one_pole<NUM_POLYPHONIC_VOICES>>,	    filter_editor>();
+	registerPolyNode<df<svf<1>>,			df<svf<NUM_POLYPHONIC_VOICES>>,			    filter_editor>();
+	registerPolyNode<df<svf_eq<1>>,			df<svf_eq<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<biquad<1>>,			df<biquad<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<ladder<1>>,			df<ladder<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<ring_mod<1>>,		df<ring_mod<NUM_POLYPHONIC_VOICES>>,	    filter_editor>();
+	registerPolyNode<df<moog<1>>,			df<moog<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<moog_ladder<1>>,	df<moog_ladder<NUM_POLYPHONIC_VOICES>>,	    filter_editor>();
+	registerPolyNode<df<korg35<1>>,			df<korg35<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<oberheim<1>>,		df<oberheim<NUM_POLYPHONIC_VOICES>>,	    filter_editor>();
+    registerPolyNode<df<wasp<1>>,           df<wasp<NUM_POLYPHONIC_VOICES>>,            filter_editor>();
+    registerPolyNode<df<tb303<1>>,          df<tb303<NUM_POLYPHONIC_VOICES>>,           filter_editor>();
+    registerPolyNode<df<diode_ladder<1>>,   df<diode_ladder<NUM_POLYPHONIC_VOICES>>,    filter_editor>();
 	registerPolyNode<df<comb<1>>,			df<comb<NUM_POLYPHONIC_VOICES>>,			filter_editor>();
 	registerPolyNode<df<formant<1>>,		df<formant<NUM_POLYPHONIC_VOICES>>,			filter_editor>();
 	registerPolyNode<df<disperser<1>>,		df<disperser<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<allpass<1>>,		df<allpass<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
-	registerPolyNode<df<linkwitzriley<1>>,	df<linkwitzriley<NUM_POLYPHONIC_VOICES>>, filter_editor>();
+	registerPolyNode<df<allpass<1>>,		df<allpass<NUM_POLYPHONIC_VOICES>>,		    filter_editor>();
+	registerPolyNode<df<linkwitzriley<1>>,	df<linkwitzriley<NUM_POLYPHONIC_VOICES>>,   filter_editor>();
+	registerPolyNode<df<zdf_diode<1>>,		df<zdf_diode<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
 
 	registerNode<wrap::data<convolution, data::dynamic::audiofile>, data::ui::audiofile_editor>();
 	//registerPolyNode<fir, fir_poly>();
