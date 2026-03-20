@@ -1992,50 +1992,37 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 	storedGain       = gain;
 	storedQ          = (float)q;
 
-	// Modes that use the new parameter mapping:
+	// All modes use the same parameter mapping:
 	//   Q   → feedback depth (fb_gain 0–0.95)
 	//   Gain → bidirectional LP/HP in the feedback/feedforward path
-	// FlangerFB/FlangerFBInv are excluded — they use the legacy Gain→fb_gain mapping.
-	const bool useNewMapping = (mode == Comb          || mode == InvComb          ||
-	                            mode == FeedforwardComb || mode == FeedforwardInvComb ||
-	                            mode == Flanger         || mode == FlangerInv);
-
 	const double gain_dB = Decibels::gainToDecibels(jmax(gain, 1.0e-6));
 
-	if (useNewMapping)
-	{
-		// Q → feedback depth: q=0.3 → 0%, q=9.9 → 95%
-		fb_gain = jlimit(0.0, 0.95, 0.95 * (q - 0.3) / 9.6);
+	// Q → feedback depth: q=0.3 → 0%, q=9.9 → 95%
+	fb_gain = jlimit(0.0, 0.95, 0.95 * (q - 0.3) / 9.6);
 
-		// Gain → bidirectional feedback filter:
-		//   gain_dB < 0: LP, cutoff log-sweeps 200 Hz (−18 dB) → 20 kHz (0 dB)
-		//   gain_dB > 0: HP, cutoff log-sweeps  20 Hz ( 0 dB) → 10 kHz (+18 dB)
-		//   gain_dB ≈ 0: passthrough (lp_coeff = 0 → one-pole update becomes identity)
-		if (gain_dB < -0.1)
-		{
-			const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);  // 0 at −18 dB, 1 at 0 dB
-			const double lp_cutoff = 200.0 * std::pow(100.0, t);           // log-sweep 200 → 20000 Hz
-			lp_coeff = (float)std::exp(-2.0 * double_Pi * lp_cutoff / sampleRate);
-			fb_is_hp = false;
-		}
-		else if (gain_dB > 0.1)
-		{
-			const double t = jlimit(0.0, 1.0, gain_dB / 18.0);             // 0 at 0 dB, 1 at +18 dB
-			const double hp_cutoff = 20.0 * std::pow(500.0, t);             // log-sweep 20 → 10000 Hz
-			lp_coeff = (float)std::exp(-2.0 * double_Pi * hp_cutoff / sampleRate);
-			fb_is_hp = true;
-		}
-		else
-		{
-			// Passthrough: lp_coeff = 0 → lp_s[c] = ap_out each sample → identity
-			lp_coeff = 0.0f;
-			fb_is_hp = false;
-		}
+	// Gain → bidirectional feedback filter:
+	//   gain_dB < 0: LP, cutoff log-sweeps 200 Hz (−18 dB) → 20 kHz (0 dB)
+	//   gain_dB > 0: HP, cutoff log-sweeps  20 Hz ( 0 dB) → 10 kHz (+18 dB)
+	//   gain_dB ≈ 0: passthrough (lp_coeff = 0 → one-pole update becomes identity)
+	if (gain_dB < -0.1)
+	{
+		const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);  // 0 at −18 dB, 1 at 0 dB
+		const double lp_cutoff = 200.0 * std::pow(100.0, t);           // log-sweep 200 → 20000 Hz
+		lp_coeff = (float)std::exp(-2.0 * double_Pi * lp_cutoff / sampleRate);
+		fb_is_hp = false;
+	}
+	else if (gain_dB > 0.1)
+	{
+		const double t = jlimit(0.0, 1.0, gain_dB / 18.0);             // 0 at 0 dB, 1 at +18 dB
+		const double hp_cutoff = 20.0 * std::pow(500.0, t);             // log-sweep 20 → 10000 Hz
+		lp_coeff = (float)std::exp(-2.0 * double_Pi * hp_cutoff / sampleRate);
+		fb_is_hp = true;
 	}
 	else
 	{
-		// FlangerFB / FlangerFBInv: legacy Gain → feedback depth mapping
-		fb_gain = jlimit(-0.99, 0.99, gain_dB / 18.0);
+		// Passthrough: lp_coeff = 0 → lp_s[c] = ap_out each sample → identity
+		lp_coeff = 0.0f;
+		fb_is_hp = false;
 	}
 
 	const bool isFlanger = (mode == Flanger || mode == FlangerInv ||
@@ -2065,10 +2052,6 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 	const double delayFrac = delayLength - (double)delayLengthInt;
 	ap_coeff = (1.0 - delayFrac) / (1.0 + delayFrac);
 
-	// FlangerFB: lowpass in the feedback write path
-	//   Low Q  → α near 0   → heavy HF damping in feedback loop
-	//   High Q → α near 0.99 → light damping, HF sustained longer
-	fb_lp_coeff = jlimit(0.0, 0.99, 1.0 - (1.0 / (q * 2.0)));
 }
 
 FilterCoefficientData CombFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
@@ -2141,29 +2124,18 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 		return jlimit(0.0, 1.0, mag / (1.0 + fb_raw + 1.0e-12));
 	}
 
-	// FlangerFB / FlangerFBInv: legacy Gain → feedback depth, Q → internal LP damping.
-	// fb sourced from Gain (unchanged).
-	const double gain_dB = Decibels::gainToDecibels(jmax(typed->storedGain, 1.0e-6));
-	double g = jlimit(-0.99, 0.99, gain_dB / 18.0);
-	if (isInv) g = -g;
+	// FlangerFB / FlangerFBInv: Q → feedback depth, Gain → LP/HP in write path.
+	// Same parameter mapping as Comb/Feedforward modes.
+	{
+		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
+		const double fb_signed = isInv ? -fb_raw : fb_raw;
+		const double fb_eff    = jlimit(-0.90, 0.90, fb_signed * filterMag());
 
-	const std::complex<double> z_neg_N(std::cos(omega * typed->delayLength),
-	                                   -std::sin(omega * typed->delayLength));
-
-	// H_lp(z) = α / (1 − (1−α)·z^{−1})
-	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
-	const double alpha = typed->fb_lp_coeff;
-	const std::complex<double> H_fb = (alpha > 1.0e-6)
-		? alpha / (1.0 - (1.0 - alpha) * e_neg)
-		: std::complex<double>(0.0, 0.0);
-
-	const std::complex<double> num = 1.0 + g * z_neg_N * (1.0 - H_fb);
-	const std::complex<double> den = 1.0 - g * H_fb * z_neg_N;
-
-	if (std::abs(den) < 1.0e-10)
-		return 10.0;
-
-	return std::abs(num / den);
+		const double D       = typed->delayLength;
+		const double mag     = 1.0 / std::sqrt(jmax(0.0001, 1.0 + fb_eff*fb_eff - 2.0*fb_eff*std::cos(omega*D)));
+		const double max_mag = 1.0 / jmax(1.0 - fb_raw, 1.0e-6);
+		return jlimit(0.0, 1.0, mag / max_mag);
+	}
 }
 
 void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
@@ -2220,10 +2192,11 @@ void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			}
 			else
 			{
-				// FlangerFB: LP in the write path via fb_lp_coeff (unchanged)
+				// FlangerFB: Gain-controlled LP/HP in the feedback write path
+				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+				const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
 				output = input + effective_fb * ap_out;
-				fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
-				dl[writePos[c]] = input + effective_fb * fb_lp_s[c];
+				dl[writePos[c]] = input + effective_fb * (double)fb_filtered;
 			}
 
 			writePos[c] = (writePos[c] + 1) % maxDelayLine;
@@ -2276,10 +2249,11 @@ void CombFilterSubType::processFrame(float* frameData, int numChannels)
 		}
 		else
 		{
-			// FlangerFB: LP in the write path via fb_lp_coeff (unchanged)
+			// FlangerFB: Gain-controlled LP/HP in the feedback write path
+			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
+			const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
 			output = input + effective_fb * ap_out;
-			fb_lp_s[c] += fb_lp_coeff * (ap_out - fb_lp_s[c]);
-			dl[writePos[c]] = input + effective_fb * fb_lp_s[c];
+			dl[writePos[c]] = input + effective_fb * (double)fb_filtered;
 		}
 
 		writePos[c] = (writePos[c] + 1) % maxDelayLine;
@@ -2586,6 +2560,7 @@ DEFINE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
 
 DisperserFilterSubType::DisperserFilterSubType()
 {
+	diffuserDelay.resize(MAX_DIFFUSER_STAGES * NUM_MAX_CHANNELS * maxDiffuserDelay, 0.0);
 	reset(NUM_MAX_CHANNELS);
 	updateCoefficients(44100.0, 1000.0, 1.0, 1.0);
 }
@@ -2602,26 +2577,37 @@ juce::Identifier DisperserFilterSubType::getStaticId()
 
 juce::StringArray DisperserFilterSubType::getModes() const
 {
-	return { "Disperser" };
+	return { "Disperser", "Diffuser", "Dense" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> DisperserFilterSubType::getCoefficientTypeList() const
 {
-	return { FilterHelpers::AllPass };
+	return { FilterHelpers::AllPass, FilterHelpers::AllPass, FilterHelpers::AllPass };
 }
 
-void DisperserFilterSubType::setType(int /*t*/)
+void DisperserFilterSubType::setType(int t)
 {
-	// Single mode only
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
 }
 
 void DisperserFilterSubType::reset(int /*numChannels*/)
 {
+	// Disperser state
 	memset(x1, 0, sizeof(x1));
 	memset(x2, 0, sizeof(x2));
 	memset(y1, 0, sizeof(y1));
 	memset(y2, 0, sizeof(y2));
+
+	// Diffuser/Dense state
+	std::fill(diffuserDelay.begin(), diffuserDelay.end(), 0.0);
+	memset(diffWritePos, 0, sizeof(diffWritePos));
+	memset(innerZ, 0, sizeof(innerZ));
 }
+
+// Base delay times (ms) for diffuser stages — mutually-prime-like ratios
+static const double kDiffuserBaseDelaysMs[8] = {
+	0.97, 1.51, 2.33, 3.19, 4.33, 5.87, 7.61, 10.13
+};
 
 void DisperserFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
@@ -2630,18 +2616,47 @@ void DisperserFilterSubType::updateCoefficients(double sampleRate, double freque
 	storedQ          = q;
 	storedGain       = gain;
 
-	const double omega    = 2.0 * double_Pi * frequency / sampleRate;
-	const double alpha    = std::sin(omega) / (2.0 * jmax(0.001, q));
-	const double a0       = 1.0 + alpha;
-
-	nb0 = (float)((1.0 - alpha) / a0);
-	nb1 = (float)((-2.0 * std::cos(omega)) / a0);
-
-	// Map gain (linear amplitude) ±18 dB → 1–MAX_STAGES allpass stages
 	const double gainDB = jlimit(-18.0, 18.0,
 		(double)Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f)));
-	numStages = 1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1));
-	numStages = jlimit(1, MAX_STAGES, numStages);
+
+	if (mode == Disperser)
+	{
+		const double omega = 2.0 * double_Pi * frequency / sampleRate;
+		const double alpha = std::sin(omega) / (2.0 * jmax(0.001, q));
+		const double a0    = 1.0 + alpha;
+
+		nb0 = (float)((1.0 - alpha) / a0);
+		nb1 = (float)((-2.0 * std::cos(omega)) / a0);
+
+		numStages = 1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1));
+		numStages = jlimit(1, MAX_STAGES, numStages);
+	}
+	else
+	{
+		// Diffuser / Dense mode
+
+		// Frequency → size (inverse: low freq = long delays)
+		const double fc = jlimit(20.0, 20000.0, frequency);
+		const double logPos = std::log(fc / 20.0) / std::log(1000.0);
+		const double scaleMs = 1.0 * std::pow(0.02, logPos);
+
+		for (int s = 0; s < MAX_DIFFUSER_STAGES; s++)
+		{
+			const double delayMs = kDiffuserBaseDelaysMs[s] * scaleMs;
+			diffDelayLen[s] = jlimit(1, maxDiffuserDelay - 1,
+				(int)(delayMs * sampleRate / 1000.0));
+		}
+
+		// Q → feedback coefficient (0.3 → 0.3, 9.9 → 0.75)
+		diffFeedback = jmap(jlimit(0.3, 9.9, q), 0.3, 9.9, 0.3, 0.75);
+
+		// Gain → number of active stages (1–8)
+		numDiffuserStages = 1 + (int)((gainDB + 18.0) / 36.0 * 7.0);
+		numDiffuserStages = jlimit(1, MAX_DIFFUSER_STAGES, numDiffuserStages);
+
+		// Dense inner allpass feedback (proportional to main feedback)
+		innerFB = diffFeedback * 0.7;
+	}
 }
 
 FilterCoefficientData DisperserFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
@@ -2660,7 +2675,6 @@ FilterCoefficientData DisperserFilterSubType::getCoefficients(double freqNorm, d
 
 double DisperserFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
 {
-	// We display phase response in the magnitude slot; phase slot returns 0.
 	if (!getMagnitude)
 		return 0.0;
 
@@ -2670,105 +2684,273 @@ double DisperserFilterSubType::getPlotValue(void* obj, bool getMagnitude, double
 	if (sr <= 0.0)
 		return 0.0;
 
-	// Reconstruct normalised biquad coefficients from stored parameters
-	const double freq     = jlimit(20.0, 20000.0, typed->storedFrequency);
-	const double q        = jmax(0.001, typed->storedQ);
-	const double gainDB   = jlimit(-18.0, 18.0,
+	const double freq   = jlimit(20.0, 20000.0, typed->storedFrequency);
+	const double q      = jmax(0.001, typed->storedQ);
+	const double gainDB = jlimit(-18.0, 18.0,
 		(double)Decibels::gainToDecibels(jmax((float)typed->storedGain, 1.0e-6f)));
 
-	const double omega_c  = 2.0 * double_Pi * freq / sr;
-	const double alpha    = std::sin(omega_c) / (2.0 * q);
-	const double a0       = 1.0 + alpha;
-	const double nb0_d    = (1.0 - alpha) / a0;
-	const double nb1_d    = (-2.0 * std::cos(omega_c)) / a0;
-
-	const int ns = jlimit(1, MAX_STAGES,
-		1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1)));
-
-	// Phase of H(e^jw) for one second-order allpass stage at normalised frequency w.
-	// freqNorm = plotFreq / sampleRate, so w = 2π * freqNorm.
 	const double w = 2.0 * double_Pi * freqNorm;
 
-	auto phaseSingleStage = [&](double ww) -> double
+	if (typed->mode == Disperser)
 	{
-		const double cos_w  = std::cos(ww);
-		const double sin_w  = std::sin(ww);
-		const double cos_2w = std::cos(2.0 * ww);
-		const double sin_2w = std::sin(2.0 * ww);
+		// Disperser: show phase response of cascaded biquad allpass stages
+		const double omega_c = 2.0 * double_Pi * freq / sr;
+		const double alpha   = std::sin(omega_c) / (2.0 * q);
+		const double a0      = 1.0 + alpha;
+		const double nb0_d   = (1.0 - alpha) / a0;
+		const double nb1_d   = (-2.0 * std::cos(omega_c)) / a0;
 
-		// H(e^jw) = (nb0 + nb1*e^-jw + e^-2jw) / (1 + nb1*e^-jw + nb0*e^-2jw)
-		const double num_re = nb0_d + nb1_d * cos_w + cos_2w;
-		const double num_im =        -nb1_d * sin_w - sin_2w;
-		const double den_re = 1.0   + nb1_d * cos_w + nb0_d * cos_2w;
-		const double den_im =        -nb1_d * sin_w - nb0_d * sin_2w;
+		const int ns = jlimit(1, MAX_STAGES,
+			1 + (int)((gainDB + 18.0) / 36.0 * (double)(MAX_STAGES - 1)));
 
-		return std::atan2(num_im, num_re) - std::atan2(den_im, den_re);
+		auto phaseSingleStage = [&](double ww) -> double
+		{
+			const double cos_w  = std::cos(ww);
+			const double sin_w  = std::sin(ww);
+			const double cos_2w = std::cos(2.0 * ww);
+			const double sin_2w = std::sin(2.0 * ww);
+
+			const double num_re = nb0_d + nb1_d * cos_w + cos_2w;
+			const double num_im =        -nb1_d * sin_w - sin_2w;
+			const double den_re = 1.0   + nb1_d * cos_w + nb0_d * cos_2w;
+			const double den_im =        -nb1_d * sin_w - nb0_d * sin_2w;
+
+			return std::atan2(num_im, num_re) - std::atan2(den_im, den_re);
+		};
+
+		const double phase1     = phaseSingleStage(w);
+		const double normalised = 0.5 + 0.5 * std::cos((double)ns * phase1 + double_Pi * (double)ns);
+		return jlimit(0.0, 1.0, normalised);
+	}
+
+	// Diffuser / Dense: show group delay (normalised)
+	const double fc = jlimit(20.0, 20000.0, freq);
+	const double logPos = std::log(fc / 20.0) / std::log(1000.0);
+	const double scaleMs = 1.0 * std::pow(0.02, logPos);
+
+	const double fb = jmap(jlimit(0.3, 9.9, q), 0.3, 9.9, 0.3, 0.75);
+	const int ns = jlimit(1, MAX_DIFFUSER_STAGES,
+		1 + (int)((gainDB + 18.0) / 36.0 * 7.0));
+
+	const bool isDense = (typed->mode == Dense);
+	const double ifb = fb * 0.7;
+
+	// Compute total phase at w and w+dw, then group delay = -dphase/dw
+	auto totalPhase = [&](double ww) -> double
+	{
+		double phase = 0.0;
+
+		for (int s = 0; s < ns; s++)
+		{
+			const double delayMs = kDiffuserBaseDelaysMs[s] * scaleMs;
+			const double D = jmax(1.0, delayMs * sr / 1000.0);
+
+			// Schroeder allpass: H(z) = (-g + z^{-D}) / (1 - g*z^{-D})
+			const double cos_wD = std::cos(ww * D);
+			const double sin_wD = std::sin(ww * D);
+
+			double num_re = -fb + cos_wD;
+			double num_im = -sin_wD;
+			double den_re = 1.0 - fb * cos_wD;
+			double den_im = fb * sin_wD;
+
+			if (isDense)
+			{
+				// Inner first-order allpass: H_i(z) = (-a + z^{-1}) / (1 - a*z^{-1})
+				const double cos_w = std::cos(ww);
+				const double sin_w = std::sin(ww);
+				const double i_num_re = -ifb + cos_w;
+				const double i_num_im = -sin_w;
+				const double i_den_re = 1.0 - ifb * cos_w;
+				const double i_den_im = ifb * sin_w;
+
+				// H_inner applied to delayed signal modifies the allpass:
+				// Multiply delay z^{-D} by H_inner in both num and den
+				// num = -g + H_inner * z^{-D}, den = 1 - g * H_inner * z^{-D}
+				const double hi_re = (i_num_re * i_den_re + i_num_im * i_den_im)
+					/ (i_den_re * i_den_re + i_den_im * i_den_im);
+				const double hi_im = (i_num_im * i_den_re - i_num_re * i_den_im)
+					/ (i_den_re * i_den_re + i_den_im * i_den_im);
+
+				// H_inner * z^{-D}
+				const double hd_re = hi_re * cos_wD + hi_im * sin_wD;
+				const double hd_im = hi_im * cos_wD - hi_re * sin_wD;
+
+				num_re = -fb + hd_re;
+				num_im = hd_im;
+				den_re = 1.0 - fb * hd_re;
+				den_im = -fb * hd_im;
+			}
+
+			phase += std::atan2(num_im, num_re) - std::atan2(den_im, den_re);
+		}
+
+		return phase;
 	};
 
-	// Single-stage phase is in [-π, 0]. Map to [0, 1] using cos to avoid
-	// wrapping artifacts from multiplying by ns before normalising:
-	//   DC (phase=0):      cos(ns*0   + ns*π) = cos(ns*π) → alternates ±1
-	//   Nyquist (phase=-π): cos(ns*(-π) + ns*π) = cos(0) = 1
-	// Offset by ns*π folds all stages so DC=1, Nyquist=0 regardless of ns.
-	const double phase1     = phaseSingleStage(w);   // single stage, range [-π, 0]
-	const double normalised = 0.5 + 0.5 * std::cos((double)ns * phase1 + double_Pi * (double)ns);
-	return jlimit(0.0, 1.0, normalised);
+	const double dw = 1.0e-5;
+	const double phase_lo = totalPhase(w - dw);
+	const double phase_hi = totalPhase(w + dw);
+
+	// Unwrap phase difference
+	double dphi = phase_hi - phase_lo;
+	while (dphi >  double_Pi) dphi -= 2.0 * double_Pi;
+	while (dphi < -double_Pi) dphi += 2.0 * double_Pi;
+
+	const double groupDelay = -dphi / (2.0 * dw);
+
+	// Normalise: max theoretical group delay scales with stages, feedback, and delay length
+	const double maxDelay = (double)ns * 10.0 * scaleMs * sr / 1000.0
+		/ jmax(0.01, 1.0 - fb * fb);
+	const double norm = jlimit(0.0, 1.0, groupDelay / jmax(1.0, maxDelay));
+
+	return norm;
 }
 
 void DisperserFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-	const int   numChannels = buffer.getNumChannels();
-	const float _nb0        = nb0;
-	const float _nb1        = nb1;
-	const int   ns          = numStages;
+	const int numChannels = buffer.getNumChannels();
 
-	for (int c = 0; c < numChannels; c++)
+	if (mode == Disperser)
 	{
-		float* d = buffer.getWritePointer(c, startSample);
+		const float _nb0 = nb0;
+		const float _nb1 = nb1;
+		const int   ns   = numStages;
 
-		for (int i = 0; i < numSamples; i++)
+		for (int c = 0; c < numChannels; c++)
 		{
-			float x = d[i];
+			float* d = buffer.getWritePointer(c, startSample);
 
-			for (int s = 0; s < ns; s++)
+			for (int i = 0; i < numSamples; i++)
 			{
-				// Direct Form I: y = nb0*x + nb1*x1 + 1*x2 - nb1*y1 - nb0*y2
-				const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
-				              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
-				x2[c][s] = x1[c][s];
-				x1[c][s] = x;
-				y2[c][s] = y1[c][s];
-				y1[c][s] = y;
-				x = y;   // stage output feeds next stage
-			}
+				float x = d[i];
 
-			d[i] = x;
+				for (int s = 0; s < ns; s++)
+				{
+					const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
+					              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
+					x2[c][s] = x1[c][s];
+					x1[c][s] = x;
+					y2[c][s] = y1[c][s];
+					y1[c][s] = y;
+					x = y;
+				}
+
+				d[i] = x;
+			}
+		}
+	}
+	else
+	{
+		const int   ns   = numDiffuserStages;
+		const double fb  = diffFeedback;
+		const double ifb = innerFB;
+		const bool isDense = (mode == Dense);
+
+		for (int c = 0; c < numChannels; c++)
+		{
+			float* d = buffer.getWritePointer(c, startSample);
+
+			for (int i = 0; i < numSamples; i++)
+			{
+				double x = (double)d[i];
+
+				for (int s = 0; s < ns; s++)
+				{
+					double* dl = diffuserDelay.data()
+						+ (s * NUM_MAX_CHANNELS + c) * maxDiffuserDelay;
+
+					const int readPos = (diffWritePos[c][s] - diffDelayLen[s]
+						+ maxDiffuserDelay) % maxDiffuserDelay;
+					double delayed = dl[readPos];
+
+					if (isDense)
+					{
+						// Inner first-order allpass: y = -a*x + z; z = x + a*y
+						const double iz = innerZ[c][s];
+						const double inner_out = -ifb * delayed + iz;
+						innerZ[c][s] = delayed + ifb * inner_out;
+						delayed = inner_out;
+					}
+
+					// Schroeder allpass: output = -g*input + delayed
+					//                   write   = input + g*delayed
+					const double output = -fb * x + delayed;
+					dl[diffWritePos[c][s]] = x + fb * delayed;
+					diffWritePos[c][s] = (diffWritePos[c][s] + 1) % maxDiffuserDelay;
+
+					x = output;
+				}
+
+				d[i] = (float)x;
+			}
 		}
 	}
 }
 
 void DisperserFilterSubType::processFrame(float* frameData, int numChannels)
 {
-	const float _nb0 = nb0;
-	const float _nb1 = nb1;
-	const int   ns   = numStages;
-
-	for (int c = 0; c < numChannels; c++)
+	if (mode == Disperser)
 	{
-		float x = frameData[c];
+		const float _nb0 = nb0;
+		const float _nb1 = nb1;
+		const int   ns   = numStages;
 
-		for (int s = 0; s < ns; s++)
+		for (int c = 0; c < numChannels; c++)
 		{
-			const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
-			              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
-			x2[c][s] = x1[c][s];
-			x1[c][s] = x;
-			y2[c][s] = y1[c][s];
-			y1[c][s] = y;
-			x = y;
-		}
+			float x = frameData[c];
 
-		frameData[c] = x;
+			for (int s = 0; s < ns; s++)
+			{
+				const float y = _nb0 * x + _nb1 * x1[c][s] + x2[c][s]
+				              - _nb1 * y1[c][s] - _nb0 * y2[c][s];
+				x2[c][s] = x1[c][s];
+				x1[c][s] = x;
+				y2[c][s] = y1[c][s];
+				y1[c][s] = y;
+				x = y;
+			}
+
+			frameData[c] = x;
+		}
+	}
+	else
+	{
+		const int   ns   = numDiffuserStages;
+		const double fb  = diffFeedback;
+		const double ifb = innerFB;
+		const bool isDense = (mode == Dense);
+
+		for (int c = 0; c < numChannels; c++)
+		{
+			double x = (double)frameData[c];
+
+			for (int s = 0; s < ns; s++)
+			{
+				double* dl = diffuserDelay.data()
+					+ (s * NUM_MAX_CHANNELS + c) * maxDiffuserDelay;
+
+				const int readPos = (diffWritePos[c][s] - diffDelayLen[s]
+					+ maxDiffuserDelay) % maxDiffuserDelay;
+				double delayed = dl[readPos];
+
+				if (isDense)
+				{
+					const double iz = innerZ[c][s];
+					const double inner_out = -ifb * delayed + iz;
+					innerZ[c][s] = delayed + ifb * inner_out;
+					delayed = inner_out;
+				}
+
+				const double output = -fb * x + delayed;
+				dl[diffWritePos[c][s]] = x + fb * delayed;
+				diffWritePos[c][s] = (diffWritePos[c][s] + 1) % maxDiffuserDelay;
+
+				x = output;
+			}
+
+			frameData[c] = (float)x;
+		}
 	}
 }
 
@@ -3000,6 +3182,212 @@ double ZDFDiodeLadderSubType::getPlotValue(void* obj, bool getMagnitude, double 
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(ZDFDiodeLadderSubType);
+
+
+// ============================================================================
+// DJFilterSubType
+// ============================================================================
+
+FilterHelpers::FilterSubType DJFilterSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::DJFilterSubType;
+}
+
+Identifier DJFilterSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("dj");
+}
+
+DJFilterSubType::DJFilterSubType() {}
+
+StringArray DJFilterSubType::getModes() const
+{
+	return { "DJ" };
+}
+
+Array<FilterHelpers::CoefficientType> DJFilterSubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::LowPass };
+}
+
+void DJFilterSubType::setType(int /*t*/) {}
+
+void DJFilterSubType::reset(int numChannels)
+{
+	for (int c = 0; c < numChannels; c++)
+	{
+		x1[c] = x2[c] = y1[c] = y2[c] = 0.0f;
+	}
+}
+
+void DJFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = q;
+	storedGain       = gain;
+	outputGain       = (float)gain;
+
+	if (sampleRate <= 0.0)
+		return;
+
+	// Map frequency position to a 0-1 range (log scale)
+	// t=0 at 20 Hz, t=0.5 at ~632 Hz, t=1 at 20 kHz
+	const double fc = jlimit(20.0, 20000.0, frequency);
+	const double t  = std::log(fc / 20.0) / std::log(1000.0);
+
+	const double clampedQ = jlimit(0.3, 9.9, q);
+	const double Q = jmap(clampedQ, 0.3, 9.9, 0.5, 8.0);
+
+	if (t < 0.45)
+	{
+		// LP mode: cutoff sweeps from 200 Hz (t=0) → 20 kHz (t=0.45)
+		const double norm = t / 0.45;
+		const double cutoff = jlimit(20.0, 20000.0, 200.0 * std::pow(100.0, norm));
+		const double w0 = 2.0 * double_Pi * cutoff / sampleRate;
+		const double alpha = std::sin(w0) / (2.0 * Q);
+		const double cosw0 = std::cos(w0);
+
+		const double a0_inv = 1.0 / (1.0 + alpha);
+		b0 = (float)((1.0 - cosw0) * 0.5 * a0_inv);
+		b1 = (float)((1.0 - cosw0) * a0_inv);
+		b2 = b0;
+		a1 = (float)(-2.0 * cosw0 * a0_inv);
+		a2 = (float)((1.0 - alpha) * a0_inv);
+	}
+	else if (t > 0.55)
+	{
+		// HP mode: cutoff sweeps from 20 Hz (t=0.55) → 10 kHz (t=1.0)
+		const double norm = (t - 0.55) / 0.45;
+		const double cutoff = jlimit(20.0, 20000.0, 20.0 * std::pow(500.0, norm));
+		const double w0 = 2.0 * double_Pi * cutoff / sampleRate;
+		const double alpha = std::sin(w0) / (2.0 * Q);
+		const double cosw0 = std::cos(w0);
+
+		const double a0_inv = 1.0 / (1.0 + alpha);
+		b0 = (float)((1.0 + cosw0) * 0.5 * a0_inv);
+		b1 = (float)(-(1.0 + cosw0) * a0_inv);
+		b2 = b0;
+		a1 = (float)(-2.0 * cosw0 * a0_inv);
+		a2 = (float)((1.0 - alpha) * a0_inv);
+	}
+	else
+	{
+		// Passthrough zone
+		b0 = 1.0f;
+		b1 = 0.0f;
+		b2 = 0.0f;
+		a1 = 0.0f;
+		a2 = 0.0f;
+	}
+}
+
+void DJFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const int numChannels = buffer.getNumChannels();
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		float* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			const float in = d[i];
+			const float out = b0 * in + b1 * x1[c] + b2 * x2[c]
+			                - a1 * y1[c] - a2 * y2[c];
+
+			x2[c] = x1[c];
+			x1[c] = in;
+			y2[c] = y1[c];
+			y1[c] = out;
+
+			d[i] = out * outputGain;
+		}
+	}
+}
+
+void DJFilterSubType::processFrame(float* frameData, int numChannels)
+{
+	for (int c = 0; c < numChannels; c++)
+	{
+		const float in = frameData[c];
+		const float out = b0 * in + b1 * x1[c] + b2 * x2[c]
+		                - a1 * y1[c] - a2 * y2[c];
+
+		x2[c] = x1[c];
+		x1[c] = in;
+		y2[c] = y1[c];
+		y1[c] = out;
+
+		frameData[c] = out * outputGain;
+	}
+}
+
+FilterCoefficientData DJFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<DJFilterSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ    = q;
+	m->storedGain = gain;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double DJFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	if (!getMagnitude)
+		return 0.0;
+
+	auto* typed = static_cast<DJFilterSubType*>(obj);
+	const double sr = typed->storedSampleRate;
+	const double freq = typed->storedFrequency;
+	const double q = typed->storedQ;
+
+	if (sr <= 0.0)
+		return 1.0;
+
+	const double fc = jlimit(20.0, 20000.0, freq);
+	const double t  = std::log(fc / 20.0) / std::log(1000.0);
+
+	const double clampedQ = jlimit(0.3, 9.9, q);
+	const double Q = jmap(clampedQ, 0.3, 9.9, 0.5, 8.0);
+
+	double cutoff;
+	bool isHP;
+
+	if (t < 0.45)
+	{
+		const double norm = t / 0.45;
+		cutoff = jlimit(20.0, 20000.0, 200.0 * std::pow(100.0, norm));
+		isHP = false;
+	}
+	else if (t > 0.55)
+	{
+		const double norm = (t - 0.55) / 0.45;
+		cutoff = jlimit(20.0, 20000.0, 20.0 * std::pow(500.0, norm));
+		isHP = true;
+	}
+	else
+	{
+		return 1.0;  // Passthrough
+	}
+
+	FilterCoefficientData stageCd;
+	stageCd.second = 1;
+
+	if (isHP)
+		stageCd.first = IIRCoefficients::makeHighPass(sr, cutoff, Q);
+	else
+		stageCd.first = IIRCoefficients::makeLowPass(sr, cutoff, Q);
+
+	return FilterCoefficientData::getFilterPlotValueForIIRCoefficients(&stageCd, getMagnitude, freqNorm);
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(DJFilterSubType);
 
 
 
@@ -3336,19 +3724,32 @@ Array<hise::FilterHelpers::CoefficientType> PhaseAllpassSubType::getCoefficientT
 
 void PhaseAllpassSubType::processSamples(AudioSampleBuffer& b, int startSample, int numSamples)
 {
-	// numStages inside each InternalFilter controls 6-stage (AP12) or 12-stage (AP24) operation.
 	for (int c = 0; c < numFilters; c++)
 		for (int i = 0; i < numSamples; i++)
 		{
 			float* d = b.getWritePointer(c, i + startSample);
 			*d = filters[c].getNextSample(*d);
+
+			// Post-allpass LPHP filter with continuous LP↔HP crossfade
+			lp_s[c] = (1.0f - lp_coeff) * (*d) + lp_coeff * lp_s[c];
+			const float amount = std::abs(lp_hp_mix);
+			const float wet = (lp_hp_mix < 0.0f) ? lp_s[c] : (*d - lp_s[c]);
+			*d = *d * (1.0f - amount) + wet * amount;
 		}
 }
 
 void PhaseAllpassSubType::processFrame(float* d, int numChannels)
 {
 	for (int c = 0; c < numChannels; c++)
+	{
 		d[c] = filters[c].getNextSample(d[c]);
+
+		// Post-allpass LPHP filter with continuous LP↔HP crossfade
+		lp_s[c] = (1.0f - lp_coeff) * d[c] + lp_coeff * lp_s[c];
+		const float amount = std::abs(lp_hp_mix);
+		const float wet = (lp_hp_mix < 0.0f) ? lp_s[c] : (d[c] - lp_s[c]);
+		d[c] = d[c] * (1.0f - amount) + wet * amount;
+	}
 }
 
 void PhaseAllpassSubType::setType(int t)
@@ -3368,7 +3769,7 @@ void PhaseAllpassSubType::setType(int t)
 	}
 }
 
-void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
+void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
 	if (sampleRate <= 0.0)
 		return;
@@ -3376,6 +3777,7 @@ void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency
 	storedSampleRate = sampleRate;
 	storedFrequency  = frequency;
 	storedQ          = q;
+	storedGain       = gain;
 
 	const bool isInv = (apMode == Phaser3Inv || apMode == Phaser6Inv || apMode == Phaser12Inv);
 	const int  ns    = (apMode == Phaser12 || apMode == Phaser12Inv) ? 12
@@ -3390,6 +3792,29 @@ void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency
 		filters[i].numStages = ns;
 		filters[i].fb_inv    = isInv;
 	}
+
+	// Post-allpass LPHP filter controlled by Gain parameter
+	// Continuous mix: -1 = full LP, 0 = passthrough, +1 = full HP
+	const double gain_dB = Decibels::gainToDecibels(jmax(gain, 1.0e-6));
+	lp_hp_mix = (float)jlimit(-1.0, 1.0, gain_dB / 18.0);
+
+	if (gain_dB < -0.1)
+	{
+		const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);
+		const double lp_cutoff = 200.0 * std::pow(100.0, t);
+		lp_coeff = (float)std::exp(-2.0 * double_Pi * lp_cutoff / sampleRate);
+	}
+	else if (gain_dB > 0.1)
+	{
+		const double t = jlimit(0.0, 1.0, gain_dB / 18.0);
+		const double hp_cutoff = 20.0 * std::pow(500.0, t);
+		lp_coeff = (float)std::exp(-2.0 * double_Pi * hp_cutoff / sampleRate);
+	}
+	else
+	{
+		// Centre deadband: keep a high LP cutoff so lp_s tracks input
+		lp_coeff = (float)std::exp(-2.0 * double_Pi * 20000.0 / sampleRate);
+	}
 }
 
 void PhaseAllpassSubType::reset(int newNumChannels)
@@ -3397,15 +3822,19 @@ void PhaseAllpassSubType::reset(int newNumChannels)
 	numFilters = newNumChannels;
 
 	for (int i = 0; i < newNumChannels; i++)
+	{
 		filters[i].reset();
+		lp_s[i] = 0.0f;
+	}
 }
 
-FilterCoefficientData PhaseAllpassSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
+FilterCoefficientData PhaseAllpassSubType::getCoefficients(double freqNorm, double q, double gain) const
 {
 	auto* m = const_cast<PhaseAllpassSubType*>(this);
 	if (storedSampleRate > 0.0)
 		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
 	m->storedQ = q;
+	m->storedGain = gain;
 
 	FilterCoefficientData cd;
 	cd.customFunction = getPlotValue;
@@ -3466,14 +3895,57 @@ double PhaseAllpassSubType::getPlotValue(void* obj, bool getMagnitude, double fr
 
 	const double mag    = std::sqrt(jmax(0.0, num_mag2 / den_mag2));
 	const double dcGain = (f1 > 1.0e-6) ? (2.0 - fb) / f1 : 1.0e6;
-	const double norm   = jlimit(0.0, 1.0, mag / dcGain);
+	double norm   = jlimit(0.0, 1.0, mag / dcGain);
 
 	// Inv modes: show 1 - normalised non-inv value so notches become peaks
-	// (baseline at bottom, peaks where normal mode has notches).
 	if (inv)
-		return jlimit(0.0, 1.0, 1.0 - norm);
+		norm = jlimit(0.0, 1.0, 1.0 - norm);
 
-	return norm;
+	// LPHP filter magnitude response (one-pole, crossfaded)
+	const double gain_dB = Decibels::gainToDecibels(jmax(typed->storedGain, 1.0e-6));
+	const double mix = jlimit(-1.0, 1.0, gain_dB / 18.0);
+	const double amount = std::abs(mix);
+
+	if (amount > 0.001)
+	{
+		double lphp_cutoff;
+		bool isHP = (gain_dB > 0.0);
+
+		if (gain_dB < -0.1)
+		{
+			const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);
+			lphp_cutoff = 200.0 * std::pow(100.0, t);
+		}
+		else if (gain_dB > 0.1)
+		{
+			const double t = jlimit(0.0, 1.0, gain_dB / 18.0);
+			lphp_cutoff = 20.0 * std::pow(500.0, t);
+		}
+		else
+		{
+			lphp_cutoff = 20000.0;
+		}
+
+		const double pole = std::exp(-2.0 * double_Pi * lphp_cutoff / sr);
+		const double cosw = std::cos(w);
+		const double denom = 1.0 - 2.0 * pole * cosw + pole * pole;
+
+		if (denom > 1.0e-12)
+		{
+			double wet_mag;
+
+			if (isHP)
+				wet_mag = std::sqrt(pole * pole * 2.0 * (1.0 - cosw) / denom);
+			else
+				wet_mag = std::sqrt((1.0 - pole) * (1.0 - pole) / denom);
+
+			// Crossfade: output = dry*(1-amount) + wet*amount
+			const double blended_mag = 1.0 * (1.0 - amount) + jlimit(0.0, 2.0, wet_mag) * amount;
+			norm *= blended_mag;
+		}
+	}
+
+	return jlimit(0.0, 1.0, norm);
 }
 
 PhaseAllpassSubType::InternalFilter::InternalFilter()
@@ -3666,7 +4138,16 @@ static constexpr float kButterworth48[3] = { 1.0f / 0.6013f, 1.0f / 0.8999f, 1.0
 
 void StateVariableFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
-    outputGain = (type == Morph) ? 1.0f : (float)gain;
+    if (type == Morph)
+    {
+        outputGain = 1.0f;
+        const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+        morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+    }
+    else
+    {
+        outputGain = (float)gain;
+    }
 	storedSampleRate = sampleRate;
 	storedFrequency  = frequency;
 	storedUserQ      = (float)q;

@@ -254,6 +254,7 @@ DEFINE_FILTER_NODE_TEMPLATE2(disperser, DisperserFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(svf_eq, StateVariableEqSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(linkwitzriley, LinkwitzRiley);
 DEFINE_FILTER_NODE_TEMPLATE2(zdf_diode, ZDFDiodeLadderSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(dj, DJFilterSubType);
 
 #undef DEFINE_FILTER_NODE_TEMPLATE2
 

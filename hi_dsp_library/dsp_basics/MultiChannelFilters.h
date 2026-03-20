@@ -108,6 +108,7 @@ public:
 		FormantFilterSubType,
 		DisperserFilterSubType,
 		ZDFDiodeLadderSubType,
+		DJFilterSubType,
 		numFilterSubTypes
 	};
 
@@ -532,10 +533,16 @@ private:
 	int numFilters = NUM_MAX_CHANNELS;
 	InternalFilter filters[NUM_MAX_CHANNELS];
 
+	// Post-allpass LPHP filter (controlled by Gain parameter)
+	float lp_s[NUM_MAX_CHANNELS] = {};
+	float lp_coeff = 0.0f;
+	float lp_hp_mix = 0.0f;   // -1 = full LP, 0 = passthrough, +1 = full HP
+
 	// Stored for getCoefficients / getPlotValue
 	double storedSampleRate = 44100.0;
 	double storedFrequency  = 1000.0;
 	double storedQ          = 1.0;
+	double storedGain       = 1.0;
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(PhaseAllpassSubType);
@@ -1326,16 +1333,33 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
 
 // ============================================================================
 // DisperserFilterSubType
-// Cascaded second-order allpass biquad filters (phaser-style disperser).
-//   Frequency → centre frequency of group delay peak (20–20000 Hz)
-//   Q         → sharpness of group delay peak (high Q = narrow, tall peak)
-//   Gain      → number of allpass stages mapped from ±18 dB range (1–16)
-//   Mode      → single mode only
+// Cascaded allpass filters: Disperser, Diffuser, and Dense modes.
+//
+//   Disperser: Biquad allpass stages all tuned to the same frequency/Q.
+//     Frequency → centre frequency of group delay peak
+//     Q         → sharpness of group delay peak
+//     Gain      → number of biquad stages (1–16)
+//
+//   Diffuser: Schroeder allpass chain with prime-spaced delay times.
+//     Frequency → size (inverse: low freq = long delays = spacious wash)
+//     Q         → feedback density (0.3 = light, 9.9 = heavy wash)
+//     Gain      → number of stages (1–8)
+//
+//   Dense: Nested Schroeder allpass (inner first-order allpass per stage).
+//     Same controls as Diffuser but denser temporal scattering.
 // ============================================================================
 
 class DisperserFilterSubType
 {
 public:
+
+	enum Mode
+	{
+		Disperser = 0,
+		Diffuser,
+		Dense,
+		numModes
+	};
 
 	static FilterHelpers::FilterSubType getFilterType();
 	static Identifier getStaticId();
@@ -1358,19 +1382,33 @@ public:
 
 private:
 
+	Mode mode = Disperser;
+
+	// --- Disperser mode state ---
 	static const int MAX_STAGES = 16;
 
-	// Precomputed normalised allpass biquad coefficients
-	// nb2=1.0, na1=nb1, na2=nb0
-	float nb0 = 0.0f;   // (1 - alpha) / (1 + alpha)
-	float nb1 = 0.0f;   // -2 * cos(omega) / (1 + alpha)
+	float nb0 = 0.0f;
+	float nb1 = 0.0f;
 	int   numStages = 1;
 
-	// Per-channel, per-stage Direct Form I state
 	float x1[NUM_MAX_CHANNELS][MAX_STAGES] = {};
 	float x2[NUM_MAX_CHANNELS][MAX_STAGES] = {};
 	float y1[NUM_MAX_CHANNELS][MAX_STAGES] = {};
 	float y2[NUM_MAX_CHANNELS][MAX_STAGES] = {};
+
+	// --- Diffuser / Dense mode state ---
+	static const int MAX_DIFFUSER_STAGES = 8;
+	static const int maxDiffuserDelay = 1024;
+
+	std::vector<double> diffuserDelay;
+	int diffWritePos[NUM_MAX_CHANNELS][MAX_DIFFUSER_STAGES] = {};
+	int diffDelayLen[MAX_DIFFUSER_STAGES] = {};
+	double diffFeedback = 0.5;
+	int numDiffuserStages = 4;
+
+	// Dense mode: inner first-order allpass state (1-sample delay)
+	double innerZ[NUM_MAX_CHANNELS][MAX_DIFFUSER_STAGES] = {};
+	double innerFB = 0.3;
 
 	// Stored for graph/coefficient queries
 	double storedSampleRate = 44100.0;
@@ -1440,6 +1478,63 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ZDFDiodeLadderSubType);
+
+
+// ============================================================================
+// DJFilterSubType
+// DJ isolator filter: frequency morphs between LP and HP.
+//   Low frequency  → lowpass (cuts highs)
+//   Centre         → passthrough
+//   High frequency → highpass (cuts lows)
+//   12 dB/oct (two-pole biquad) with Q controlling resonance.
+//   Gain → output gain.
+// ============================================================================
+
+class DJFilterSubType
+{
+public:
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	DJFilterSubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	// Biquad coefficients (Direct Form I)
+	float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+	float a1 = 0.0f, a2 = 0.0f;
+
+	// Per-channel Direct Form I state
+	float x1[NUM_MAX_CHANNELS] = {};
+	float x2[NUM_MAX_CHANNELS] = {};
+	float y1[NUM_MAX_CHANNELS] = {};
+	float y2[NUM_MAX_CHANNELS] = {};
+
+	float outputGain = 1.0f;
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	double storedQ          = 1.0;
+	double storedGain       = 1.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DJFilterSubType);
 
 
 }
