@@ -4146,7 +4146,7 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
     }
     else
     {
-        outputGain = (float)gain;
+        outputGain = 1.0f;
     }
 	storedSampleRate = sampleRate;
 	storedFrequency  = frequency;
