@@ -38,7 +38,7 @@ using namespace juce;
 
 
 
-void updown_comp::RMSDetector::prepare(PrepareSpecs ps)
+void ott::RMSDetector::prepare(PrepareSpecs ps)
 {
 	int bufferSize = roundToInt(ps.sampleRate * 0.03);
 			
@@ -52,7 +52,7 @@ void updown_comp::RMSDetector::prepare(PrepareSpecs ps)
 	}
 }
 
-void updown_comp::RMSDetector::processFrame(span<float, 1>& peak)
+void ott::RMSDetector::processFrame(span<float, 1>& peak)
 {
 	if (!enabled)
 		return;
@@ -74,30 +74,30 @@ void updown_comp::RMSDetector::processFrame(span<float, 1>& peak)
 	peak[0] = r;
 }
 
-void updown_comp::RMSDetector::setEnabled(double v)
+void ott::RMSDetector::setEnabled(double v)
 {
 	enabled = v > 0.5;
 }
 
-void updown_comp::RMSDetector::reset()
+void ott::RMSDetector::reset()
 {
 	FloatVectorOperations::clear(data.begin(), data.size());
 	arrayIndex = 0;
 	sum = 0.0;
 }
 
-void updown_comp::updown_envelope_follower::prepare(PrepareSpecs ps)
+void ott::updown_envelope_follower::prepare(PrepareSpecs ps)
 {
 	sampleRate = ps.sampleRate;
 	updateCoefficients();
 }
 
-void updown_comp::updown_envelope_follower::reset()
+void ott::updown_envelope_follower::reset()
 {
 	lastValue = 0.0f;
 }
 
-void updown_comp::updown_envelope_follower::processFrame(span<float, 1>& input)
+void ott::updown_envelope_follower::processFrame(span<float, 1>& input)
 {
 	double inputDouble = (double)input[0];
 
@@ -112,24 +112,24 @@ void updown_comp::updown_envelope_follower::processFrame(span<float, 1>& input)
 	input[0] = (float)lastValue;
 }
 
-void updown_comp::updown_envelope_follower::setLowThreshold(double v)
+void ott::updown_envelope_follower::setLowThreshold(double v)
 {
 	lo_t = v;
 }
 
-void updown_comp::updown_envelope_follower::setAttack(double attack_)
+void ott::updown_envelope_follower::setAttack(double attack_)
 {
 	attack = attack_;
 	updateCoefficients();
 }
 
-void updown_comp::updown_envelope_follower::setRelease(double release_)
+void ott::updown_envelope_follower::setRelease(double release_)
 {
 	release = release_;
 	updateCoefficients();
 }
 
-void updown_comp::updown_envelope_follower::updateCoefficients()
+void ott::updown_envelope_follower::updateCoefficients()
 {
 	if (sampleRate > 0.0)
 	{
@@ -137,6 +137,167 @@ void updown_comp::updown_envelope_follower::updateCoefficients()
 		rel = exp(log(0.01) / (release * sampleRate * 0.001));
 	}
 }
+
+void ott::prepare(PrepareSpecs specs)
+{
+	display_buffer_base<true>::prepare(specs);
+
+	for (auto& s : state)
+		s.prepare(specs.sampleRate, 50.0);
+
+	rmsDetector.prepare(specs);
+	envelopeFollower.prepare(specs);
+}
+
+void ott::reset()
+{
+	rmsDetector.reset();
+	envelopeFollower.reset();
+
+	for (auto& s : state)
+		s.reset();
+}
+
+float ott::getGainReduction(float input)
+{
+	
+
+	const auto lo_t = state[(int)Parameters::LowThreshold].advance();
+	const auto hi_t = state[(int)Parameters::HighThreshold].advance();
+
+	auto k = state[(int)Parameters::Knee].advance();
+
+	const auto lo_w = jmin((hi_t - lo_t) * 0.5f, k);
+	const auto hi_w = jmin((hi_t - lo_t) * 0.5f, k);
+
+	const auto hi_r = state[(int)Parameters::HighRatio].advance();
+	const auto lo_r = state[(int)Parameters::LowRatio].advance();
+
+	auto hi_r_mapped = 1.0f + hi_r * 19.0f;
+
+	auto depth = state[(int)Parameters::Depth].advance();
+	auto hi_r_d = 1.0f + (hi_r_mapped - 1.0f) * depth;
+    auto lo_r_d = lo_r + (1.0f - lo_r) * (1.0f - depth);
+
+    if (hmath::abs(input - lo_t) < (lo_w * 0.5f))
+    {
+        auto blend = (input - (lo_t - lo_w * 0.5f)) / lo_w;
+        auto v_compressed = lo_t * std::pow(jmax(1e-9f, input) / lo_t, lo_r_d);
+        return input + (v_compressed - input) * (1.0f - blend);
+    }
+    else if (input < (lo_t - lo_w*0.5f))
+    {
+        const auto noise_floor = Decibels::decibelsToGain(-120.0f);
+
+        auto v = lo_t * std::pow(jmax(1e-9f, input) / lo_t, lo_r_d);
+
+        if (input < noise_floor)
+        {
+            auto alpha = input / noise_floor;
+            auto invAlpha = 1.0f - alpha;
+            return input * invAlpha + v * alpha;
+        }
+        else
+            return v;
+    }
+	else if (hmath::abs(input - hi_t) < (hi_w / 2)) // apply soft knee
+	{
+		return input + (1.0f / hi_r_d - 1.0f) * hmath::sqr(input - hi_t + hi_w * 0.5f) / (2.0f * hi_w);
+	}
+	else if (input > (hi_t + hi_w*0.5f))
+	{
+		return jmin(1.0f, hi_t + (input - hi_t) / hi_r_d);
+	}
+	else
+	{
+		return input;
+	}
+}
+
+void ott::createParameters(ParameterDataList& data)
+{
+	{
+		parameter::data p("LowThreshold", { -100.0, 0.0 });
+		registerCallback<(int)Parameters::LowThreshold>(p);
+		p.setSkewForCentre(-18.0);
+		p.info.textConverter = parameter::pod::Decibel;
+		p.setDefaultValue(-100.0);
+		data.add(std::move(p));
+	}
+	{
+        parameter::data p("LowRatio", { 0.0, 1.0 });
+        registerCallback<(int)Parameters::LowRatio>(p);
+        p.setSkewForCentre(0.5);
+        p.setDefaultValue(1.0);
+        data.add(std::move(p));
+	}
+	{
+		// Create a parameter like this
+		parameter::data p("HighThreshold", { -100.0, 0.0 });
+		registerCallback<(int)Parameters::HighThreshold>(p);
+		p.setSkewForCentre(-6.0);
+		p.info.textConverter = parameter::pod::Decibel;
+		p.setDefaultValue(0.0);
+		data.add(std::move(p));
+	}
+	{
+		parameter::data p("HighRatio", { 0.0, 1.0 });
+		registerCallback<(int)Parameters::HighRatio>(p);
+		p.setSkewForCentre(0.3);
+		p.setDefaultValue(0.0);
+		data.add(std::move(p));
+	}
+	{
+		parameter::data p("Knee", { 0.0, 0.3 });
+		registerCallback<(int)Parameters::Knee>(p);
+		p.setSkewForCentre(0.15);
+		p.setDefaultValue(0.1);
+		data.add(std::move(p));
+	}
+	{
+		// Create a parameter like this
+		parameter::data p("Attack", { 0.0, 1000.0 });
+		registerCallback<(int)Parameters::Attack>(p);
+		p.info.textConverter = parameter::pod::Time;
+		p.setSkewForCentre(50.0);
+		p.setDefaultValue(50.0);
+		data.add(std::move(p));
+	}
+	{
+		// Create a parameter like this
+		parameter::data p("Release", { 0.0, 1000.0 });
+		registerCallback<(int)Parameters::Release>(p);
+		p.info.textConverter = parameter::pod::Time;
+		p.setSkewForCentre(50.0);
+		p.setDefaultValue(50.0);
+		data.add(std::move(p));
+	}
+	{
+		parameter::data p("RMS", { 0.0, 1.0 });
+		registerCallback<(int)Parameters::RMS>(p);
+		p.setParameterValueNames({ "Off", "On" });
+		p.setDefaultValue(1.0);
+		data.add(std::move(p));
+	}
+	{
+		parameter::data p("Depth", { 0.0, 1.0 });
+		registerCallback<(int)Parameters::Depth>(p);
+		p.setDefaultValue(1.0);
+		data.add(std::move(p));
+	}
+}
+
+void ott::calculateGraph(block values)
+{
+	for(auto& v: values)
+	{
+		v = getGainReduction(v);
+	}
+}
+
+// ============================================================================
+// updown_comp — original pre-OTT behaviour
+// ============================================================================
 
 void updown_comp::prepare(PrepareSpecs specs)
 {
@@ -160,8 +321,6 @@ void updown_comp::reset()
 
 float updown_comp::getGainReduction(float input)
 {
-	
-
 	const auto lo_t = state[(int)Parameters::LowThreshold].advance();
 	const auto hi_t = state[(int)Parameters::HighThreshold].advance();
 
@@ -225,7 +384,6 @@ void updown_comp::createParameters(ParameterDataList& data)
 		data.add(std::move(p));
 	}
 	{
-		// Create a parameter like this
 		parameter::data p("HighThreshold", { -100.0, 0.0 });
 		registerCallback<(int)Parameters::HighThreshold>(p);
 		p.setSkewForCentre(-6.0);
@@ -248,7 +406,6 @@ void updown_comp::createParameters(ParameterDataList& data)
 		data.add(std::move(p));
 	}
 	{
-		// Create a parameter like this
 		parameter::data p("Attack", { 0.0, 1000.0 });
 		registerCallback<(int)Parameters::Attack>(p);
 		p.info.textConverter = parameter::pod::Time;
@@ -257,7 +414,6 @@ void updown_comp::createParameters(ParameterDataList& data)
 		data.add(std::move(p));
 	}
 	{
-		// Create a parameter like this
 		parameter::data p("Release", { 0.0, 1000.0 });
 		registerCallback<(int)Parameters::Release>(p);
 		p.info.textConverter = parameter::pod::Time;
@@ -281,5 +437,6 @@ void updown_comp::calculateGraph(block values)
 		v = getGainReduction(v);
 	}
 }
+
 } // dynamics
 } // scriptnode

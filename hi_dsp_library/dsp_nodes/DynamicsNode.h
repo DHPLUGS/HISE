@@ -436,7 +436,7 @@ public:
 	bool processSignal = false;
 };
 
-class updown_comp: public data::display_buffer_base<true>
+class ott: public data::display_buffer_base<true>
 {
 public:
 
@@ -489,16 +489,17 @@ public:
 		Knee,
 		Attack,
 		Release,
-		RMS
+		RMS,
+		Depth
 	};
 
 	// Metadata Definitions ------------------------------------------------------
 
-	SN_NODE_ID("updown_comp");
-	SN_DESCRIPTION("A compressor with adjustable knee, RMS detection and upwards compression");
+	SN_NODE_ID("ott");
+	SN_DESCRIPTION("OTT-style updown compressor with Depth control and true upward compression");
 
-	SN_GET_SELF_AS_OBJECT(updown_comp);
-	SN_FORWARD_PARAMETER_TO_MEMBER(updown_comp);
+	SN_GET_SELF_AS_OBJECT(ott);
+	SN_FORWARD_PARAMETER_TO_MEMBER(ott);
 	SN_EMPTY_INITIALISE;;
 	SN_EMPTY_HANDLE_EVENT;
 
@@ -520,6 +521,142 @@ public:
 		while(fd.next())
 			processFrame(fd.toSpan());
 	
+		this->updateBuffer(gainRed.getModValue(), data.getNumSamples());
+	}
+
+	float getGainReduction(float input);
+
+    template <typename T> void processFrame(T& data)
+    {
+        span<float, 1> peak;
+
+        for (auto& s : data)
+            peak[0] = Math.max(peak[0], Math.abs(s));
+
+        rmsDetector.processFrame(peak);
+        envelopeFollower.processFrame(peak);
+
+        auto before = peak[0];
+
+        auto g = getGainReduction(peak[0]);
+
+        if (before > 0.0f)
+        {
+            g = jlimit(0.0f, 64.0f, g / before);
+        }
+        else
+        {
+            g = 0.0f;
+        }
+
+        gainRed.setModValue(jlimit(0.0, 1.0, (double)g));
+
+        data *= g;
+    }
+	
+	int handleModulation(double& value)
+	{
+		return gainRed.getChangedValue(value);
+	}
+	
+	// Parameter Functions -------------------------------------------------------
+	
+	template <int P> void setParameter(double v)
+	{
+		switch ((Parameters)P)
+		{
+		case Parameters::LowThreshold:
+			state[P].set(hmath::db2gain((float)v));
+			envelopeFollower.setLowThreshold(hmath::db2gain((float)v));
+			break;
+		case Parameters::HighThreshold:
+			state[P].set(hmath::db2gain((float)v));
+			break;
+		case Parameters::LowRatio:
+		case Parameters::HighRatio:
+             state[P].set(hmath::range((float)v, 0.0f, 1.0f));
+			break;
+		case Parameters::Knee:
+			state[P].set(hmath::range((float)v, 0.0f, 0.5f));
+			break;
+		case Parameters::Attack:
+			envelopeFollower.setAttack(v);
+			break;
+		case Parameters::Release:
+			envelopeFollower.setRelease(v);
+			break;
+		case Parameters::RMS:
+			rmsDetector.setEnabled(v);
+			break;
+		case Parameters::Depth:
+			state[(int)Parameters::Depth].set(hmath::range((float)v, 0.0f, 1.0f));
+			break;
+		default:
+			jassertfalse;
+			break;
+		}
+	}
+
+	void createParameters(ParameterDataList& data);
+
+	void calculateGraph(block values);
+
+private:
+
+	updown_envelope_follower envelopeFollower;
+	ModValue gainRed;
+	span<sfloat, (int)Parameters::Depth + 1> state;
+	RMSDetector rmsDetector;
+};
+
+
+// Classic (pre-OTT) updown_comp: original downward compression behaviour,
+// no Depth param, ratio ranges 0.2..100.
+class updown_comp: public data::display_buffer_base<true>
+{
+public:
+
+	using RMSDetector = ott::RMSDetector;
+	using updown_envelope_follower = ott::updown_envelope_follower;
+
+	enum class Parameters
+	{
+		LowThreshold,
+		LowRatio,
+		HighThreshold,
+		HighRatio,
+		Knee,
+		Attack,
+		Release,
+		RMS
+	};
+
+	SN_NODE_ID("updown_comp");
+	SN_DESCRIPTION("Updown compressor: downward compression above/below thresholds with soft knee");
+
+	SN_GET_SELF_AS_OBJECT(updown_comp);
+	SN_FORWARD_PARAMETER_TO_MEMBER(updown_comp);
+	SN_EMPTY_INITIALISE;;
+	SN_EMPTY_HANDLE_EVENT;
+
+	static constexpr bool isModNode() { return true; };
+	static constexpr bool isPolyphonic() { return false; };
+	static constexpr bool hasTail() { return false; };
+	static constexpr int getFixChannelAmount() { return 2; };
+
+	void prepare(PrepareSpecs specs) override;
+
+	void reset();
+
+	template <typename T> void process(T& data)
+	{
+		static constexpr int NumChannels = getFixChannelAmount();
+		auto& fixData = data.template as<ProcessData<NumChannels>>();
+		auto fd = fixData.toFrameData();
+
+		while(fd.next())
+			processFrame(fd.toSpan());
+
 		this->updateBuffer(gainRed.getModValue(), data.getNumSamples());
 	}
 
@@ -552,14 +689,12 @@ public:
 
 		data *= g;
 	}
-	
+
 	int handleModulation(double& value)
 	{
 		return gainRed.getChangedValue(value);
 	}
-	
-	// Parameter Functions -------------------------------------------------------
-	
+
 	template <int P> void setParameter(double v)
 	{
 		switch ((Parameters)P)
