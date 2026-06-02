@@ -2486,7 +2486,8 @@ template <int NV, typename T> struct snex_osc : public snex_osc_base<T>,
 };
 
 
-struct granulator: public data::base
+struct granulator: public data::base,
+                   public hise::TempoListener
 {
     static const int NumGrains = 128;
     static const int NumAudioFiles = 1;
@@ -2494,7 +2495,23 @@ struct granulator: public data::base
     SNEX_NODE(granulator);
     SN_DESCRIPTION("A granular synthesiser");
 
+    enum GrainMode
+    {
+        Free = 0,
+        Rhythmic,
+        RhythmicDrift,
+        Synced,
+        SyncedDrift,
+        numModes
+    };
+
     granulator() = default;
+
+    ~granulator()
+    {
+        if (syncer != nullptr)
+            syncer->deregisterItem(this);
+    }
     
     using AudioDataType = span<block, 2>;
 
@@ -2648,11 +2665,22 @@ struct granulator: public data::base
 
         auto delta = uptime - timeOfLastGrainStart;
 
-        if (delta > timeBetweenGrains)
+        auto thisTimeBetweenGrains = timeBetweenGrains;
+
+        if ((grainMode == Synced || grainMode == SyncedDrift) && syncTimeBetweenGrains > 0)
+            thisTimeBetweenGrains = syncTimeBetweenGrains;
+
+        if (delta > thisTimeBetweenGrains)
         {
-            
-            auto delta = ((Math.randomDouble() - 0.5) * (double)timeBetweenGrains * 0.3);
-            timeOfLastGrainStart = uptime + delta;
+            if (grainMode == Free)
+            {
+                auto jitter = ((Math.randomDouble() - 0.5) * (double)thisTimeBetweenGrains * 0.3);
+                timeOfLastGrainStart = uptime + jitter;
+            }
+            else
+            {
+                timeOfLastGrainStart = uptime;
+            }
 
             double thisPitch = pitchRatio * sourceSampleRate / sampleRate;
             auto thisGain = 1.0f;
@@ -2677,9 +2705,20 @@ struct granulator: public data::base
 
             if (!nextSample.isEmpty())
             {
-                auto idx = (int)(currentPosition * (double)(nextSample.data[0].size() - 2.0 * grainLengthSamples));
+                bool isDrift = (grainMode == RhythmicDrift || grainMode == SyncedDrift);
+                auto usableRange = (double)(nextSample.data[0].size()) - 2.0 * grainLengthSamples;
+                auto safeRange = jmax(1.0, usableRange);
+                auto positionToUse = isDrift ? driftPosition : currentPosition;
+                auto idx = jlimit(0, (int)safeRange, (int)(positionToUse * safeRange));
 
-                idx += (double)spread * Math.randomDouble() * grainLengthSamples;
+                if (grainMode == Free)
+                    idx += (double)spread * Math.randomDouble() * grainLengthSamples;
+
+                if (isDrift)
+                {
+                    driftPosition += (double)spread * (double)thisTimeBetweenGrains / safeRange;
+                    driftPosition = std::fmod(driftPosition, 1.0);
+                }
 
                 auto offset = idx % 4;
                 idx -= offset;
@@ -2690,6 +2729,10 @@ struct granulator: public data::base
                     {
                         grain.setPitchRatio(thisPitch);
                         grain.setSpread(spread, thisGain, detune);
+
+                        if (onGrainSpawn)
+                            onGrainSpawn((float)positionToUse, (float)(grainLengthSamples / sampleRate * 1000.0));
+
                         break;
                     }
                 }
@@ -2760,6 +2803,9 @@ struct granulator: public data::base
 
         if (e.isNoteOn())
         {
+            if (voiceCounter == 0 && driftReset)
+                driftPosition = currentPosition;
+
             voices[voiceCounter] = e;
             voiceCounter = Math.min(voices.size()-1, voiceCounter + 1);
         }
@@ -2794,8 +2840,16 @@ struct granulator: public data::base
         grainLengthSamples = grainLength * 0.001 * sampleRate;
         timeBetweenGrains = (int)(grainLengthSamples * (1.0 / pitchRatio) * (1.0 - density)) / 2;
         timeBetweenGrains = jmax(400, timeBetweenGrains);
-        auto gainDelta = (float)timeBetweenGrains / (float)grainLengthSamples;
-        totalGrainGain = Math.pow(gainDelta, 0.3f);
+        updateOverlapGain();
+    }
+
+    void updateOverlapGain()
+    {
+        auto effectiveInterval = ((grainMode == Synced || grainMode == SyncedDrift) && syncTimeBetweenGrains > 0)
+            ? (double)syncTimeBetweenGrains
+            : (double)timeBetweenGrains;
+        auto gainDelta = (float)(jmin(effectiveInterval, grainLengthSamples) / grainLengthSamples);
+        totalGrainGain = Math.pow(jmax(gainDelta, 0.001f), 0.3f);
     }
 
     void setExternalData(const ExternalData& d, int index)
@@ -2817,10 +2871,36 @@ struct granulator: public data::base
         updateGrainLength();
     }
 
+    void tempoChanged(double newTempo) override
+    {
+        bpm = newTempo;
+        updateSyncTiming();
+    }
+
+    void onTransportChange(bool isPlaying_, double ppqPosition) override {}
+    void onResync(double ppqPosition) override {}
+
+    void updateSyncTiming()
+    {
+        if (bpm > 0.0 && sampleRate > 0.0)
+        {
+            syncTimeBetweenGrains = (int)TempoSyncer::getTempoInSamples(bpm, sampleRate, syncTempo);
+            updateOverlapGain();
+        }
+    }
+
     void prepare(PrepareSpecs ps)
     {
         sampleRate = ps.sampleRate;
+
+        if (syncer == nullptr && ps.voiceIndex != nullptr)
+        {
+            syncer = ps.voiceIndex->getTempoSyncer();
+            syncer->registerItem(this);
+        }
+
         updateGrainLength();
+        updateSyncTiming();
     }
 
     template <int P> void setParameter(double v)
@@ -2858,6 +2938,18 @@ struct granulator: public data::base
             spread = (float)v;
         if (P == 5) // Detune
             detune = Math.range(v, 0.0, 1.0);
+        if (P == 6) // Mode
+        {
+            grainMode = (GrainMode)jlimit(0, (int)numModes - 1, (int)v);
+            updateOverlapGain();
+        }
+        if (P == 7) // SyncTempo
+        {
+            syncTempo = (TempoSyncer::Tempo)jlimit(0, (int)TempoSyncer::numTempos - 1, (int)v);
+            updateSyncTiming();
+        }
+        if (P == 8) // DriftReset
+            driftReset = v >= 0.5;
     }
 
     void createParameters(ParameterDataList& l)
@@ -2894,6 +2986,28 @@ struct granulator: public data::base
         {
             parameter::data d("Detune", { 0.0, 1.0 });
             registerCallback<5>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("Mode", { 0.0, 4.0 });
+            d.setParameterValueNames({"Free", "Rhythmic", "Rhythmic Drift", "Synced", "Synced Drift"});
+            d.setDefaultValue(0.0);
+            registerCallback<6>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("SyncTempo");
+            d.setRange({ 0.0, 1.0 });
+            d.setParameterValueNames(TempoSyncer::getTempoNames());
+            d.setDefaultValue((double)TempoSyncer::getTempoIndex("1/4"));
+            registerCallback<7>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("DriftReset", { 0.0, 1.0 });
+            d.setParameterValueNames({"Continue", "Reset"});
+            d.setDefaultValue(1.0);
+            registerCallback<8>(d);
             l.add(d);
         }
     }
@@ -2934,6 +3048,16 @@ struct granulator: public data::base
     float maxGainInGrain = 1.0f;
 
     double currentPosition = 0.0;
+    double driftPosition = 0.0;
+    bool driftReset = true;
+
+    std::function<void(float p0, float durMs)> onGrainSpawn;
+
+    GrainMode grainMode = Free;
+    TempoSyncer::Tempo syncTempo = TempoSyncer::Quarter;
+    int syncTimeBetweenGrains = 0;
+    double bpm = 120.0;
+    DllBoundaryTempoSyncer* syncer = nullptr;
 };
 
 } // namespace core

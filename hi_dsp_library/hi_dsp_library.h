@@ -234,6 +234,7 @@ Set this to 1 if you want to embed the libraries created with this module into y
 #include "dsp_nodes/CableNodes.h"
 #include "dsp_nodes/ModulationNodes.h"
 #include "dsp_nodes/RoutingNodes.h"
+#include "dsp_nodes/GranulatorVis.h"
 #include "dsp_nodes/JuceNodes.h"
 #include "dsp_nodes/DelayNode.h"
 #include "dsp_nodes/MathNodes.h"
