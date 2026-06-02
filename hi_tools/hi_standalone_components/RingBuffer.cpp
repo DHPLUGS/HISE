@@ -661,8 +661,7 @@ int flex_ahdsr_base::Helpers::getAttributeIndex(State s, ParameterType t)
 		{
 		case State::ATTACK: return (int)SpecialParameters::Attack;
 		case State::HOLD: return (int)SpecialParameters::Hold;
-		case State::DECAY:
-		case State::SUSTAIN: return (int)SpecialParameters::Decay;
+		case State::DECAY: return (int)SpecialParameters::Decay;
 		case State::RELEASE: return (int)SpecialParameters::Release;
 		}
 	}
@@ -673,7 +672,8 @@ int flex_ahdsr_base::Helpers::getAttributeIndex(State s, ParameterType t)
 		case State::ATTACK:
 		case State::HOLD:    return (int)SpecialParameters::AttackLevel;
 		case State::DECAY:
-		case State::SUSTAIN: return (int)SpecialParameters::Sustain;
+		case State::SUSTAIN:
+		case State::RELEASE: return (int)SpecialParameters::Sustain;
 		}
 	}
 			
@@ -1205,10 +1205,15 @@ void flex_ahdsr_base::FlexAhdsrGraph::mouseDrag(const MouseEvent& e)
 	if(currentHoverMode == ParameterType::TimeLevel)
 	{
 		handleDrag(e, ParameterType::Time);
-		handleDrag(e, ParameterType::Level);
+
+		if(!(lockAttackLevel && (currentHoverState == State::ATTACK || currentHoverState == State::HOLD)))
+			handleDrag(e, ParameterType::Level);
 	}
 	else
 	{
+		if(lockAttackLevel && (currentHoverState == State::ATTACK || currentHoverState == State::HOLD) && currentHoverMode == ParameterType::Level)
+			return;
+
 		handleDrag(e, currentHoverMode);
 	}
 }
@@ -1221,69 +1226,110 @@ void flex_ahdsr_base::FlexAhdsrGraph::mouseMove(const MouseEvent& e)
 	currentHoverState = State::IDLE;
 	currentHoverMode = ParameterType::numTypes;
 
-	int i = 0;
+	// Check drag point proximity first (priority: ATTACK > HOLD > DECAY > RELEASE)
+	auto holdIsZero = values[(int)SpecialParameters::Hold] == 0.0f;
 
-	for(auto& nb: hitboxes)
+	if(!useOneDimensionalDrag && dragPoints.size() > (int)State::RELEASE)
 	{
-		if(!nb.isEmpty() && nb.contains(e.getPosition().toFloat()))
+		static const State dragPriority[] = { State::ATTACK, State::HOLD, State::DECAY, State::RELEASE };
+
+		for(auto s : dragPriority)
 		{
-			currentHoverState = (State)i;
-					
-			auto yNorm = (float)(e.getPosition().y - nb.getY()) / nb.getHeight();
-					
-			auto isTime = yNorm > 0.2;
-					
-			if(currentHoverState == State::RELEASE || currentHoverState == State::DECAY) 
-				isTime = true;
-			else if(currentHoverState == State::SUSTAIN)
-				isTime = false;
-						
-			auto dx = (float)e.getPosition().x - curvePoints[i].x;
-			auto dy = (float)e.getPosition().y - curvePoints[i].y;
-			auto cd = std::sqrt(dx*dx + dy*dy);
-			auto curveHover = cd < curveTolerance;
-						
-			if(curveHover)
-				currentHoverMode = ParameterType::Curve;
-			else
+			if(s == State::HOLD && holdIsZero)
+				continue;
+
+			auto idx = (int)s;
+			auto dp = dragPoints[idx];
+
+			if(dp.isOrigin())
+				continue;
+
+			auto dx = (float)e.getPosition().x - dp.x;
+			auto dy = (float)e.getPosition().y - dp.y;
+			auto dist = std::sqrt(dx*dx + dy*dy);
+
+			if(dist < curveTolerance)
 			{
-				if(useOneDimensionalDrag)
+				currentHoverState = s;
+				currentHoverMode = ParameterType::TimeLevel;
+
+				if(s == State::DECAY && (float)e.getPosition().x < boxes[(int)State::DECAY].getX() && !holdIsZero)
+					currentHoverState = State::HOLD;
+
+				break;
+			}
+		}
+	}
+
+	if(currentHoverMode == ParameterType::numTypes)
+	{
+		int i = 0;
+
+		for(auto& nb: hitboxes)
+		{
+			if(!nb.isEmpty() && nb.contains(e.getPosition().toFloat()))
+			{
+				currentHoverState = (State)i;
+
+				// Skip hold hitbox when hold=0
+				if(currentHoverState == State::HOLD && holdIsZero)
 				{
-					if(isTime)
-						currentHoverMode = ParameterType::Time;
-					else
-						currentHoverMode = ParameterType::Level;
+					i++;
+					continue;
 				}
+
+				auto yNorm = (float)(e.getPosition().y - nb.getY()) / nb.getHeight();
+
+				auto isTime = yNorm > 0.2;
+
+				if(currentHoverState == State::RELEASE || currentHoverState == State::DECAY)
+					isTime = true;
+				else if(currentHoverState == State::SUSTAIN)
+					isTime = false;
+
+				auto dx = (float)e.getPosition().x - curvePoints[i].x;
+				auto dy = (float)e.getPosition().y - curvePoints[i].y;
+				auto cd = std::sqrt(dx*dx + dy*dy);
+				auto curveHover = cd < curveTolerance;
+
+				if(curveHover)
+					currentHoverMode = ParameterType::Curve;
 				else
 				{
-					currentHoverMode = ParameterType::TimeLevel;
+					if(useOneDimensionalDrag)
+					{
+						if(isTime)
+							currentHoverMode = ParameterType::Time;
+						else
+							currentHoverMode = ParameterType::Level;
+					}
+					else
+					{
+						currentHoverMode = ParameterType::TimeLevel;
 
-					if(currentHoverState == State::DECAY && dx < 0.0)
-						currentHoverState = State::HOLD;
+						if(currentHoverState == State::DECAY && (float)e.getPosition().x < boxes[(int)State::DECAY].getX() && !holdIsZero)
+							currentHoverState = State::HOLD;
+					}
 				}
-			}
-					
-			break;
-		}
 
-		i++;
+				break;
+			}
+
+			i++;
+		}
 	}
 
 	auto mc = MouseCursor::NormalCursor;
 
 	switch(currentHoverMode)
 	{
-	case ParameterType::Time: 
-		mc = MouseCursor::LeftRightResizeCursor;
-		break;
-	case ParameterType::Curve:
+	case ParameterType::Time:
+	case ParameterType::Level:
+	case ParameterType::TimeLevel:
 		mc = MouseCursor::DraggingHandCursor;
 		break;
-	case ParameterType::Level:
+	case ParameterType::Curve:
 		mc = MouseCursor::UpDownResizeCursor;
-		break;
-	case ParameterType::TimeLevel:
-		mc = MouseCursor::NormalCursor;
 		break;
 	}
 

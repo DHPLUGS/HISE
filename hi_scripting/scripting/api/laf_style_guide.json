@@ -1527,6 +1527,51 @@
                 }
               }
             },
+            "drawFlexAhdsrDragPoint": {
+              "description": "Draws a drag point handle (square) for an envelope segment",
+              "callbackProperties": {
+                "id": {
+                  "type": "String",
+                  "description": "The component's ID from getComponentID()"
+                },
+                "area": {
+                  "type": "Array[x, y, w, h]",
+                  "description": "The graph bounds"
+                },
+                "bgColour": {
+                  "type": "int (ARGB)",
+                  "description": "Background colour"
+                },
+                "itemColour": {
+                  "type": "int (ARGB)",
+                  "description": "Fill colour"
+                },
+                "itemColour2": {
+                  "type": "int (ARGB)",
+                  "description": "Line colour"
+                },
+                "textColour": {
+                  "type": "int (ARGB)",
+                  "description": "Text colour"
+                },
+                "state": {
+                  "type": "int",
+                  "description": "Envelope state index"
+                },
+                "dragPoint": {
+                  "type": "Array[x, y]",
+                  "description": "The drag point position"
+                },
+                "hover": {
+                  "type": "bool",
+                  "description": "Whether mouse is hovering"
+                },
+                "down": {
+                  "type": "bool",
+                  "description": "Whether mouse is down"
+                }
+              }
+            },
             "drawFlexAhdsrFullPath": {
               "description": "Draws the full envelope path",
               "callbackProperties": {

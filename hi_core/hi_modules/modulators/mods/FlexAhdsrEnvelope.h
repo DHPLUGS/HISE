@@ -102,6 +102,7 @@ public:
 		{
 			UseOneDimensionDrag = PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds,
 			CurvePointTolerance,
+			LockAttackLevel,
 			numFlexPanelIds
 		};
 
@@ -128,6 +129,7 @@ public:
 
 			storePropertyInObject(v, (int)FlexPanelIds::CurvePointTolerance, c != nullptr ? var(c->curveTolerance) : var());
 			storePropertyInObject(v, (int)FlexPanelIds::UseOneDimensionDrag, c != nullptr ? var(c->useOneDimensionalDrag) : var());
+			storePropertyInObject(v, (int)FlexPanelIds::LockAttackLevel, c != nullptr ? var(c->lockAttackLevel) : var());
 
 			return v;
 		}
@@ -139,6 +141,7 @@ public:
 			{
 				c->curveTolerance = (float)getPropertyWithDefault(object, (int)FlexPanelIds::CurvePointTolerance);
 				c->useOneDimensionalDrag = (bool)getPropertyWithDefault(object, (int)FlexPanelIds::UseOneDimensionDrag);
+				c->lockAttackLevel = (bool)getPropertyWithDefault(object, (int)FlexPanelIds::LockAttackLevel);
 			}
 		}
 		int getNumDefaultableProperties() const override { return (int)FlexPanelIds::numFlexPanelIds; }
@@ -150,6 +153,7 @@ public:
 
 			RETURN_DEFAULT_PROPERTY_ID(index, FlexPanelIds::CurvePointTolerance, "CurvePointTolerance");
 			RETURN_DEFAULT_PROPERTY_ID(index, FlexPanelIds::UseOneDimensionDrag, "UseOneDimensionDrag");
+			RETURN_DEFAULT_PROPERTY_ID(index, FlexPanelIds::LockAttackLevel, "LockAttackLevel");
             
             jassertfalse;
             return Identifier();
@@ -162,6 +166,7 @@ public:
 
 			RETURN_DEFAULT_PROPERTY(index, FlexPanelIds::CurvePointTolerance, 20);
 			RETURN_DEFAULT_PROPERTY(index, FlexPanelIds::UseOneDimensionDrag, true);
+			RETURN_DEFAULT_PROPERTY(index, FlexPanelIds::LockAttackLevel, false);
             
             jassertfalse;
             return var();

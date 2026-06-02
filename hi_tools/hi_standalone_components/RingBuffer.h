@@ -572,7 +572,9 @@ struct flex_ahdsr_base: public SimpleRingBuffer::WriterBase
 		void handleDrag(const MouseEvent& e, ParameterType pt)
 		{
 			auto isX = pt == ParameterType::Time;
-			auto delta = isX ? (0.8f * (float)e.getDistanceFromDragStartX() / (float)getWidth()) : (-1.0f * (float)e.getDistanceFromDragStartY() / (float)getHeight());
+			auto dragDeltaX = e.position.x - e.mouseDownPosition.x;
+			auto dragDeltaY = e.position.y - e.mouseDownPosition.y;
+			auto delta = isX ? (0.8f * dragDeltaX / (float)getWidth()) : (-1.0f * dragDeltaY / (float)getHeight());
 
 			if(currentHoverMode == ParameterType::TimeLevel && isX)
 				delta *= 5.0f;
@@ -594,7 +596,8 @@ struct flex_ahdsr_base: public SimpleRingBuffer::WriterBase
 		}
 
 		bool useOneDimensionalDrag = false;
-		float curveTolerance = 20.0f;
+		bool lockAttackLevel = false;
+		float curveTolerance = 12.0f;
 
 		Path fullPath;
 		float values[NumUIValues];
