@@ -152,6 +152,12 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 
 	m.setLookAndFeel(plaf);
 
+	// add modulation options at the top of the menu, above the CC entries
+	if (modulationData != nullptr)
+	{
+		modulationData->addToPopupMenu(this, m);
+	}
+
 	auto ccName = handler->getCCName();
 
 	if (!isOnHiseModuleUI && getMacroIndex() == -1)
@@ -265,11 +271,6 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 				m.addSubMenu(title, sub);
 			}
 		}
-	}
-
-	if (modulationData != nullptr)
-	{
-		modulationData->addToPopupMenu(this, m);
 	}
 
 	NormalisableRange<double> rangeWithSkew = getRange();
