@@ -834,6 +834,7 @@ namespace ScriptingObjects
 			public CustomKeyboardLookAndFeelBase,
 			public ScriptTableListModel::LookAndFeelMethods,
             public MatrixPeakMeter::LookAndFeelMethods,
+			public MatrixBase::LookAndFeelMethods,
 			public WaterfallComponent::LookAndFeelMethods,
 			public HiSlider::HoverPopupLookandFeel
 		{
@@ -952,6 +953,8 @@ namespace ScriptingObjects
 
             void drawMatrixPeakMeter(Graphics& g, float* peakValues, float* maxPeaks, int numChannels, bool isVertical, float segmentSize, float paddingSize, Component* c) override;
             
+			void drawMatrixRow(Graphics& g, Component* row, int rowIndex, int rowWidth, int rowHeight, bool isHovered) override;
+
 			void drawWavetableBackground(Graphics& g, WaterfallComponent& wc, bool isEmpty) override;
 			void drawWavetablePath(Graphics& g, WaterfallComponent& wc, const Path& p, int tableIndex, bool isStereo, int currentTableIndex, int numTables) override;
 
@@ -1303,6 +1306,11 @@ namespace ScriptingObjects
 			void drawBlackNote(CustomKeyboardState* state, Component* c, int midiNoteNumber, Graphics &g, int x, int y, int w, int h, bool isDown, bool isOver, const Colour &noteFillColour) override
 			{
 				CALL_LAF(drawBlackNote, state, c, midiNoteNumber, g, x, y, w, h, isDown, isOver, noteFillColour);
+			}
+
+			void drawMatrixRow(Graphics& g, Component* row, int rowIndex, int rowWidth, int rowHeight, bool isHovered) override
+			{
+				Laf::drawMatrixRow(g, row, rowIndex, rowWidth, rowHeight, isHovered);
 			}
 
 			// CSS only methods, just forward to the style sheet LAF...

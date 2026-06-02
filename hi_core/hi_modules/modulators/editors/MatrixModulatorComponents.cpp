@@ -33,6 +33,20 @@
 
 namespace hise { using namespace juce;
 
+void MatrixBase::LookAndFeelMethods::drawMatrixRow(Graphics& g, Component* row, int rowIndex, int rowWidth, int rowHeight, bool isHovered)
+{
+	// default: draw nothing, CSS handles row backgrounds and borders
+}
+
+void MatrixBase::RowBase::paintOverChildren(Graphics& g)
+{
+	if (auto lm = dynamic_cast<LookAndFeelMethods*>(&getLookAndFeel()))
+	{
+		auto b = getLocalBounds();
+		lm->drawMatrixRow(g, this, rowIndex, b.getWidth(), b.getHeight(), isMouseOver());
+	}
+}
+
 String MatrixContent::Parent::getDefaultCSS()
 {
 	static const char* HiseDefaultCSS = R"(
@@ -1130,6 +1144,9 @@ void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 			}
 		}
 
+		for(int i = 0; i < rows.size(); i++)
+			rows[i]->setRowIndex(i);
+
 		if(useViewport)
 			resized();
 		else
@@ -1283,9 +1300,10 @@ SliderMatrix::SliderMatrix(MainController* mc, const String& targetFilter):
 	
 	sf.addScrollBarToAnimate(viewport.getVerticalScrollBar());
 
-	for(auto t: targets)
+	for(int i = 0; i < targets.size(); i++)
 	{
-		auto r = new Row(*this, sources, t);
+		auto r = new Row(*this, sources, targets[i]);
+		r->setRowIndex(i);
 		rows.add(r);
 		content.addAndMakeVisible(r);
 	}

@@ -190,6 +190,14 @@ struct MatrixBase: public Component,
 		String searchIcon;
 	};
 
+	struct LookAndFeelMethods
+	{
+		virtual ~LookAndFeelMethods() {}
+
+		/** Override this to paint the modulation matrix row overlay (separators, backgrounds, etc). */
+		virtual void drawMatrixRow(Graphics& g, Component* row, int rowIndex, int rowWidth, int rowHeight, bool isHovered);
+	};
+
 	struct RowBase: public simple_css::FlexboxComponent,
 					public ControlledObject
 	{
@@ -205,6 +213,10 @@ struct MatrixBase: public Component,
 		}
 
 		~RowBase() override {};
+
+		void paintOverChildren(Graphics& g) override;
+
+		void setRowIndex(int index) { rowIndex = index; }
 
 		virtual void setIntensityConverter(MatrixModulator* mm);
 		void setIntensityConverter(JavascriptMidiProcessor* jmp, int componentIndex);
@@ -228,6 +240,7 @@ struct MatrixBase: public Component,
 		virtual int getDefaultRowHeight() const = 0;
 
 		bool useCSS = false;
+		int rowIndex = 0;
 
 		OwnedArray<MatrixIds::Helpers::IntensityTextConverter> customConverters;
 	};

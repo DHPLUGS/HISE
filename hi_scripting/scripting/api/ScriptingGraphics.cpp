@@ -2724,6 +2724,7 @@ Array<Identifier> ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames()
 		"drawAnalyserPath",
 		"drawAnalyserGrid",
         "drawMatrixPeakMeter",
+		"drawMatrixRow",
 		"getModulatorDragData",
 		"drawModulationDragBackground",
 		"drawModulationDragger",
@@ -5683,6 +5684,39 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawMatrixPeakMeter(Graphics& g
     }
 
     MatrixPeakMeter::LookAndFeelMethods::drawMatrixPeakMeter(g_, peakValues, maxPeaks, numChannels, isVertical, segmentSize, paddingSize, c);
+}
+
+void ScriptingObjects::ScriptedLookAndFeel::Laf::drawMatrixRow(Graphics& g_, Component* row, int rowIndex, int rowWidth, int rowHeight, bool isHovered)
+{
+	if (functionDefined("drawMatrixRow"))
+	{
+		auto obj = new DynamicObject();
+
+		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, Rectangle<float>(0.0f, 0.0f, (float)rowWidth, (float)rowHeight)));
+		obj->setProperty("rowIndex", rowIndex);
+		obj->setProperty("hover", isHovered);
+
+		// child right-edge positions, used by scripts to draw column separators
+		Array<var> columnPositions;
+
+		for (int i = 0; i < row->getNumChildComponents(); i++)
+		{
+			if (auto child = row->getChildComponent(i))
+			{
+				if (child->isVisible())
+					columnPositions.add(child->getRight());
+			}
+		}
+
+		obj->setProperty("columnPositions", columnPositions);
+
+		addParentFloatingTile(*row, obj);
+
+		if (get()->callWithGraphics(g_, "drawMatrixRow", var(obj), row))
+			return;
+	}
+
+	MatrixBase::LookAndFeelMethods::drawMatrixRow(g_, row, rowIndex, rowWidth, rowHeight, isHovered);
 }
 
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawWavetableBackground(Graphics& g_, WaterfallComponent& wc, bool isEmpty)
