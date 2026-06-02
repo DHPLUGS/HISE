@@ -911,9 +911,13 @@ public:
 
 private:
 
-	static inline double cubicnl(double x)
+	static inline double fastTanh(double x)
 	{
-		return x - x * x * x / 3.0;
+		// Padé approximant of tanh — monotonically increasing everywhere, so it
+		// cannot create the positive feedback that the cubic (v - v³/3) produces
+		// when |v| > 1 (where the cubic's slope goes negative and destabilises the filter).
+		const double x2 = x * x;
+		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 	}
 
 	Mode mode = LP;

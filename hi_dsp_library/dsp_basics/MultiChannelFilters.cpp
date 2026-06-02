@@ -957,12 +957,12 @@ DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
 
 // ============================================================================
 // OberheimSubType
-// Oberheim two-integrator SVF with cubic nonlinear saturation on integrator 1.
+// Oberheim two-integrator SVF with soft saturation on integrator 1.
 //
 // Signal flow per sample (derived from Faust letrec):
 //   hpf  = (x - s2 - FBs1*s1) * alpha0
 //   v1   = g*hpf + s1                       // pre-saturation integrator 1 sum
-//   bpf  = cubicnl(v1) = v1 - v1^3/3        // BPF — only cubicnl point
+//   bpf  = fastTanh(v1)                      // BPF — bounded soft saturation
 //   lpf  = g*bpf + s2                        // LPF
 //   bsf  = lpf + hpf                         // BSF = LP + HP
 //   s1  := g*hpf + bpf                       // = 2*g*hpf + s1 in linear case
@@ -1016,7 +1016,9 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     storedSampleRate = sampleRate;
     storedGain       = gain;
 
-    const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
+    // Cap below Nyquist — limitFrequency tops at 20 kHz but sample rate can be lower,
+    // and tan(π/2) → ∞, so guard against fc/sr ≥ 0.5.
+    const double fc = jlimit(20.0, sampleRate * 0.499, FilterLimits::limitFrequency(frequency));
     g = std::tan(double_Pi * fc / sampleRate);
 
     const double R = 1.0 / (2.0 * jmax(0.01, q * 0.5));
@@ -1118,7 +1120,7 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
             const double x   = buffer.getSample(c, startSample + n);
             const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
             const double v1  = g_i * hpf + s1[c];
-            const double bpf = v1 - v1 * v1 * v1 / 3.0;
+            const double bpf = fastTanh(v1);
             const double lpf = g_i * bpf + s2[c];
 
             s1[c] = g_i * hpf + bpf;
@@ -1163,7 +1165,7 @@ void OberheimSubType::processFrame(float* frameData, int numChannels)
         const double x   = frameData[c];
         const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
         const double v1  = g * hpf + s1[c];
-        const double bpf = v1 - v1 * v1 * v1 / 3.0;
+        const double bpf = fastTanh(v1);
         const double lpf = g * bpf + s2[c];
 
         s1[c] = g * hpf + bpf;
