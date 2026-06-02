@@ -2862,6 +2862,7 @@ struct ScriptingObjects::ScriptingModulator::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptingModulator, setIsBipolar);
 	API_METHOD_WRAPPER_0(ScriptingModulator, isBipolar);
 	API_METHOD_WRAPPER_0(ScriptingModulator, getCurrentLevel);
+	API_METHOD_WRAPPER_0(ScriptingModulator, getPlaybackPosition);
 	API_METHOD_WRAPPER_0(ScriptingModulator, exportState);
 	API_VOID_METHOD_WRAPPER_1(ScriptingModulator, restoreState);
 	API_VOID_METHOD_WRAPPER_1(ScriptingModulator, restoreScriptControls);
@@ -2945,6 +2946,7 @@ moduleHandler(m_, dynamic_cast<JavascriptProcessor*>(p))
     ADD_TYPED_API_METHOD_1(getAttributeId, VarTypeChecker::Number);
     ADD_TYPED_API_METHOD_1(getAttributeIndex, VarTypeChecker::String);
 	ADD_API_METHOD_0(getCurrentLevel);
+	ADD_API_METHOD_0(getPlaybackPosition);
 	ADD_API_METHOD_0(exportState);
 	ADD_API_METHOD_1(restoreState);
 	ADD_API_METHOD_0(getNumAttributes);
@@ -3210,6 +3212,17 @@ float ScriptingObjects::ScriptingModulator::getCurrentLevel()
 	}
 	
 	return 0.f;
+}
+
+float ScriptingObjects::ScriptingModulator::getPlaybackPosition()
+{
+	if (checkValidObject())
+	{
+		if (auto lfo = dynamic_cast<LfoModulator*>(mod.get()))
+			return lfo->getPlaybackPosition();
+	}
+
+	return 0.0f;
 }
 
 String ScriptingObjects::ScriptingModulator::exportState()
@@ -9412,6 +9425,7 @@ struct ScriptingObjects::GlobalCableReference::Wrapper
 {
 	API_METHOD_WRAPPER_0(GlobalCableReference, getValue);
 	API_METHOD_WRAPPER_0(GlobalCableReference, getValueNormalised);
+	API_METHOD_WRAPPER_0(GlobalCableReference, getPhase);
 	API_VOID_METHOD_WRAPPER_1(GlobalCableReference, setValue);
 	API_VOID_METHOD_WRAPPER_1(GlobalCableReference, sendData);
 	API_VOID_METHOD_WRAPPER_1(GlobalCableReference, setValueNormalised);
@@ -9484,6 +9498,7 @@ ScriptingObjects::GlobalCableReference::GlobalCableReference(ProcessorWithScript
 {
 	ADD_API_METHOD_0(getValue);
 	ADD_API_METHOD_0(getValueNormalised);
+	ADD_API_METHOD_0(getPhase);
 	ADD_API_METHOD_1(setValue);
 	ADD_API_METHOD_1(sendData);
 	ADD_API_METHOD_1(setValueNormalised);
@@ -9518,6 +9533,14 @@ double ScriptingObjects::GlobalCableReference::getValueNormalised() const
 	if (auto c = getCableFromVar(cable))
 		return c->lastValue;
 	
+	return 0.0;
+}
+
+double ScriptingObjects::GlobalCableReference::getPhase() const
+{
+	if (auto c = getCableFromVar(cable))
+		return c->getLastPhase();
+
 	return 0.0;
 }
 

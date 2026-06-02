@@ -246,9 +246,13 @@ struct GlobalRoutingManager: public ReferenceCountedObject
 
         void sendValue(CableTargetBase* source, double v);
 		double getLastValue() const { return lastValue; }
+		double getLastPhase() const { return lastPhase; }
+
+		void sendPhase(double phase) { lastPhase = phase; }
 
 		MemoryBlock lastData;
 		double lastValue = 0.0;
+		double lastPhase = 0.0;
 		CableTargetBase::List targets;
         
         struct RuntimeTarget: public CableTargetBase

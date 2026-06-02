@@ -1934,6 +1934,9 @@ namespace ScriptingObjects
 		/** Returns the current peak value of the modulator. */
 		float getCurrentLevel();
 
+		/** Returns the playback position (0.0 to 1.0) if this modulator is a LFO. */
+		float getPlaybackPosition();
+
 		/** Exports the state as base64 string. */
 		String exportState();
 
@@ -2793,6 +2796,9 @@ namespace ScriptingObjects
 
 		/** Returns the normalised value between 0...1 */
 		double getValueNormalised() const;
+
+		/** Returns the playback phase (0.0 to 1.0) of a connected LFO modulator. */
+		double getPhase() const;
 
 		/** Sends the normalised value to all targets. */
 		void setValueNormalised(double normalisedInput);

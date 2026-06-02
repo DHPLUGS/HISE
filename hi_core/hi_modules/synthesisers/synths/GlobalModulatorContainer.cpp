@@ -45,6 +45,9 @@ void GlobalModulatorContainer::GlobalModulatorCable::send(int voiceIndex, bool i
 			if (auto m = static_cast<TimeVariantModulator*>(mod.get()))
 			{
 				modValue = m->getLastConstantValue();
+
+				if (auto lfo = dynamic_cast<LfoModulator*>(m))
+					cable->sendPhase((double)lfo->getPlaybackPosition());
 			}
 		}
 		else if (isEnvelope)

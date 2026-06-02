@@ -185,6 +185,12 @@ public:
 
 	void calculateBlock(int startSample, int numSamples) override;;
 
+	/** Returns the current playback position of the LFO as a normalised value between 0.0 and 1.0. */
+	float getPlaybackPosition() const
+	{
+		return (float)(((int)(uptime) % SAMPLE_LOOKUP_TABLE_SIZE) / (double)SAMPLE_LOOKUP_TABLE_SIZE);
+	}
+
     void onTransportChange(bool isPlaying, double ppqPosition) override
     {
         if(isPlaying)
