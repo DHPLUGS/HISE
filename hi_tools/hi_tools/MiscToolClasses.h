@@ -3000,7 +3000,10 @@ struct ModulationDisplayValue
 			   scaledValue == other.scaledValue &&
 			   addValue == other.addValue &&
 			   modulationActive == other.modulationActive &&
-			   modulationRange == other.modulationRange;
+			   modulationRange == other.modulationRange &&
+			   selectedSourceRange == other.selectedSourceRange &&
+			   accumulatedSourceRange == other.accumulatedSourceRange &&
+			   accumulatedLiveValue == other.accumulatedLiveValue;
 	}
 
 	bool operator!=(const ModulationDisplayValue& other) const
@@ -3013,8 +3016,11 @@ struct ModulationDisplayValue
 	double scaledValue = 1.0;
 	double addValue = 0.0;
 	Range<double> modulationRange;
+	Range<double> selectedSourceRange;
+	Range<double> accumulatedSourceRange;
 	bool modulationActive = false;
 	double lastModValue = 0.0;
+	double accumulatedLiveValue = 0.0;
 
 private:
 
@@ -3034,6 +3040,19 @@ private:
 		maxv = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(maxv));
 		v.modulationRange = { minv, maxv };
 
+		auto selMinV = (float)set["modSelectedMinValue"];
+		auto selMaxV = (float)set["modSelectedMaxValue"];
+		selMinV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(selMinV));
+		selMaxV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(selMaxV));
+		v.selectedSourceRange = { selMinV, selMaxV };
+
+		auto accMinV = (float)set["modAccumulatedMinValue"];
+		auto accMaxV = (float)set["modAccumulatedMaxValue"];
+		accMinV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(accMinV));
+		accMaxV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(accMaxV));
+		v.accumulatedSourceRange = { accMinV, accMaxV };
+		v.accumulatedLiveValue = set["modAccumulatedLiveValue"];
+
 		return v;
 	}
 
@@ -3045,6 +3064,11 @@ private:
 		set.set("modulationActive", modulationActive);
 		set.set("modMinValue", modulationRange.getStart());
 		set.set("modMaxValue", modulationRange.getEnd());
+		set.set("modSelectedMinValue", selectedSourceRange.getStart());
+		set.set("modSelectedMaxValue", selectedSourceRange.getEnd());
+		set.set("modAccumulatedMinValue", accumulatedSourceRange.getStart());
+		set.set("modAccumulatedMaxValue", accumulatedSourceRange.getEnd());
+		set.set("modAccumulatedLiveValue", accumulatedLiveValue);
 		set.set("lastModValue", lastModValue);
 	}
 };

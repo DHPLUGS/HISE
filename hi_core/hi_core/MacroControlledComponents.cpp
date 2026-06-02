@@ -1094,6 +1094,21 @@ void HiSlider::ModUpdater::timerCallback()
 
 			auto mv = modFunction->getDisplayValue(p, parent.getValue(), nr, currentExlusiveIndex);
 
+			if(currentExlusiveIndex >= 0)
+			{
+				mv.selectedSourceRange = mv.modulationRange;
+
+				auto accMv = modFunction->getDisplayValue(p, parent.getValue(), nr, -1);
+				mv.accumulatedSourceRange = accMv.modulationRange;
+				mv.accumulatedLiveValue = accMv.scaledValue + accMv.addValue;
+			}
+			else
+			{
+				mv.selectedSourceRange = Range<double>();
+				mv.accumulatedSourceRange = mv.modulationRange;
+				mv.accumulatedLiveValue = mv.scaledValue + mv.addValue;
+			}
+
 			auto lastModValue = lastValue.lastModValue;
 			auto thisModValue = mv.getNormalisedModulationValue();
 

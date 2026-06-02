@@ -58,6 +58,26 @@
                   "type": "double",
                   "description": "Maximum of modulation range (0.0-1.0)"
                 },
+                "modSelectedMinValue": {
+                  "type": "double",
+                  "description": "Minimum of the selected exclusive modulation source range (0.0-1.0)"
+                },
+                "modSelectedMaxValue": {
+                  "type": "double",
+                  "description": "Maximum of the selected exclusive modulation source range (0.0-1.0)"
+                },
+                "modAccumulatedMinValue": {
+                  "type": "double",
+                  "description": "Minimum of the accumulated modulation range across all sources (0.0-1.0)"
+                },
+                "modAccumulatedMaxValue": {
+                  "type": "double",
+                  "description": "Maximum of the accumulated modulation range across all sources (0.0-1.0)"
+                },
+                "modAccumulatedLiveValue": {
+                  "type": "double",
+                  "description": "Live accumulated modulation value across all sources"
+                },
                 "lastModValue": {
                   "type": "double",
                   "description": "Last modulation value"
@@ -150,6 +170,26 @@
                 "modMaxValue": {
                   "type": "double",
                   "description": "Maximum of modulation range (0.0-1.0)"
+                },
+                "modSelectedMinValue": {
+                  "type": "double",
+                  "description": "Minimum of the selected exclusive modulation source range (0.0-1.0)"
+                },
+                "modSelectedMaxValue": {
+                  "type": "double",
+                  "description": "Maximum of the selected exclusive modulation source range (0.0-1.0)"
+                },
+                "modAccumulatedMinValue": {
+                  "type": "double",
+                  "description": "Minimum of the accumulated modulation range across all sources (0.0-1.0)"
+                },
+                "modAccumulatedMaxValue": {
+                  "type": "double",
+                  "description": "Maximum of the accumulated modulation range across all sources (0.0-1.0)"
+                },
+                "modAccumulatedLiveValue": {
+                  "type": "double",
+                  "description": "Live accumulated modulation value across all sources"
                 },
                 "lastModValue": {
                   "type": "double",
