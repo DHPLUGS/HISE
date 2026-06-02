@@ -64,6 +64,7 @@ StringArray MouseCallbackComponent::getCallbackLevels(bool getFileCallbacks)
 		sa.add("Clicks & Hover");
 		sa.add("Clicks, Hover & Dragging");
 		sa.add("All Callbacks");
+		sa.add("Wheel");
 	}
 
 	return sa;
@@ -93,7 +94,9 @@ StringArray MouseCallbackComponent::getCallbackPropertyNames()
     sa.add("cmdDown");
     sa.add("altDown");
     sa.add("ctrlDown");
-	
+	sa.add("wheelDeltaX");
+	sa.add("wheelDeltaY");
+	sa.add("isSmooth");
 
 	return sa;
 }
@@ -150,8 +153,30 @@ void MouseCallbackComponent::removeAllCallbackListeners()
 void MouseCallbackComponent::mouseDoubleClick(const MouseEvent &event)
 {
     if (callbackLevel < CallbackLevel::ClicksOnly) return;
-    
+
     sendMessage(event, Action::DoubleClicked);
+}
+
+void MouseCallbackComponent::mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel)
+{
+	if (callbackLevel != CallbackLevel::WheelCallbacks && callbackLevel != CallbackLevel::AllCallbacks)
+		return;
+
+	static const Identifier x("x");
+	static const Identifier y("y");
+	static const Identifier wheelDeltaX("wheelDeltaX");
+	static const Identifier wheelDeltaY("wheelDeltaY");
+	static const Identifier isSmooth("isSmooth");
+
+	auto& obj = clickInformation[(int)Action::WheelMove];
+	auto* e = obj.getDynamicObject();
+	e->setProperty(x,           event.position.x);
+	e->setProperty(y,           event.position.y);
+	e->setProperty(wheelDeltaX, wheel.deltaX);
+	e->setProperty(wheelDeltaY, wheel.deltaY);
+	e->setProperty(isSmooth,    wheel.isSmooth);
+
+	sendToListeners(obj);
 }
 
 void MouseCallbackComponent::setEnableFileDrop(const String& newCallbackLevel, const String& allowedWildcards)

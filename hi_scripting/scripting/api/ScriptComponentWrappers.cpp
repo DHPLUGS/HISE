@@ -215,6 +215,45 @@ struct ScriptCreatedComponentWrapper::AdditionalMouseCallback: public MouseListe
 		sendMessageOrAsync(event, MouseCallbackComponent::Action::MouseUp, MouseCallbackComponent::EnterState::Nothing);
 	}
 
+	void mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel) override
+	{
+		if (data.mouseCallbackLevel != MouseCallbackComponent::CallbackLevel::WheelCallbacks &&
+		    data.mouseCallbackLevel != MouseCallbackComponent::CallbackLevel::AllCallbacks)
+			return;
+
+		auto mc = scriptComponent->getScriptProcessor()->getMainController_();
+
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(mc->getJavascriptThreadPool().getLookAndFeelRenderLock()))
+		{
+			LockHelpers::SafeLock sl2(mc, LockHelpers::Type::ScriptLock);
+
+			if (data.listener != nullptr)
+			{
+				static const Identifier x("x");
+				static const Identifier y("y");
+				static const Identifier wheelDeltaX("wheelDeltaX");
+				static const Identifier wheelDeltaY("wheelDeltaY");
+				static const Identifier isSmooth("isSmooth");
+
+				auto& obj = eventObject[(int)MouseCallbackComponent::Action::WheelMove];
+				auto* e = obj.getDynamicObject();
+				e->setProperty(x,           event.position.x);
+				e->setProperty(y,           event.position.y);
+				e->setProperty(wheelDeltaX, wheel.deltaX);
+				e->setProperty(wheelDeltaY, wheel.deltaY);
+				e->setProperty(isSmooth,    wheel.isSmooth);
+
+				var arguments[2];
+				arguments[0] = scriptComponent->getPopupMenuTarget(event);
+				arguments[1] = obj;
+				ComponentWithAdditionalMouseProperties::attachMousePropertyFromParent(event, arguments[1]);
+
+				var::NativeFunctionArgs args({}, arguments, 2);
+				data.listener->call(nullptr, args, nullptr);
+			}
+		}
+	}
+
 	void sendMessageOrAsync(const MouseEvent& event, MouseCallbackComponent::Action action, MouseCallbackComponent::EnterState state, int popupMenuIndex = -1)
 	{
 		dispatch::StringBuilder n;

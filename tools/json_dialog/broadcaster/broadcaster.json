@@ -527,7 +527,7 @@
                   "ID": "mouseCallbackType",
                   "ValueMode": "Text",
                   "Help": "The callback level that determines when the broadcaster will send a message",
-                  "Items": "No Callbacks\nContext Menu\nClicks Only\nClicks & Hover\nClicks, Hover & Dragging\nAll Callbacks"
+                  "Items": "No Callbacks\nContext Menu\nClicks Only\nClicks & Hover\nClicks, Hover & Dragging\nAll Callbacks\nWheel"
                 },
                 {
                   "Type": "TextInput",

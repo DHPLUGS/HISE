@@ -73,6 +73,7 @@ public:
         DoubleClicked,
 		MouseUp,
 		Entered,
+		WheelMove,
 		FileMove,
 		FileEnter,
 		FileExit,
@@ -90,6 +91,7 @@ public:
 		case Action::DoubleClicked: { RETURN_STATIC_IDENTIFIER("DoubleClicked"); }
 		case Action::MouseUp: { RETURN_STATIC_IDENTIFIER("MouseUp"); }
 		case Action::Entered: { RETURN_STATIC_IDENTIFIER("Entered"); }
+		case Action::WheelMove: { RETURN_STATIC_IDENTIFIER("WheelMove"); }
 		case Action::FileMove: { RETURN_STATIC_IDENTIFIER("FileMove"); }
 		case Action::FileEnter: { RETURN_STATIC_IDENTIFIER("FileEnter"); }
 		case Action::FileExit: { RETURN_STATIC_IDENTIFIER("FileExit"); }
@@ -106,7 +108,8 @@ public:
 		ClicksOnly,
 		ClicksAndEnter,
 		Drag,
-		AllCallbacks
+		AllCallbacks,
+		WheelCallbacks
 	};
 
 	static Identifier getCallbackLevelAsIdentifier(CallbackLevel c)
@@ -119,6 +122,7 @@ public:
 		case CallbackLevel::ClicksAndEnter: { RETURN_STATIC_IDENTIFIER("ClicksAndEnter"); };
 		case CallbackLevel::Drag: { RETURN_STATIC_IDENTIFIER("Drag"); };
 		case CallbackLevel::AllCallbacks: { RETURN_STATIC_IDENTIFIER("AllCallbacks"); };
+		case CallbackLevel::WheelCallbacks: { RETURN_STATIC_IDENTIFIER("WheelCallbacks"); };
 		default: return {};
 		}
 	}
@@ -226,6 +230,7 @@ public:
 	void mouseExit(const MouseEvent &event) override;
 	void mouseUp(const MouseEvent &event) override;
     void mouseDoubleClick(const MouseEvent &event) override;
+	void mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel) override;
 
 	void setEnableFileDrop(const String& newCallbackLevel, const String& allowedWildcards);
 
