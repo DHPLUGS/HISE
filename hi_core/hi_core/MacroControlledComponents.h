@@ -803,6 +803,10 @@ public:
 			bool alwaysOnTop = false;
 			SliderStyle s = SliderStyle::RotaryHorizontalVerticalDrag;
 			float sensitivity = 1.0f;
+
+			// If false, the label area is excluded from the hover popup's hit test so it
+			// doesn't intercept mouse events for components underneath it.
+			bool labelHitTest = true;
 		};
 
 		virtual PositionData getModulatorDragData(HiSlider& s, const StringArray& sourceList) const;

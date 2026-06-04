@@ -880,6 +880,7 @@ void HiSlider::HoverPopupLookandFeel::PositionData::fromVar(const var& data)
 		labelArea = ApiHelpers::getIntRectangleFromVar(data["labelArea"]);
 
 		alwaysOnTop = data["alwaysOnTop"];
+		labelHitTest = data.getProperty("labelHitTest", labelHitTest);
 		sensitivity = data.getProperty("mouseSensitivity", sensitivity);
 
 		FloatSanitizers::sanitizeFloatNumber(sensitivity);
@@ -917,6 +918,7 @@ var HiSlider::HoverPopupLookandFeel::PositionData::toVar() const
 	obj->setProperty("labelArea", ApiHelpers::getVarRectangle(true, labelArea.toFloat()));
 	obj->setProperty("mouseSensitivity", sensitivity);
 	obj->setProperty("alwaysOnTop", alwaysOnTop);
+	obj->setProperty("labelHitTest", labelHitTest);
 
 	switch(s)
 	{
@@ -1290,6 +1292,8 @@ struct HiSlider::HoverPopup: public Component,
 	  sliderStyle(pd.s),
 	  exclusiveMode(exclusiveMode_)
 	{
+		labelHitTest = pd.labelHitTest;
+
 		int numDragAreas = dragAreas.getNumRectangles();
 		int numSources = sourceNames.size();
 
@@ -1384,7 +1388,7 @@ struct HiSlider::HoverPopup: public Component,
 
 	bool hitTest(int x, int y) override
 	{
-		if(labelArea.contains(x, y))
+		if(labelHitTest && labelArea.contains(x, y))
 			return true;
 
 		for(auto r: dragAreas)
@@ -1823,6 +1827,7 @@ struct HiSlider::HoverPopup: public Component,
 	StringArray sourceNames;
 	RectangleList<int> dragAreas;
 	Rectangle<int> labelArea;
+	bool labelHitTest = true;
 
 	int currentHoverIndex = -1;
 
