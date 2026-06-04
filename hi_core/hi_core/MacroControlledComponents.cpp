@@ -1270,8 +1270,8 @@ void HiSlider::mouseDoubleClick(const MouseEvent &e)
 }
 
 struct HiSlider::HoverPopup: public Component,
-							 public PooledUIUpdater::SimpleTimer
-	
+							 public PooledUIUpdater::SimpleTimer,
+							 public juce::ValueTree::Listener
 {
 	HoverPopup(HiSlider& slider, 
 	           const ValueTree& matrixData_, 
@@ -1369,6 +1369,11 @@ struct HiSlider::HoverPopup: public Component,
 			}, false);
 		}
 
+		// In exclusive mode the dragger is persistent, so watch the matrix data and
+		// tear it down when its connection is removed (it isn't driven by the source broadcaster).
+		if(exclusiveMode)
+			matrixData.addListener(this);
+
 		rebuild();
 	}
 
@@ -1382,6 +1387,9 @@ struct HiSlider::HoverPopup: public Component,
 		{
 			gc->currentMatrixSourceBroadcaster.removeListener(*this);
 		}
+
+		if(exclusiveMode)
+			matrixData.removeListener(this);
 
 		//jassert(!keepAlive);
 	}
@@ -1691,6 +1699,18 @@ struct HiSlider::HoverPopup: public Component,
 		currentHoverIndex = -1;
 		newList.swapWith(dragAreas);
 		rebuild();
+	}
+
+	void valueTreeChildRemoved(ValueTree&, ValueTree& removedChild, int) override
+	{
+		// The exclusive dragger represents one connection; close it when that
+		// connection's row is removed from the matrix (any removal path).
+		if(exclusiveMode &&
+		   removedChild[MatrixIds::TargetId].toString() == targetId &&
+		   sourceIndexes.contains((int)removedChild[MatrixIds::SourceIndex]))
+		{
+			clear();
+		}
 	}
 
 	void showEditor()
