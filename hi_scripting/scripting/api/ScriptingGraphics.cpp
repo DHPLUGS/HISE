@@ -2728,6 +2728,7 @@ Array<Identifier> ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames()
 		"getModulatorDragData",
 		"drawModulationDragBackground",
 		"drawModulationDragger",
+		"drawModulationLabel",
 		"drawFlexAhdsrBackground",
 		"drawFlexAhdsrCurvePoint",
 		"drawFlexAhdsrDragPoint",
@@ -5889,6 +5890,37 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModulationDragger(Graphics&
     }
 
 	HoverPopupLookandFeel::drawModulationDragger(g_, s, dd);
+}
+
+void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModulationLabel(Graphics& g_, HiSlider& s, const DrawData& dd,
+	Rectangle<int> localBounds, Component* labelComponent)
+{
+	if (functionDefined("drawModulationLabel"))
+	{
+		auto obj = new DynamicObject();
+
+		writeId(obj, &s);
+		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, localBounds.toFloat()));
+
+		setColourOrBlack(obj, "bgColour", s, HiseColourScheme::ComponentOutlineColourId);
+		setColourOrBlack(obj, "itemColour", s, HiseColourScheme::ComponentFillTopColourId);
+		setColourOrBlack(obj, "textColour", s, HiseColourScheme::ComponentTextColourId);
+
+		obj->setProperty("hover", dd.isHover);
+		obj->setProperty("clicked", dd.isDown);
+		obj->setProperty("targetName", dd.targetName);
+
+		if (dd.isHover)
+		{
+			obj->setProperty("hoverSourceName", dd.sourceName);
+			obj->setProperty("hoverText", dd.labelText);
+		}
+
+		if (get()->callWithGraphics(g_, "drawModulationLabel", var(obj), labelComponent))
+			return;
+	}
+
+	HoverPopupLookandFeel::drawModulationLabel(g_, s, dd, localBounds, labelComponent);
 }
 
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawFlexAhdsrBackground(Graphics& g_,

@@ -881,6 +881,7 @@ void HiSlider::HoverPopupLookandFeel::PositionData::fromVar(const var& data)
 
 		alwaysOnTop = data["alwaysOnTop"];
 		labelHitTest = data.getProperty("labelHitTest", labelHitTest);
+		useDecoupledLabel = data.getProperty("useDecoupledLabel", useDecoupledLabel);
 		sensitivity = data.getProperty("mouseSensitivity", sensitivity);
 
 		FloatSanitizers::sanitizeFloatNumber(sensitivity);
@@ -919,6 +920,7 @@ var HiSlider::HoverPopupLookandFeel::PositionData::toVar() const
 	obj->setProperty("mouseSensitivity", sensitivity);
 	obj->setProperty("alwaysOnTop", alwaysOnTop);
 	obj->setProperty("labelHitTest", labelHitTest);
+	obj->setProperty("useDecoupledLabel", useDecoupledLabel);
 
 	switch(s)
 	{
@@ -1014,6 +1016,13 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragBackground(Graphics& g, 
 		g.drawText(text, lr.reduced(4.0f, 0.0f), Justification::left);
 #endif
 	}
+}
+
+void HiSlider::HoverPopupLookandFeel::drawModulationLabel(Graphics& g, HiSlider& s, const DrawData& dd,
+	Rectangle<int> localBounds, Component*)
+{
+	// Default fallback when no scripted LAF is provided: reuse the dragger background drawing.
+	drawModulationDragBackground(g, s, dd, localBounds);
 }
 
 void HiSlider::HoverPopupLookandFeel::drawModulationDragger(Graphics& g, HiSlider& s, const DrawData& obj)
@@ -1269,6 +1278,40 @@ void HiSlider::mouseDoubleClick(const MouseEvent &e)
     performModifierAction(e, true);
 }
 
+// A transparent, non-interactive label that lives at the top-level window so it can be drawn
+// outside the slider's parent bounds (used when PositionData::useDecoupledLabel is set).
+struct HiSlider::ModulationLabel: public Component
+{
+	ModulationLabel(HiSlider& slider_, Rectangle<int> labelAreaInPP_):
+	  slider(slider_),
+	  labelAreaInPP(labelAreaInPP_)
+	{}
+
+	bool hitTest(int, int) override { return false; }
+
+	void paint(Graphics& g) override
+	{
+		slider.getHoverPopupLookAndFeel().drawModulationLabel(g, slider, currentDrawData, getLocalBounds(), this);
+	}
+
+	void update(const HoverPopupLookandFeel::DrawData& dd)
+	{
+		if(auto pp = slider.getParentComponent())
+		{
+			// Position relative to whatever component we were added to (the script content).
+			if(auto labelParent = getParentComponent())
+				setBounds(labelParent->getLocalArea(pp, labelAreaInPP));
+		}
+
+		currentDrawData = dd;
+		repaint();
+	}
+
+	HiSlider& slider;
+	Rectangle<int> labelAreaInPP;
+	HoverPopupLookandFeel::DrawData currentDrawData;
+};
+
 struct HiSlider::HoverPopup: public Component,
 							 public PooledUIUpdater::SimpleTimer,
 							 public juce::ValueTree::Listener
@@ -1293,6 +1336,15 @@ struct HiSlider::HoverPopup: public Component,
 	  exclusiveMode(exclusiveMode_)
 	{
 		labelHitTest = pd.labelHitTest;
+		useDecoupledLabel = pd.useDecoupledLabel;
+
+		if(useDecoupledLabel)
+		{
+			// Keep the original (parent-local) label rect for the top-level ModulationLabel, and
+			// remove it from the popup so the popup stays at the draggers' position and z-level.
+			labelAreaInPP = labelArea;
+			labelArea = {};
+		}
 
 		int numDragAreas = dragAreas.getNumRectangles();
 		int numSources = sourceNames.size();
@@ -1345,6 +1397,17 @@ struct HiSlider::HoverPopup: public Component,
 		setBounds(b.expanded(pd.margin));
 
 		globalHitbox = getScreenBounds().getUnion(slider.getScreenBounds());
+
+		if(useDecoupledLabel && !labelAreaInPP.isEmpty())
+		{
+			if(auto topLevel = TopLevelWindowWithOptionalOpenGL::findRoot(&slider))
+			{
+				decoupledLabelComponent = new ModulationLabel(slider, labelAreaInPP);
+				decoupledLabelComponent->setAlwaysOnTop(true);
+				topLevel->addAndMakeVisible(decoupledLabelComponent.get());
+				decoupledLabelComponent->update(HoverPopupLookandFeel::DrawData());
+			}
+		}
 
 		auto offset = getBoundsInParent().getTopLeft().toFloat() - pOffset;
 
@@ -1514,6 +1577,10 @@ struct HiSlider::HoverPopup: public Component,
 		}
 
 		laf.drawModulationDragBackground(g, *parent, dd, labelArea);
+
+		// The decoupled label lives at the top-level window; refresh it with the current draw state.
+		if(decoupledLabelComponent != nullptr)
+			decoupledLabelComponent->update(dd);
 
 		for(int i = 0; i < sourceNames.size(); i++)
 		{
@@ -1848,6 +1915,9 @@ struct HiSlider::HoverPopup: public Component,
 	RectangleList<int> dragAreas;
 	Rectangle<int> labelArea;
 	bool labelHitTest = true;
+	bool useDecoupledLabel = false;
+	Rectangle<int> labelAreaInPP;
+	ScopedPointer<ModulationLabel> decoupledLabelComponent;
 
 	int currentHoverIndex = -1;
 
@@ -1862,6 +1932,12 @@ struct HiSlider::HoverPopup: public Component,
 void HiSlider::ModUpdater::onExclusiveSourceSelection(ModUpdater& mu, int index)
 {
 	auto& slider = mu.parent;
+
+	// If this slider already shows the dragger for this exclusive source, leave it untouched.
+	// Rebuilding the popup on every reselect re-inserts it and makes the draggers climb the z-order.
+	if(index >= 0 && mu.currentExlusiveIndex == index && slider.currentHoverPopup != nullptr)
+		return;
+
 	auto matrixData = MatrixIds::Helpers::getMatrixDataFromGlobalContainer(slider.getProcessor()->getMainController());
 	auto targetId = slider.getProcessor()->getModulationTargetId(slider.getParameter());
 	auto hasConnection = MatrixIds::Helpers::getConnection(matrixData, index, targetId).isValid();
@@ -1876,7 +1952,12 @@ void HiSlider::ModUpdater::onExclusiveSourceSelection(ModUpdater& mu, int index)
 		sourceList.add(allSources[index]);
 
 		if (auto pd = slider.getHoverPopupLookAndFeel().getModulatorDragData(slider, sourceList))
+		{
+			// Release the old popup before constructing the new one so its z-index (derived from the
+			// slider's child index) isn't inflated by the previous popup still being present.
+			slider.currentHoverPopup = nullptr;
 			slider.currentHoverPopup = new HoverPopup(slider, matrixData, targetId, connectedSources, sourceList, pd, true);
+		}
 	}
 	else
 	{

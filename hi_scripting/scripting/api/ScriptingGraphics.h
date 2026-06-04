@@ -961,6 +961,7 @@ namespace ScriptingObjects
 			PositionData getModulatorDragData(HiSlider& s, const StringArray& sourceList) const override;
 			void drawModulationDragBackground(Graphics& g, HiSlider& s, const DrawData& dd, Rectangle<int> labelBounds) override;
 			void drawModulationDragger(Graphics& g, HiSlider& s, const DrawData& dd) override;
+			void drawModulationLabel(Graphics& g, HiSlider& s, const DrawData& dd, Rectangle<int> localBounds, Component* labelComponent) override;
 
 			void drawFlexAhdsrBackground(Graphics& g, flex_ahdsr_base::FlexAhdsrGraph& graph) override;
 			void drawFlexAhdsrCurvePoint(Graphics& g, flex_ahdsr_base::FlexAhdsrGraph& graph, flex_ahdsr_base::State s, Point<float> curvePoint, bool hover, bool down) override;

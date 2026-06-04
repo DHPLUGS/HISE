@@ -807,11 +807,19 @@ public:
 			// If false, the label area is excluded from the hover popup's hit test so it
 			// doesn't intercept mouse events for components underneath it.
 			bool labelHitTest = true;
+
+			// If true, the label is drawn as a separate component at the top-level window
+			// (via drawModulationLabel) so it isn't clipped, while the draggers stay at parent level.
+			bool useDecoupledLabel = false;
 		};
 
 		virtual PositionData getModulatorDragData(HiSlider& s, const StringArray& sourceList) const;
 		virtual void drawModulationDragBackground(Graphics& g, HiSlider& s, const DrawData& dd, Rectangle<int> labelBounds);
 		virtual void drawModulationDragger(Graphics& g, HiSlider& s, const DrawData& dd);
+
+		// Draws the decoupled modulation label (opt-in via useDecoupledLabel). localBounds is the
+		// label component's local bounds at the top-level window.
+		virtual void drawModulationLabel(Graphics& g, HiSlider& s, const DrawData& dd, Rectangle<int> localBounds, Component* labelComponent);
 	};
 
 	static NormalisableRange<double> getRangeForMode(HiSlider::Mode m);;
@@ -914,6 +922,7 @@ public:
 
 	HoverPopupLookandFeel& getHoverPopupLookAndFeel();
 	struct HoverPopup;
+	struct ModulationLabel;
 
 	ScopedPointer<Component> currentHoverPopup = nullptr;
 
