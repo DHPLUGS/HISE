@@ -1933,6 +1933,12 @@ void HiSlider::ModUpdater::onExclusiveSourceSelection(ModUpdater& mu, int index)
 {
 	auto& slider = mu.parent;
 
+	// The HoverPopup attaches to the slider's parent component, so skip it if the slider isn't in a
+	// hierarchy yet (e.g. during preset load) - otherwise the ctor dereferences a null parent. This
+	// guard was added in bac1fca58 but dropped by the alwaysOnTop refactor in 678f40e1a.
+	if(slider.getParentComponent() == nullptr)
+		return;
+
 	// If this slider already shows the dragger for this exclusive source, leave it untouched.
 	// Rebuilding the popup on every reselect re-inserts it and makes the draggers climb the z-order.
 	if(index >= 0 && mu.currentExlusiveIndex == index && slider.currentHoverPopup != nullptr)
