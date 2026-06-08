@@ -96,7 +96,12 @@ void OpaqueNode::setExternalData(const ExternalData& b, int index)
 
 void OpaqueNode::connectToRuntimeTarget(bool add, const runtime_target::connection& c)
 {
-    if(connectRuntimeFunc)
+    // Guard against a half-initialised node: if the wrapped object failed to
+    // allocate (getObjectPtr() == nullptr) the connect wrapper would cast null
+    // and dereference it. This can happen on cold-load preset restore when a
+    // network only partially instantiates; skip the modulation hookup instead
+    // of crashing (you cannot connect a runtime target to a null node anyway).
+    if(connectRuntimeFunc && getObjectPtr() != nullptr)
         connectRuntimeFunc(getObjectPtr(), add, c);
 }
 

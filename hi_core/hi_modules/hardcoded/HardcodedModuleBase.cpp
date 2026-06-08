@@ -627,6 +627,31 @@ bool HardcodedSwappableEffect::setEffect(const String& factoryId, bool /*unused*
 		if (!factory->initOpaqueNode(newNode, idx, isPolyphonic()))
 			newNode = nullptr;
 
+		if (newNode == nullptr)
+		{
+			// The compiled network failed to instantiate (e.g. a poly/mono
+			// mismatch or a broken compiled node). Tear down to an empty slot
+			// instead of dereferencing the null node below — that null deref
+			// crashes the exported plugin on cold-load preset restore. Mirrors
+			// the "No network" path, and reports which effect failed.
+			errorBroadcaster.sendMessage(sendNotificationAsync, "Effect '" + factoryId + "' failed to instantiate");
+			currentEffect = {};
+			effectUpdater.sendMessage(sendNotificationAsync, currentEffect, true, 0);
+
+			{
+				SimpleReadWriteLock::ScopedWriteLock sl(lock);
+				std::swap(newNode, opaqueNode);
+			}
+
+			if (newNode != nullptr)
+			{
+				factory->deinitOpaqueNode(newNode);
+				newNode = nullptr;
+			}
+
+			return false;
+		}
+
         asProcessor().connectToRuntimeTargets(*newNode, true);
 
 		ExternalDataHolder::garbageCollectFilterCoefficients();
