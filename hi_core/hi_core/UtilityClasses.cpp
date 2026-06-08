@@ -706,7 +706,7 @@ AsyncValueTreePropertyListener::AsyncValueTreePropertyListener(ValueTree state_,
 	dispatcher(dispatcher_),
 	asyncHandler(*this)
 {
-	pendingPropertyChanges.ensureStorageAllocated(1024);
+	pendingPropertyChanges.ensureStorageAllocated(16);
 	state.addListener(this);
 }
 
