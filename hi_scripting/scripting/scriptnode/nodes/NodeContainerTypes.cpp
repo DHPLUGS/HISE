@@ -504,12 +504,31 @@ void MultiChannelNode::channelLayoutChanged(NodeBase* nodeThatCausedLayoutChange
 }
 
 BranchNode::BranchNode(DspNetwork* root, ValueTree data):
-	ParallelNode(root, data)
+	ParallelNode(root, data),
+	smoothingTime(PropertyIds::SmoothingTime, 0)
 {
 	initListeners(false);
 	addFixedParameters();
 
 	indexRangeUpdater.setCallback(getNodeTree(), valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(BranchNode::updateIndexLimit));
+
+	smoothingTime.initialise(this);
+	smoothingTime.setAdditionalCallback(BIND_MEMBER_FUNCTION_2(BranchNode::updateSmoothingTime), true);
+}
+
+void BranchNode::updateSmoothingTime(Identifier id, var newValue)
+{
+	if (id == PropertyIds::Value)
+	{
+		smoothingMs = jlimit(0, 1000, (int)newValue);
+
+		if (sampleRate > 0.0)
+		{
+			fadeRamper.prepare(sampleRate, (double)smoothingMs);
+			fadeRamper.set(1.0f);
+			fadeRamper.reset();
+		}
+	}
 }
 
 void MultiChannelNode::prepare(PrepareSpecs ps)
@@ -629,7 +648,21 @@ void BranchNode::updateIndexLimit(ValueTree, bool wasAdded)
 
 void BranchNode::setIndex(double s)
 {
-	currentIndex = roundToInt(s);
+	auto newIndex = roundToInt(s);
+
+	if (newIndex == currentIndex)
+		return;
+
+	// start a crossfade from the outgoing child when smoothing is enabled
+	if (smoothingMs > 0 && sampleRate > 0.0)
+	{
+		prevIndex = currentIndex;
+		fadeRamper.set(0.0f);
+		fadeRamper.reset();
+		fadeRamper.set(1.0f);
+	}
+
+	currentIndex = newIndex;
 }
 
 void BranchNode::prepare(PrepareSpecs ps)
@@ -637,6 +670,15 @@ void BranchNode::prepare(PrepareSpecs ps)
 	NodeBase::prepare(ps);
 	NodeContainer::prepareContainer(ps);
 	NodeContainer::prepareNodes(ps);
+
+	sampleRate = ps.sampleRate;
+	fadeRamper.prepare(ps.sampleRate, (double)smoothingMs);
+	fadeRamper.set(1.0f);
+	fadeRamper.reset();
+	prevIndex = -1;
+
+	if (ps.blockSize > 0)
+		DspHelpers::increaseBuffer(fadeBuffer, ps, false);
 }
 
 void BranchNode::reset()
@@ -653,6 +695,31 @@ void BranchNode::handleHiseEvent(HiseEvent& e)
 
 void BranchNode::processFrame(FrameType& data)
 {
+	if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != currentIndex)
+	{
+		float copy[NUM_MAX_CHANNELS];
+		auto numChannels = jmin((int)data.size(), NUM_MAX_CHANNELS);
+
+		for (int i = 0; i < numChannels; i++)
+			copy[i] = data[i];
+
+		if(auto n = nodes[currentIndex])
+			n->processFrame(data);
+
+		FrameType prevData(copy, (size_t)numChannels);
+
+		if(auto p = nodes[prevIndex])
+			p->processFrame(prevData);
+
+		const auto r = jlimit(0.0f, 1.0f, fadeRamper.advance());
+		const auto ir = 1.0f - r;
+
+		for (int i = 0; i < numChannels; i++)
+			data[i] = data[i] * r + copy[i] * ir;
+
+		return;
+	}
+
 	if(auto n = nodes[currentIndex])
 		n->processFrame(data);
 }
@@ -661,7 +728,56 @@ void BranchNode::process(ProcessDataDyn& d)
 {
 	if(isBypassed())
 		return;
-	
+
+	if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != currentIndex && fadeBuffer.begin() != nullptr)
+	{
+		const int numSamples = d.getNumSamples();
+		const int numChannels = d.getNumChannels();
+
+		float* prevPtrs[NUM_MAX_CHANNELS];
+
+		{
+			float* fptr = fadeBuffer.begin();
+			int index = 0;
+
+			for (auto& c : d)
+			{
+				FloatVectorOperations::copy(fptr, c.getRawReadPointer(), numSamples);
+				prevPtrs[index++] = fptr;
+				fptr += numSamples;
+			}
+		}
+
+		if(auto n = nodes[currentIndex])
+			n->process(d);
+
+		ProcessDataDyn prevData(prevPtrs, numSamples, numChannels);
+		prevData.copyNonAudioDataFrom(d);
+
+		if(auto p = nodes[prevIndex])
+			p->process(prevData);
+
+		float* wetPtrs[NUM_MAX_CHANNELS];
+
+		{
+			int index = 0;
+
+			for (auto& c : d)
+				wetPtrs[index++] = c.getRawWritePointer();
+		}
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			const auto r = jlimit(0.0f, 1.0f, fadeRamper.advance());
+			const auto ir = 1.0f - r;
+
+			for (int c = 0; c < numChannels; c++)
+				wetPtrs[c][i] = wetPtrs[c][i] * r + prevPtrs[c][i] * ir;
+		}
+
+		return;
+	}
+
 	if(auto n = nodes[currentIndex])
 		n->process(d);
 }

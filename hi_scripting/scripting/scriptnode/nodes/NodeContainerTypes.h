@@ -878,6 +878,8 @@ public:
 
 	void updateIndexLimit(ValueTree, bool wasAdded);
 
+	void updateSmoothingTime(Identifier id, var newValue);
+
 	String getNodeDescription() const override { return "Processes a single child based on the branch index"; }
 
 	enum Parameters
@@ -908,6 +910,15 @@ public:
 	valuetree::ChildListener indexRangeUpdater;
 
 	int currentIndex = 0;
+
+	// Optional crossfade on index changes. SmoothingTime == 0 (default) keeps the
+	// original hard switch; > 0 crossfades the outgoing and incoming child outputs.
+	NodePropertyT<int> smoothingTime;
+	sfloat fadeRamper;
+	heap<float> fadeBuffer;
+	double sampleRate = 0.0;
+	int smoothingMs = 0;
+	int prevIndex = -1;
 };
 
 class SingleSampleBlockX : public SerialNode

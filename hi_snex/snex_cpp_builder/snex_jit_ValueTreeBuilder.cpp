@@ -2289,6 +2289,23 @@ snex::cppgen::Node::Ptr ValueTreeBuilder::RootContainerBuilder::parse()
 				parent.addEmptyLine();
 			}
 
+			// Forward a non-default SmoothingTime property to compiled branch containers
+			// so the index crossfade also works in exported networks.
+			for (auto& sv : stackVariables)
+			{
+				if (sv->nodeTree[PropertyIds::FactoryPath].toString() == "container.branch")
+				{
+					auto st = (int)ValueTreeIterator::getNodeProperty(sv->nodeTree, PropertyIds::SmoothingTime);
+
+					if (st > 0)
+					{
+						String def;
+						def << sv->toExpression() << ".setSmoothingTime(" << String(st) << ");";
+						parent << def;
+					}
+				}
+			}
+
 			addDefaultParameters();
 		}
 

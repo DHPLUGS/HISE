@@ -256,14 +256,34 @@ template <typename Unused, typename... Processors> struct branch: public contain
 		return this->parameters.currentIndex;
 	}
 
+	/** Sets the crossfade time for index changes in milliseconds. The default (0) keeps the original hard switch. */
+	void setSmoothingTime(int newTimeMs)
+	{
+		smoothingMs = jlimit(0, 1000, newTimeMs);
+
+		if (sampleRate > 0.0)
+		{
+			fadeRamper.prepare(sampleRate, (double)smoothingMs);
+			fadeRamper.set(1.0f);
+			fadeRamper.reset();
+		}
+	}
+
     branch() = default;
     branch(const branch& other) = default;
     ~branch() override {};
-    
+
     /** prepares all child nodes with the same specs. */
     void prepare(PrepareSpecs ps)
     {
 		static_assert(NumElements <= 16, "max branch child node amount is 16");
+
+		sampleRate = ps.sampleRate;
+		fadeRamper.prepare(ps.sampleRate, (double)smoothingMs);
+		fadeRamper.set(1.0f);
+		fadeRamper.reset();
+		lastIndex = getCurrentIndex();
+		prevIndex = -1;
 
         call_tuple_iterator1(prepare, ps);
     }
@@ -271,6 +291,55 @@ template <typename Unused, typename... Processors> struct branch: public contain
     /** Processes all child nodes. */
     void process(BlockType& d)
     {
+		checkFadeState();
+
+		if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != getCurrentIndex())
+		{
+			const int numChannels = d.getNumChannels();
+			const int numSamples = d.getNumSamples();
+
+			auto rampData = (float*)alloca(sizeof(float) * numSamples);
+
+			for (int i = 0; i < numSamples; i++)
+				rampData[i] = jlimit(0.0f, 1.0f, fadeRamper.advance());
+
+			auto stackBufferData = (float*)alloca(sizeof(float) * numChannels * numSamples);
+			float* channels[NUM_MAX_CHANNELS];
+
+			for (int i = 0; i < numChannels; i++)
+			{
+				channels[i] = stackBufferData + i * numSamples;
+				FloatVectorOperations::copy(channels[i], d[i].begin(), numSamples);
+			}
+
+			BlockType prevData(channels, numSamples, numChannels);
+			prevData.copyNonAudioDataFrom(d);
+
+			switch(getCurrentIndex())
+			{
+				CASE_16(process, d);
+			}
+
+			switch(prevIndex)
+			{
+				CASE_16(process, prevData);
+			}
+
+			for (int c = 0; c < numChannels; c++)
+			{
+				auto wet = d[c].begin();
+				auto dry = channels[c];
+
+				for (int i = 0; i < numSamples; i++)
+				{
+					const auto r = rampData[i];
+					wet[i] = wet[i] * r + dry[i] * (1.0f - r);
+				}
+			}
+
+			return;
+		}
+
 		switch(getCurrentIndex())
 		{
 			CASE_16(process, d);
@@ -280,9 +349,34 @@ template <typename Unused, typename... Processors> struct branch: public contain
     /** Process all child nodes one frame at a time. */
     void processFrame(FrameType& d)
     {
+		checkFadeState();
+
+		if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != getCurrentIndex())
+		{
+			FrameType prevData = d;
+
+			switch(getCurrentIndex())
+			{
+				CASE_16(processFrame, d)
+			}
+
+			switch(prevIndex)
+			{
+				CASE_16(processFrame, prevData)
+			}
+
+			const auto r = jlimit(0.0f, 1.0f, fadeRamper.advance());
+			const auto ir = 1.0f - r;
+
+			for (int i = 0; i < NumChannels; i++)
+				d[i] = d[i] * r + prevData[i] * ir;
+
+			return;
+		}
+
 		switch(getCurrentIndex())
 		{
-			CASE_16(processFrame, d)	
+			CASE_16(processFrame, d)
 		}
     }
 
@@ -296,6 +390,34 @@ template <typename Unused, typename... Processors> struct branch: public contain
 			CASE_16(handleHiseEvent, e);
 		}
     }
+
+private:
+
+	// The index is set by parameter::branch_index which has no access to this object,
+	// so fades are started by detecting the change at the start of each process call.
+	void checkFadeState()
+	{
+		const auto idx = getCurrentIndex();
+
+		if (idx != lastIndex)
+		{
+			if (smoothingMs > 0)
+			{
+				prevIndex = lastIndex;
+				fadeRamper.set(0.0f);
+				fadeRamper.reset();
+				fadeRamper.set(1.0f);
+			}
+
+			lastIndex = idx;
+		}
+	}
+
+	snex::Types::sfloat fadeRamper;
+	double sampleRate = 0.0;
+	int smoothingMs = 0;
+	int lastIndex = 0;
+	int prevIndex = -1;
 };
 
 #undef CASE
