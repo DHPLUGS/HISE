@@ -436,6 +436,155 @@ public:
 	bool processSignal = false;
 };
 
+// A loudness-domain RMS follower. Reuses the true-RMS maths of ott::RMSDetector
+// (mean of squares -> sqrt) but replaces its fixed 30 ms boxcar buffer with a
+// one-pole exponential average, so the window can be set long (loudness domain)
+// without a per-voice ring buffer - the polyphonic instance is templated up to
+// NUM_POLYPHONIC_VOICES, where a multi-hundred-ms boxcar would cost a lot of RAM.
+// Set ProcessSignal to write the RMS into the signal path (e.g. to divide a
+// pre/post tap for compressor auto-gain).
+template <int NV> class rms: public data::display_buffer_base<true>, public polyphonic_base
+{
+public:
+
+	enum class Parameters
+	{
+		Window,
+		ProcessSignal
+	};
+
+	DEFINE_PARAMETERS
+	{
+		DEF_PARAMETER(Window, rms);
+		DEF_PARAMETER(ProcessSignal, rms);
+	}
+	SN_PARAMETER_MEMBER_FUNCTION;
+
+	SN_NODE_ID("rms");
+	SN_GET_SELF_AS_OBJECT(rms);
+	SN_DESCRIPTION("create a modulation signal from the RMS (loudness) of the input");
+
+	rms():
+	  polyphonic_base(getStaticId(), false)
+	{
+
+	}
+
+	static constexpr bool isNormalisedModulation() { return true; }
+
+	SN_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_INITIALISE;
+
+	bool handleModulation(double& v) noexcept
+	{
+		updateBuffer(modValue.getModValue(), lastNumSamples);
+		return modValue.getChangedValue(v);
+	};
+
+	void prepare(PrepareSpecs ps) override
+	{
+		display_buffer_base<true>::prepare(ps);
+
+		sampleRate = ps.sampleRate;
+		meanSquare.prepare(ps);
+
+		updateCoefficient();
+		reset();
+	}
+
+	void reset() noexcept
+	{
+		for (auto& ms: meanSquare)
+			ms = 0.0;
+	}
+
+	template <typename ProcessDataType> void process(ProcessDataType& data)
+	{
+		if (data.getNumChannels() == 1)
+			snex::Types::FrameConverters::forwardToFrameMono(this, data);
+		if (data.getNumChannels() == 2)
+			snex::Types::FrameConverters::forwardToFrameStereo(this, data);
+
+		lastNumSamples = data.getNumSamples();
+	}
+
+	template <typename FrameType> void processFrame(FrameType& data)
+	{
+		float input = 0.0;
+
+		for (auto& s: data)
+			input = Math.max(Math.abs(s), input);
+
+		auto& ms = meanSquare.get();
+		auto squared = (double)input * (double)input;
+		ms += coeff * (squared - ms);
+		ms = jmax(0.0, ms);
+
+		auto output = (float)hmath::sqrt(ms);
+
+		if (processSignal)
+		{
+			for (auto& s : data)
+				s = output;
+		}
+
+		modValue.setModValue(output);
+		lastNumSamples = 1;
+	}
+
+	void setWindow(double newWindowMs)
+	{
+		windowMs = jlimit(1.0, 5000.0, newWindowMs);
+		updateCoefficient();
+	}
+
+	void setProcessSignal(double v)
+	{
+		processSignal = v > 0.5;
+	}
+
+	void createParameters(ParameterDataList& data)
+	{
+		{
+			DEFINE_PARAMETERDATA(rms, Window);
+			p.setRange({ 1.0, 2000.0, 0.1 });
+			p.setSkewForCentre(300.0);
+			p.setDefaultValue(300.0);
+			p.info.textConverter = parameter::pod::Time;
+
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(rms, ProcessSignal);
+			p.setParameterValueNames({"Off", "On"});
+			data.add(std::move(p));
+		}
+	}
+
+private:
+
+	void updateCoefficient()
+	{
+		// one-pole time constant: ~63% step response over the window length
+		auto tau = (windowMs * 0.001) * sampleRate;
+		coeff = tau > 1.0 ? (1.0 - hmath::exp(-1.0 / tau)) : 1.0;
+	}
+
+	PolyData<double, NV> meanSquare;
+
+	ModValue modValue;
+	int lastNumSamples = 0;
+
+	double sampleRate = 44100.0;
+	double windowMs = 300.0;
+	double coeff = 1.0;
+
+	bool processSignal = false;
+
+	hmath Math;
+};
+
 class ott: public data::display_buffer_base<true>
 {
 public:
