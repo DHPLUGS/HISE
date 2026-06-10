@@ -1379,6 +1379,8 @@ struct HiSlider::HoverPopup: public Component,
 		auto idx = pd.alwaysOnTop ? -1 : parentToUse->getIndexOfChildComponent(parent);
 		parentToUse->addAndMakeVisible(this, idx);
 
+		parentToUseRef = parentToUse;
+
 		auto pb = parentToUse->getLocalArea(parent, parent->getLocalBounds());
 
 		auto b = dragAreas.getBounds();
@@ -1435,7 +1437,18 @@ struct HiSlider::HoverPopup: public Component,
 		// In exclusive mode the dragger is persistent, so watch the matrix data and
 		// tear it down when its connection is removed (it isn't driven by the source broadcaster).
 		if(exclusiveMode)
+		{
 			matrixData.addListener(this);
+
+			// The persistent dragger lives in the script content (not as a child of the slider), so it
+			// won't follow the slider when an ancestor moves (FX reorder) or hide when an ancestor is
+			// hidden (FX removed from the rack). Anchor it to the slider's position now and let the
+			// SliderPositionWatcher keep both in sync from here on.
+			exclusiveAnchorOffset = getBoundsInParent().getTopLeft().toFloat() -
+				parentToUseRef->getLocalPoint(parent.getComponent(), Point<float>());
+
+			positionWatcher = new SliderPositionWatcher(*this);
+		}
 
 		rebuild();
 	}
@@ -1780,6 +1793,37 @@ struct HiSlider::HoverPopup: public Component,
 		}
 	}
 
+	// Re-anchors the persistent dragger to the slider's current on-screen position. Called by the
+	// SliderPositionWatcher when the slider (or any of its ancestors) moves or is resized, so the
+	// dragger follows along when the FX rack is reordered or relaid out.
+	void updateExclusivePosition()
+	{
+		if(parentToUseRef == nullptr || parent == nullptr)
+			return;
+
+		auto anchor = parentToUseRef->getLocalPoint(parent.getComponent(), Point<float>());
+		setTopLeftPosition((anchor + exclusiveAnchorOffset).roundToInt());
+
+		globalHitbox = getScreenBounds().getUnion(parent->getScreenBounds());
+
+		if(decoupledLabelComponent != nullptr)
+			decoupledLabelComponent->update(decoupledLabelComponent->currentDrawData);
+	}
+
+	// Mirrors the slider's effective (hierarchy-wide) visibility onto the dragger. Called by the
+	// SliderPositionWatcher when the slider or any ancestor is shown/hidden - the slider's own
+	// visibilityChanged() doesn't fire for ancestor changes, which is why a hidden FX panel used to
+	// leave its dragger stranded on screen.
+	void updateExclusiveVisibility()
+	{
+		auto shouldBeVisible = parent != nullptr && parent->isShowing();
+
+		setVisible(shouldBeVisible);
+
+		if(decoupledLabelComponent != nullptr)
+			decoupledLabelComponent->setVisible(shouldBeVisible);
+	}
+
 	void showEditor()
 	{
 		if(isPositiveAndBelow(currentHoverIndex, labelConverters.size()))
@@ -1902,12 +1946,33 @@ struct HiSlider::HoverPopup: public Component,
 		}
 	}
 
+	// Tracks the slider plus all of its ancestors so the persistent exclusive-mode dragger follows the
+	// slider on FX reorder and hides with it on FX removal. A plain visibilityChanged() override on the
+	// slider can't see ancestor changes, and the dragger isn't a child of the slider, so neither moves
+	// nor visibility would otherwise propagate.
+	struct SliderPositionWatcher: public ComponentMovementWatcher
+	{
+		SliderPositionWatcher(HoverPopup& popup_):
+			ComponentMovementWatcher(popup_.parent.getComponent()),
+			popup(popup_)
+		{}
+
+		void componentMovedOrResized(bool, bool) override { popup.updateExclusivePosition(); }
+		void componentPeerChanged() override { popup.updateExclusivePosition(); }
+		void componentVisibilityChanged() override { popup.updateExclusiveVisibility(); }
+
+		HoverPopup& popup;
+	};
+
 	std::vector<float> intensityDownValues;
 	std::vector<float> intensityValues;
 	uint32 lastHoverTime = 0;
 
 	bool keepAlive = false;
 	Component::SafePointer<HiSlider> parent;
+	Component::SafePointer<Component> parentToUseRef;
+	Point<float> exclusiveAnchorOffset;
+	ScopedPointer<SliderPositionWatcher> positionWatcher;
 	String targetId;
 	ValueTree matrixData;
 	Array<int> sourceIndexes;
