@@ -542,7 +542,7 @@ public:
 
         if (before > 0.0f)
         {
-            g = jlimit(0.0f, 64.0f, g / before);
+            g = jlimit(0.0f, 24.0f, g / before);
         }
         else
         {

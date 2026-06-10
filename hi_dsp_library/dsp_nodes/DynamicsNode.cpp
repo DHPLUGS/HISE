@@ -104,8 +104,9 @@ void ott::updown_envelope_follower::processFrame(span<float, 1>& input)
 	auto isHigher = (inputDouble > lastValue);
 	auto coeffToUse = isHigher ? atk : rel;
 
-	// skip the smoothing when the value is below the low threshold
-	coeffToUse *= (double)(int)!(inputDouble < lo_t && isHigher);
+	// always smooth with atk/rel; the old below-threshold smoothing-bypass set the
+	// coefficient to 0 (instant per-sample tracking) which modulated the gain at
+	// audio rate -> aliasing/distortion. Removed 2026-06-09.
 
 	lastValue = coeffToUse * (lastValue - inputDouble) + inputDouble;
 
@@ -182,14 +183,14 @@ float ott::getGainReduction(float input)
     if (hmath::abs(input - lo_t) < (lo_w * 0.5f))
     {
         auto blend = (input - (lo_t - lo_w * 0.5f)) / lo_w;
-        auto v_compressed = lo_t * std::pow(jmax(1e-9f, input) / lo_t, lo_r_d);
+        auto v_compressed = input + (lo_t - input) * (1.0f - lo_r_d);
         return input + (v_compressed - input) * (1.0f - blend);
     }
     else if (input < (lo_t - lo_w*0.5f))
     {
         const auto noise_floor = Decibels::decibelsToGain(-120.0f);
 
-        auto v = lo_t * std::pow(jmax(1e-9f, input) / lo_t, lo_r_d);
+        auto v = input + (lo_t - input) * (1.0f - lo_r_d);
 
         if (input < noise_floor)
         {
