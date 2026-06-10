@@ -40,16 +40,9 @@ using namespace juce;
 
 void ott::RMSDetector::prepare(PrepareSpecs ps)
 {
-	int bufferSize = roundToInt(ps.sampleRate * 0.03);
-			
-	if (data.size() != bufferSize)
-	{
-		memory.setSize(bufferSize);
-		data.referTo(memory);
-		coeff = 1.0f / bufferSize;
-
-		reset();
-	}
+	sampleRate = ps.sampleRate;
+	updateCoefficients();
+	reset();
 }
 
 void ott::RMSDetector::processFrame(span<float, 1>& peak)
@@ -57,33 +50,42 @@ void ott::RMSDetector::processFrame(span<float, 1>& peak)
 	if (!enabled)
 		return;
 
-	auto oldValue = data[arrayIndex];
-	auto newValue = (double)(peak[0]);
-	newValue *= newValue;
+	auto x = (double)peak[0];
+	x *= x;
 
-	data[arrayIndex] = newValue;
+	// asymmetric smoothing: the rise coefficient sets the detector attack, the fall
+	// side always averages over the full window
+	auto c = (x > meanSquare) ? riseCoeff : fallCoeff;
+	meanSquare = c * (meanSquare - x) + x;
 
-	if (++arrayIndex >= data.size())
-		arrayIndex = 0;
-			
-	sum -= oldValue;
-	sum += newValue;
-	sum = jmax(0.0, sum);
-	auto r = sum * coeff;
-	r = hmath::sqrt(r);
-	peak[0] = r;
+	peak[0] = (float)hmath::sqrt(jmax(0.0, meanSquare));
 }
 
-void ott::RMSDetector::setEnabled(double v)
+void ott::RMSDetector::setAmount(double v)
 {
-	enabled = v > 0.5;
+	amount = jlimit(0.0, 1.0, v);
+	enabled = amount > 0.0;
+	updateCoefficients();
+}
+
+void ott::RMSDetector::updateCoefficients()
+{
+	if (sampleRate <= 0.0 || !enabled)
+		return;
+
+	// detector-attack mapping: the fall side always averages over the full window
+	// (peak-hold-like, so the tight end stays low-ripple even on bass), while the
+	// amount only scales the rise time - the knob controls how much of a transient
+	// leaks through before the compressor clamps it
+	auto riseMs = jmax(0.05, amount * MaxWindowMs);
+
+	riseCoeff = exp(log(0.01) / (riseMs * sampleRate * 0.001));
+	fallCoeff = exp(log(0.01) / (MaxWindowMs * sampleRate * 0.001));
 }
 
 void ott::RMSDetector::reset()
 {
-	FloatVectorOperations::clear(data.begin(), data.size());
-	arrayIndex = 0;
-	sum = 0.0;
+	meanSquare = 0.0;
 }
 
 void ott::updown_envelope_follower::prepare(PrepareSpecs ps)
@@ -276,7 +278,6 @@ void ott::createParameters(ParameterDataList& data)
 	{
 		parameter::data p("RMS", { 0.0, 1.0 });
 		registerCallback<(int)Parameters::RMS>(p);
-		p.setParameterValueNames({ "Off", "On" });
 		p.setDefaultValue(1.0);
 		data.add(std::move(p));
 	}
@@ -425,7 +426,6 @@ void updown_comp::createParameters(ParameterDataList& data)
 	{
 		parameter::data p("RMS", { 0.0, 1.0 });
 		registerCallback<(int)Parameters::RMS>(p);
-		p.setParameterValueNames({ "Off", "On" });
 		p.setDefaultValue(1.0);
 		data.add(std::move(p));
 	}

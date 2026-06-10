@@ -593,17 +593,28 @@ public:
 	{
 		void prepare(PrepareSpecs ps);
 		void processFrame(span<float, 1>& peak);
-		void setEnabled(double v);
+
+		// Detector attack: 0 = bypassed (legacy peak detection), > 0 = one-pole mean-square
+		// whose fall side always averages over the full 30ms window while the value scales
+		// the rise time (0..30ms). Near zero it acts like a smooth peak-hold (tight clamp,
+		// low ripple); higher values let more of each transient through before clamping -
+		// a musical attack control in the detector, replacing the old fixed 30ms boxcar
+		// which leaked a fixed ~30ms transient even at zero attack.
+		void setAmount(double v);
 		void reset();
 
 	private:
 
+		static constexpr double MaxWindowMs = 30.0;
+
+		void updateCoefficients();
+
 		bool enabled = false;
-		dyn<double> data;
-		heap<double> memory;
-		int arrayIndex = 0;
-		double sum = 0.0f;
-		double coeff = 0.0f;
+		double amount = 0.0;
+		double sampleRate = 44100.0;
+		double riseCoeff = 0.0;
+		double fallCoeff = 0.0;
+		double meanSquare = 0.0;
 	};
 
 	struct updown_envelope_follower
@@ -735,7 +746,7 @@ public:
 			envelopeFollower.setRelease(v);
 			break;
 		case Parameters::RMS:
-			rmsDetector.setEnabled(v);
+			rmsDetector.setAmount(v);
 			break;
 		case Parameters::Depth:
 			state[(int)Parameters::Depth].set(hmath::range((float)v, 0.0f, 1.0f));
@@ -869,7 +880,7 @@ public:
 			envelopeFollower.setRelease(v);
 			break;
 		case Parameters::RMS:
-			rmsDetector.setEnabled(v);
+			rmsDetector.setAmount(v);
 			break;
 		default:
 			jassertfalse;
