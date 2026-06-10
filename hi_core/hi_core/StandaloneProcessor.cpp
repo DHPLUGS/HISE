@@ -221,8 +221,14 @@ StandaloneProcessor::StandaloneProcessor()
 #if USE_BACKEND
 	if(!CompileExporter::shouldSkipAudioDriverInitialisation())
 	{
-		if(xml != nullptr)
+		if(xml != nullptr && xml->hasAttribute("audioDeviceOutChans"))
 		{
+			// Only validate the channel count when the device setup explicitly enables a
+			// fixed set of output channels. When the attribute is absent JUCE uses the
+			// default output channels (useDefaultOutputChannels) and initialiseAudioDriver
+			// already requests HISE_NUM_STANDALONE_OUTPUTS channels, so there is no real
+			// mismatch - checking it here would count 0 set bits and fire the prompt on
+			// every launch.
 			BigInteger numOutputChannels;
 
 			numOutputChannels.parseString(xml->getStringAttribute("audioDeviceOutChans"), 2);
