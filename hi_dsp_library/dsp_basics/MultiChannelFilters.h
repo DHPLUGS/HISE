@@ -600,6 +600,20 @@ public:
 		LowShelf,
 		HighShelf,
 		Peak,
+		// Higher-order Butterworth LP/HP built by cascading Cytomic SVF stages.
+		// Appended after the original modes so existing presets keep their indices.
+		LP24,
+		LP36,
+		LP48,
+		HP24,
+		HP36,
+		HP48,
+		// Extra single-order types and same-Q cascades to reach parity with svf.
+		BandPass,
+		Notch,
+		Morph,
+		BP24,
+		Notch24,
 		numModes
 	};
 
@@ -608,7 +622,11 @@ public:
 	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;;
 	StringArray getModes() const;
 
-	FilterCoefficientData getCoefficients(double, double, double) const { return {}; }
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	// Evaluates the exact Cytomic SVF magnitude/phase response so the graph
+	// matches the audio (the cookbook IIR fallback diverges near Nyquist).
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
 
 	void reset(int newNumChannels);
 	void setType(int newType);
@@ -620,12 +638,18 @@ private:
 
 	Mode t = Mode::LowPass;
 
+	// Parameters captured for getPlotValue (filled in by getCoefficients).
+	double plotFreqNorm = 0.0;
+	double plotQ = 1.0;
+	double plotGain = 1.0;
+
 	struct Coefficients
 	{
 		Coefficients();
 
 		void update(double freq, double q, Mode type, double samplerate);
 		void setGain(double gainDb);
+		void setMorph(double normalisedMorph);
 		double computeK(double q, bool useGain = false);
 		void computeA(double g, double k);
 		void tick();
@@ -634,6 +658,7 @@ private:
 
 		double gain;
 		double gain_sqrt;
+		double morphPos = 0.5;
 		double m[4];
 		double a[4];
 
@@ -643,6 +668,9 @@ private:
 		double ap[4];
 
 	} coefficients;
+
+	// Extra cascade stages (stages 2..4) for the higher-order LP/HP modes.
+	Coefficients coefficients_s[3];
 
 	struct State
 	{
@@ -659,6 +687,7 @@ private:
 	};
 
 	State states[NUM_MAX_CHANNELS];
+	State states_s[3][NUM_MAX_CHANNELS];
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(StateVariableEqSubType);

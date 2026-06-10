@@ -5096,6 +5096,19 @@ juce::Array<hise::FilterHelpers::CoefficientType> StateVariableEqSubType::getCoe
 		FilterHelpers::LowShelf,
 		FilterHelpers::HighShelf,
 		FilterHelpers::Peak,
+		// Cascade modes (plotted via the custom function; these only keep
+		// cType[type] in range for the unused cookbook fallback).
+		FilterHelpers::LowPassReso, // LP24
+		FilterHelpers::LowPassReso, // LP36
+		FilterHelpers::LowPassReso, // LP48
+		FilterHelpers::HighPass,    // HP24
+		FilterHelpers::HighPass,    // HP36
+		FilterHelpers::HighPass,    // HP48
+		FilterHelpers::BandPass,    // BandPass
+		FilterHelpers::Notch,       // Notch
+		FilterHelpers::BandPass,    // Morph (placeholder; custom plot used)
+		FilterHelpers::BandPass,    // BP24
+		FilterHelpers::Notch,       // Notch24
 	};
 }
 
@@ -5107,14 +5120,29 @@ juce::StringArray StateVariableEqSubType::getModes() const
 		"HighPass",
 		"LowShelf",
 		"HighShelf",
-		"Peak"
+		"Peak",
+		"LowPass 24dB",
+		"LowPass 36dB",
+		"LowPass 48dB",
+		"HighPass 24dB",
+		"HighPass 36dB",
+		"HighPass 48dB",
+		"BandPass",
+		"Notch",
+		"Morph",
+		"BandPass 24dB",
+		"Notch 24dB"
 	};
 }
 
 void StateVariableEqSubType::reset(int newNumChannels)
 {
 	for (int i = 0; i < newNumChannels; i++)
+	{
 		states[i].reset();
+		for (int s = 0; s < 3; ++s)
+			states_s[s][i].reset();
+	}
 }
 
 void StateVariableEqSubType::setType(int newType)
@@ -5122,18 +5150,87 @@ void StateVariableEqSubType::setType(int newType)
 	t = (Mode)newType;
 }
 
+// Section info for the cascaded higher-order modes. For LP/HP cascades qTable
+// holds the Butterworth section Qs and isButterworth is true (per-section Q =
+// qTable[s] * softenEqUserQ(q)). For BP24/Notch24 isButterworth is false: every
+// section uses the raw user Q (qTable is unused), matching svf's same-Q cascade.
+// Returns false for the single-order modes.
+static bool getEqCascadeInfo(StateVariableEqSubType::Mode m,
+	StateVariableEqSubType::Mode& baseType, int& numSections, const double*& qTable,
+	bool& isButterworth)
+{
+	static const double q24[2] = { 0.5412, 1.3066 };
+	static const double q36[3] = { 0.5176, 0.7071, 1.9319 };
+	static const double q48[4] = { 0.5098, 0.6013, 0.8999, 2.5629 };
+
+	using SVE = StateVariableEqSubType;
+
+	isButterworth = true;
+	qTable = nullptr;
+
+	switch (m)
+	{
+	case SVE::LP24: baseType = SVE::LowPass;  numSections = 2; qTable = q24; return true;
+	case SVE::LP36: baseType = SVE::LowPass;  numSections = 3; qTable = q36; return true;
+	case SVE::LP48: baseType = SVE::LowPass;  numSections = 4; qTable = q48; return true;
+	case SVE::HP24: baseType = SVE::HighPass; numSections = 2; qTable = q24; return true;
+	case SVE::HP36: baseType = SVE::HighPass; numSections = 3; qTable = q36; return true;
+	case SVE::HP48: baseType = SVE::HighPass; numSections = 4; qTable = q48; return true;
+	case SVE::BP24:    baseType = SVE::BandPass; numSections = 2; isButterworth = false; return true;
+	case SVE::Notch24: baseType = SVE::Notch;    numSections = 2; isButterworth = false; return true;
+	default: return false;
+	}
+}
+
+// Maps the user Q knob (0.3..9.9, neutral 1.0) to a per-section scale, matching
+// StateVariableFilterSubType: neutral gives pure Butterworth, higher adds
+// resonance (softened above 1.0), lower damps the sections.
+static double softenEqUserQ(double q)
+{
+	const double rawSf = jmax(0.001, q);
+	return (rawSf <= 1.0) ? rawSf : 1.0 + (rawSf - 1.0) * 0.5;
+}
+
+// Per-section Q for a cascade stage, given the resolved section info.
+static double getEqSectionQ(bool isButterworth, const double* qTable, int section, double userQ)
+{
+	return isButterworth ? (qTable[section] * softenEqUserQ(userQ)) : userQ;
+}
+
+// Cytomic SVF output mix (m0,m1,m2) for a single-order base type, given k = 1/Q.
+static void getEqBaseMix(StateVariableEqSubType::Mode baseType, double k,
+	double& m0, double& m1, double& m2)
+{
+	using SVE = StateVariableEqSubType;
+	switch (baseType)
+	{
+	case SVE::LowPass:  m0 = 0.0; m1 = 0.0; m2 = 1.0;  break;
+	case SVE::HighPass: m0 = 1.0; m1 = -k;  m2 = -1.0; break;
+	case SVE::BandPass: m0 = 0.0; m1 = 1.0; m2 = 0.0;  break; // Q-peak, matches svf v1
+	case SVE::Notch:    m0 = 1.0; m1 = -k;  m2 = 0.0;  break;
+	default:            m0 = 0.0; m1 = 0.0; m2 = 1.0;  break;
+	}
+}
+
 void StateVariableEqSubType::processSamples(AudioSampleBuffer& b, int startSample, int numSamples)
 {
 	auto numChannels = b.getNumChannels();
 	auto ptrs = b.getArrayOfWritePointers();
 
+	Mode baseType; int numSections; const double* qTable; bool isButterworth;
+	const int numExtra = getEqCascadeInfo(t, baseType, numSections, qTable, isButterworth) ? (numSections - 1) : 0;
+
 	for (int i = startSample; i < startSample + numSamples; i++)
 	{
 		coefficients.tick();
+		for (int s = 0; s < numExtra; ++s)
+			coefficients_s[s].tick();
 
 		for (int c = 0; c < numChannels; c++)
 		{
-			auto v = states[c].tick(ptrs[c][i], coefficients);
+			float v = states[c].tick(ptrs[c][i], coefficients);
+			for (int s = 0; s < numExtra; ++s)
+				v = states_s[s][c].tick(v, coefficients_s[s]);
 			ptrs[c][i] = v;
 		}
 	}
@@ -5141,17 +5238,164 @@ void StateVariableEqSubType::processSamples(AudioSampleBuffer& b, int startSampl
 
 void StateVariableEqSubType::processFrame(float* frameData, int numChannels)
 {
+	Mode baseType; int numSections; const double* qTable; bool isButterworth;
+	const int numExtra = getEqCascadeInfo(t, baseType, numSections, qTable, isButterworth) ? (numSections - 1) : 0;
+
 	coefficients.tick();
+	for (int s = 0; s < numExtra; ++s)
+		coefficients_s[s].tick();
 
 	for (int c = 0; c < numChannels; c++)
 	{
-		frameData[c] = states[c].tick(frameData[c], coefficients);
+		float v = states[c].tick(frameData[c], coefficients);
+		for (int s = 0; s < numExtra; ++s)
+			v = states_s[s][c].tick(v, coefficients_s[s]);
+		frameData[c] = v;
 	}
+}
+
+FilterCoefficientData StateVariableEqSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<StateVariableEqSubType*>(this);
+	m->plotFreqNorm = freqNorm;
+	m->plotQ = q;
+	m->plotGain = gain;
+
+	FilterCoefficientData cd;
+
+	// Nudge a coefficient so the display change-detection always repaints the
+	// curve when a parameter moves (mirrors StateVariableFilterSubType).
+	cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+// Exact Cytomic SVF stage response on the unit circle. With g the bilinear
+// gain, k = 1/Q, the mix (m0,m1,m2), P = (z+1)/2 and Det = (P-a1)(P-1+a3)+a2^2:
+//   BP(z)/X = a2*P*(P-1) / Det
+//   LP(z)/X = P*(a3*(P-a1) + a2^2) / Det
+//   H(z)    = m0 + m1*BP + m2*LP
+// This mirrors Coefficients::computeA()/State::tick() so the plot is identical
+// to what processSamples() produces.
+static std::complex<double> evalCytomicStage(double g, double k,
+	double m0, double m1, double m2, double freqNorm)
+{
+	const double a1 = 1.0 / (1.0 + g * (g + k));
+	const double a2 = g * a1;
+	const double a3 = g * a2;
+
+	const std::complex<double> z = std::polar(1.0, 2.0 * double_Pi * freqNorm);
+	const std::complex<double> P = (z + 1.0) * 0.5;
+
+	const std::complex<double> det = (P - a1) * (P - 1.0 + a3) + a2 * a2;
+	const std::complex<double> bp = (a2 * P * (P - 1.0)) / det;
+	const std::complex<double> lp = (P * (a3 * (P - a1) + a2 * a2)) / det;
+
+	return m0 + m1 * bp + m2 * lp;
+}
+
+double StateVariableEqSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<StateVariableEqSubType*>(obj);
+	const Mode type = typed->t;
+
+	const double g0 = std::tan(typed->plotFreqNorm * double_Pi);
+
+	// Higher-order cascade modes: product of the exact per-stage responses
+	// (so |H| multiplies and phase sums, matching the serial processing).
+	Mode baseType; int numSections; const double* qTable; bool isButterworth;
+	if (getEqCascadeInfo(type, baseType, numSections, qTable, isButterworth))
+	{
+		std::complex<double> h(1.0, 0.0);
+
+		for (int s = 0; s < numSections; ++s)
+		{
+			const double sectionQ = getEqSectionQ(isButterworth, qTable, s, typed->plotQ);
+			const double k = 1.0 / sectionQ;
+			double m0, m1, m2;
+			getEqBaseMix(baseType, k, m0, m1, m2);
+
+			h *= evalCytomicStage(g0, k, m0, m1, m2, freqNorm);
+		}
+
+		return getMagnitude ? std::abs(h) : std::arg(h);
+	}
+
+	// Single-order EQ modes: rebuild the exact Cytomic coefficients for the
+	// stored parameters, replicating Coefficients::update()/setGain()/computeK().
+	double g = g0;
+
+	const double gainDb = Decibels::gainToDecibels(jmax((float)typed->plotGain, 1.0e-6f));
+	const double gainEq = std::pow(10.0, gainDb / 40.0);
+	const double gainSqrt = std::sqrt(gainEq);
+
+	const double k = 1.0 / ((type == Peak) ? (typed->plotQ * gainEq) : typed->plotQ);
+
+	double m0 = 0.0, m1 = 0.0, m2 = 0.0;
+
+	switch (type)
+	{
+	case LowPass:
+		m0 = 0.0; m1 = 0.0; m2 = 1.0;
+		break;
+	case HighPass:
+		m0 = 1.0; m1 = -k; m2 = -1.0;
+		break;
+	case Peak:
+		m0 = 1.0; m1 = k * (gainEq * gainEq - 1.0); m2 = 0.0;
+		break;
+	case LowShelf:
+		g /= gainSqrt;
+		m0 = 1.0; m1 = k * (gainEq - 1.0); m2 = gainEq * gainEq - 1.0;
+		break;
+	case HighShelf:
+		g *= gainSqrt;
+		m0 = gainEq * gainEq; m1 = k * (1.0 - gainEq) * gainEq; m2 = 1.0 - gainEq * gainEq;
+		break;
+	case BandPass:
+		m0 = 0.0; m1 = 1.0; m2 = 0.0;
+		break;
+	case Notch:
+		m0 = 1.0; m1 = -k; m2 = 0.0;
+		break;
+	case Morph:
+	{
+		// gain (dB) drives morphPos = (dB+18)/36; the mix sweeps LP -> BP -> HP
+		// -> Notch across morphPos (matches StateVariableFilterSubType::Morph).
+		const double morphPos = jlimit(0.0, 1.0, (gainDb + 18.0) / 36.0);
+		const double mt = morphPos * 3.0;
+		if (mt <= 1.0)        { const double s = mt;        m0 = 0.0; m1 = s;            m2 = 1.0 - s; }
+		else if (mt <= 2.0)   { const double s = mt - 1.0;  m0 = s;   m1 = (1.0 - s) - k * s; m2 = -s; }
+		else                  { const double s = mt - 2.0;  m0 = 1.0; m1 = -k;           m2 = -(1.0 - s); }
+		break;
+	}
+	default:
+		return getMagnitude ? 1.0 : 0.0;
+	}
+
+	const std::complex<double> h = evalCytomicStage(g, k, m0, m1, m2, freqNorm);
+	return getMagnitude ? std::abs(h) : std::arg(h);
 }
 
 void StateVariableEqSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
+	Mode baseType; int numSections; const double* qTable; bool isButterworth;
+	if (getEqCascadeInfo(t, baseType, numSections, qTable, isButterworth))
+	{
+		// Cascade of Cytomic SVF stages (Butterworth-aligned LP/HP, or same-Q
+		// BP24/Notch24). Gain is unused for these base types, so only the
+		// per-section Q (k = 1/Q) varies between stages.
+		coefficients.update(frequency, getEqSectionQ(isButterworth, qTable, 0, q), baseType, sampleRate);
+		for (int s = 1; s < numSections; ++s)
+			coefficients_s[s - 1].update(frequency, getEqSectionQ(isButterworth, qTable, s, q), baseType, sampleRate);
+
+		return;
+	}
+
 	coefficients.setGain(Decibels::gainToDecibels(gain));
+	// Morph repurposes the gain param as the morph position (-18..+18 dB).
+	coefficients.setMorph(jlimit(0.0, 1.0, (Decibels::gainToDecibels(jmax(gain, 1.0e-6)) + 18.0) / 36.0));
 	coefficients.update(frequency, q, t, sampleRate);
 }
 
@@ -5197,6 +5441,25 @@ void StateVariableEqSubType::Coefficients::update(double freq, double q, StateVa
 		m[1] = k * (1.0 - gain)*gain;
 		m[2] = 1.0 - gain * gain;
 		break;
+	case BandPass:
+		m[0] = 0.0;
+		m[1] = 1.0; // Q-peak bandpass (matches svf v1 output)
+		m[2] = 0.0;
+		break;
+	case Notch:
+		m[0] = 1.0;
+		m[1] = -k;
+		m[2] = 0.0;
+		break;
+	case Morph:
+	{
+		// Interpolate the output mix LP -> BP -> HP -> Notch across morphPos.
+		const double mt = morphPos * 3.0;
+		if (mt <= 1.0)       { const double s = mt;       m[0] = 0.0; m[1] = s;             m[2] = 1.0 - s; }
+		else if (mt <= 2.0)  { const double s = mt - 1.0; m[0] = s;   m[1] = (1.0 - s) - k * s; m[2] = -s; }
+		else                 { const double s = mt - 2.0; m[0] = 1.0; m[1] = -k;            m[2] = -(1.0 - s); }
+		break;
+	}
 	case numModes:
 	default:
 		jassertfalse;
@@ -5209,6 +5472,11 @@ void StateVariableEqSubType::Coefficients::setGain(double gainDb)
 {
 	gain = std::pow(10.0, gainDb / 40.0);
 	gain_sqrt = std::sqrt(gain);
+}
+
+void StateVariableEqSubType::Coefficients::setMorph(double normalisedMorph)
+{
+	morphPos = jlimit(0.0, 1.0, normalisedMorph);
 }
 
 double StateVariableEqSubType::Coefficients::computeK(double q, bool useGain /*= false*/)
