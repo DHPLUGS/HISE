@@ -40,6 +40,7 @@ namespace chunkware_simple
 		: AttRelEnvelope( 10.0, 100.0 )
 		, threshdB_( 0.0 )
 		, ratio_( 1.0 )
+		, kneedB_( 0.0 )
 		, envdB_( DC_OFFSET )
 	{
 	}
@@ -55,6 +56,12 @@ namespace chunkware_simple
 	{
 		assert( ratio > 0.0 );
 		ratio_ = ratio;
+	}
+
+	//-------------------------------------------------------------
+	void SimpleComp::setKnee( double dB )
+	{
+		kneedB_ = jmax( 0.0, dB );
 	}
 
 	//-------------------------------------------------------------
@@ -89,7 +96,16 @@ namespace chunkware_simple
 
 		// threshold
 		SimpleDataType overdB = keydB - threshdB_;	// delta over threshold
-		if (overdB < 0.0)
+
+		// quadratic soft knee: interpolate between no compression and the full
+		// ratio over a +-knee/2 dB window around the threshold (0 = hard knee,
+		// which is the original behaviour)
+		if (kneedB_ > 0.0 && fabs(overdB) < kneedB_ * 0.5)
+		{
+			SimpleDataType t = overdB + kneedB_ * 0.5;
+			overdB = t * t / (2.0 * kneedB_);
+		}
+		else if (overdB < 0.0)
 			overdB = 0.0;
 
 		// attack/release

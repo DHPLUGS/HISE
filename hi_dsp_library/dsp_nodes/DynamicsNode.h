@@ -76,7 +76,35 @@ struct DynamicHelpers
         return "A limiter with the ducking amount as modulation signal";
     }
 };
-    
+
+struct RMSDetector
+{
+	void prepare(PrepareSpecs ps);
+	void processFrame(span<float, 1>& peak);
+
+	// Detector attack: 0 = bypassed (legacy peak detection), > 0 = one-pole mean-square
+	// whose fall side always averages over the full 30ms window while the value scales
+	// the rise time (0..30ms). Near zero it acts like a smooth peak-hold (tight clamp,
+	// low ripple); higher values let more of each transient through before clamping -
+	// a musical attack control in the detector, replacing the old fixed 30ms boxcar
+	// which leaked a fixed ~30ms transient even at zero attack.
+	void setAmount(double v);
+	void reset();
+
+private:
+
+	static constexpr double MaxWindowMs = 30.0;
+
+	void updateCoefficients();
+
+	bool enabled = false;
+	double amount = 0.0;
+	double sampleRate = 44100.0;
+	double riseCoeff = 0.0;
+	double fallCoeff = 0.0;
+	double meanSquare = 0.0;
+};
+
 template <class DynamicProcessorType> class dynamics_wrapper : public HiseDspBase,
 															   public data::display_buffer_base<true>
 {
@@ -88,9 +116,13 @@ public:
 		Attack,
 		Release,
 		Ratio,
-        Sidechain
+        Sidechain,
+		// comp-only parameters, appended so the existing indices stay stable
+		Knee,
+		Makeup,
+		RMS
 	};
-    
+
     enum class SidechainMode
     {
         Disabled = 0,
@@ -99,6 +131,11 @@ public:
         numSideChainModes
     };
 
+	static constexpr bool isCompressor()
+	{
+		return std::is_same<DynamicProcessorType, chunkware_simple::SimpleComp>::value;
+	}
+
 	DEFINE_PARAMETERS
 	{
 		DEF_PARAMETER(Threshhold, dynamics_wrapper);
@@ -106,6 +143,9 @@ public:
 		DEF_PARAMETER(Release, dynamics_wrapper);
 		DEF_PARAMETER(Ratio, dynamics_wrapper);
         DEF_PARAMETER(Sidechain, dynamics_wrapper);
+		DEF_PARAMETER(Knee, dynamics_wrapper);
+		DEF_PARAMETER(Makeup, dynamics_wrapper);
+		DEF_PARAMETER(RMS, dynamics_wrapper);
 	}
 	SN_PARAMETER_MEMBER_FUNCTION;
 
@@ -175,6 +215,33 @@ public:
             p.setDefaultValue(0.0);
             data.add(std::move(p));
         }
+
+		// comp-only extensions; all default to the legacy behaviour
+		if constexpr (isCompressor())
+		{
+			{
+				DEFINE_PARAMETERDATA(dynamics_wrapper, Knee);
+				p.setRange({ 0.0, 24.0, 0.1 });
+				p.info.textConverter = parameter::pod::Decibel;
+				p.setDefaultValue(0.0);
+				data.add(std::move(p));
+			}
+
+			{
+				DEFINE_PARAMETERDATA(dynamics_wrapper, Makeup);
+				p.setRange({ 0.0, 24.0, 0.1 });
+				p.info.textConverter = parameter::pod::Decibel;
+				p.setDefaultValue(0.0);
+				data.add(std::move(p));
+			}
+
+			{
+				DEFINE_PARAMETERDATA(dynamics_wrapper, RMS);
+				p.setRange({ 0.0, 1.0 });
+				p.setDefaultValue(0.0);
+				data.add(std::move(p));
+			}
+		}
     }
     
 	bool handleModulation(double& max) noexcept
@@ -186,11 +253,13 @@ public:
     {
 		display_buffer_base<true>::prepare(ps);
         obj.setSampleRate(ps.sampleRate);
+		rmsDetector.prepare(ps);
     }
-    
+
 	void reset() noexcept
     {
         obj.initRuntime();
+		rmsDetector.reset();
     }
 
 	void updateModValue(int numSamples)
@@ -213,42 +282,69 @@ public:
 		updateModValue(data.getNumSamples());
 	}
 
+	// Runs the detector-attack smoothing on the key signal (no-op while the RMS
+	// parameter is 0, in which case the legacy 2-arg process path is used instead).
+	float smoothKey(float key) noexcept
+	{
+		span<float, 1> k;
+		k[0] = key;
+		rmsDetector.processFrame(k);
+		return k[0];
+	}
+
 	template <typename FrameDataType> void processFrame(FrameDataType& data) noexcept
 	{
         int numSignalChannels = data.size();
-        
+
         if(sidechainMode != SidechainMode::Disabled)
             numSignalChannels /= 2;
-        
-        
+
+
 		if (numSignalChannels == 2)
 		{
 			double values[2] = { data[0], data[1] };
-            
+
             if(sidechainMode == SidechainMode::Sidechain)
             {
                 float sideChainValue = hmath::max(hmath::abs(data[2]), hmath::abs(data[3]));
+
+				if (detectorOn)
+					sideChainValue = smoothKey(sideChainValue);
+
                 obj.process(values[0], values[1], sideChainValue);
             }
+			else if (detectorOn)
+			{
+				auto key = smoothKey(hmath::max(hmath::abs(data[0]), hmath::abs(data[1])));
+				obj.process(values[0], values[1], (double)key);
+			}
             else
             {
                 obj.process(values[0], values[1]);
             }
-            
-			
-			data[0] = (float)values[0];
-			data[1] = (float)values[1];
+
+
+			data[0] = (float)(values[0] * makeupGain);
+			data[1] = (float)(values[1] * makeupGain);
 		}
 		else
 		{
 			double values[2] = { data[0], data[0] };
-            
+
             if(sidechainMode == SidechainMode::Sidechain)
-                obj.process(values[0], values[1], data[1]);
+			{
+				auto key = detectorOn ? smoothKey(hmath::abs(data[1])) : data[1];
+                obj.process(values[0], values[1], (double)key);
+			}
+			else if (detectorOn)
+			{
+				auto key = smoothKey(hmath::abs(data[0]));
+				obj.process(values[0], values[1], (double)key);
+			}
             else
                 obj.process(values[0], values[1]);
-            
-			data[0] = (float)values[0];
+
+			data[0] = (float)(values[0] * makeupGain);
 		}
 
 		updateModValue(1);
@@ -280,12 +376,35 @@ public:
         sidechainMode = (SidechainMode)(int)newMode;
     }
 
+	void setKnee(double v)
+	{
+		if constexpr (isCompressor())
+			obj.setKnee(v);
+		else
+			ignoreUnused(v);
+	}
+
+	void setMakeup(double v)
+	{
+		makeupGain = Decibels::decibelsToGain(v);
+	}
+
+	void setRMS(double v)
+	{
+		detectorOn = v > 0.0;
+		rmsDetector.setAmount(v);
+	}
+
 	DynamicProcessorType obj;
 	ModValue modValue;
 	bool updateOnFrame = true;
-	
-    
+
+
     SidechainMode sidechainMode = SidechainMode::Disabled;
+
+	RMSDetector rmsDetector;
+	bool detectorOn = false;
+	double makeupGain = 1.0;
 };
 
 template class dynamics_wrapper<chunkware_simple::SimpleGate>;
@@ -436,7 +555,7 @@ public:
 	bool processSignal = false;
 };
 
-// A loudness-domain RMS follower. Reuses the true-RMS maths of ott::RMSDetector
+// A loudness-domain RMS follower. Reuses the true-RMS maths of RMSDetector
 // (mean of squares -> sqrt) but replaces its fixed 30 ms boxcar buffer with a
 // one-pole exponential average, so the window can be set long (loudness domain)
 // without a per-voice ring buffer - the polyphonic instance is templated up to
@@ -588,34 +707,6 @@ private:
 class ott: public data::display_buffer_base<true>
 {
 public:
-
-	struct RMSDetector
-	{
-		void prepare(PrepareSpecs ps);
-		void processFrame(span<float, 1>& peak);
-
-		// Detector attack: 0 = bypassed (legacy peak detection), > 0 = one-pole mean-square
-		// whose fall side always averages over the full 30ms window while the value scales
-		// the rise time (0..30ms). Near zero it acts like a smooth peak-hold (tight clamp,
-		// low ripple); higher values let more of each transient through before clamping -
-		// a musical attack control in the detector, replacing the old fixed 30ms boxcar
-		// which leaked a fixed ~30ms transient even at zero attack.
-		void setAmount(double v);
-		void reset();
-
-	private:
-
-		static constexpr double MaxWindowMs = 30.0;
-
-		void updateCoefficients();
-
-		bool enabled = false;
-		double amount = 0.0;
-		double sampleRate = 44100.0;
-		double riseCoeff = 0.0;
-		double fallCoeff = 0.0;
-		double meanSquare = 0.0;
-	};
 
 	struct updown_envelope_follower
 	{
@@ -776,7 +867,6 @@ class updown_comp: public data::display_buffer_base<true>
 {
 public:
 
-	using RMSDetector = ott::RMSDetector;
 	using updown_envelope_follower = ott::updown_envelope_follower;
 
 	enum class Parameters

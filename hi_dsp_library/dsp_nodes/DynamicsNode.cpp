@@ -38,14 +38,14 @@ using namespace juce;
 
 
 
-void ott::RMSDetector::prepare(PrepareSpecs ps)
+void RMSDetector::prepare(PrepareSpecs ps)
 {
 	sampleRate = ps.sampleRate;
 	updateCoefficients();
 	reset();
 }
 
-void ott::RMSDetector::processFrame(span<float, 1>& peak)
+void RMSDetector::processFrame(span<float, 1>& peak)
 {
 	if (!enabled)
 		return;
@@ -61,14 +61,14 @@ void ott::RMSDetector::processFrame(span<float, 1>& peak)
 	peak[0] = (float)hmath::sqrt(jmax(0.0, meanSquare));
 }
 
-void ott::RMSDetector::setAmount(double v)
+void RMSDetector::setAmount(double v)
 {
 	amount = jlimit(0.0, 1.0, v);
 	enabled = amount > 0.0;
 	updateCoefficients();
 }
 
-void ott::RMSDetector::updateCoefficients()
+void RMSDetector::updateCoefficients()
 {
 	if (sampleRate <= 0.0 || !enabled)
 		return;
@@ -83,7 +83,7 @@ void ott::RMSDetector::updateCoefficients()
 	fallCoeff = exp(log(0.01) / (MaxWindowMs * sampleRate * 0.001));
 }
 
-void ott::RMSDetector::reset()
+void RMSDetector::reset()
 {
 	meanSquare = 0.0;
 }

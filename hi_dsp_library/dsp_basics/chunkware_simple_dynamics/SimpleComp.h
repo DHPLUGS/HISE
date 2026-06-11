@@ -47,9 +47,11 @@ namespace chunkware_simple
 		// parameters
 		virtual void setThresh( double dB );
 		virtual void setRatio( double dB );
+		virtual void setKnee( double dB );		// knee width in dB (0 = hard knee)
 
 		virtual double getThresh( void ) const { return threshdB_; }
 		virtual double getRatio( void )  const { return ratio_; }
+		virtual double getKnee( void )   const { return kneedB_; }
 
 		// runtime
 		virtual void initRuntime( void );			// call before runtime (in resume())
@@ -70,6 +72,7 @@ namespace chunkware_simple
 		// transfer function
 		double threshdB_;		// threshold (dB)
 		double ratio_;			// ratio (compression: < 1 ; expansion: > 1)
+		double kneedB_;			// knee width (dB), 0 = hard knee
 
 		// runtime variables
 		double envdB_;			// over-threshold envelope (dB)
