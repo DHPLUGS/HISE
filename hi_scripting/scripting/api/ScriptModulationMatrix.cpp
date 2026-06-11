@@ -529,11 +529,48 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 		normValue = jlimit(0.0, 1.0, normValue);
 		auto outputValue = sliderRange.convertFrom0to1(normValue, false);
 
+		// Skip the (potentially scripted) control callback when the value hasn't
+		// moved - this runs at control rate on the audio thread for every matrix
+		// connection, so static values would otherwise execute the script callback
+		// once per block for nothing.
+		if (hasLastCallbackValue && outputValue == lastCallbackValue)
+			return;
+
+		hasLastCallbackValue = true;
+		lastCallbackValue = outputValue;
+
 		auto pr = parent.get()->getConnectedProcessor();
 
 		Processor::ScopedAttributeNotificationSuspender sp(pr);
 
-		parent->getScriptProcessor()->controlCallback(parent.get(), outputValue);
+		auto mc = getMainController();
+
+		if (mc->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::TargetThread::AudioThread
+			&& !LockHelpers::isLockedBySameThread(mc, LockHelpers::Type::ScriptLock))
+		{
+			// The control callback acquires the script lock for scripted callbacks.
+			// Blocking on it from the audio thread inverts the lock order against any
+			// thread that holds the script lock while waiting for the audio lock
+			// (e.g. the scripting thread reordering the FX chain) and deadlocks the
+			// engine. Try the lock instead and skip this control-rate tick if it is
+			// contended - the value is reapplied on the next change.
+			auto& scriptLock = LockHelpers::getLockUnchecked(mc, LockHelpers::Type::ScriptLock);
+
+			if (scriptLock.tryEnter())
+			{
+				parent->getScriptProcessor()->controlCallback(parent.get(), outputValue);
+				scriptLock.exit();
+			}
+			else
+			{
+				// make sure the skipped value is retried on the next tick
+				hasLastCallbackValue = false;
+			}
+		}
+		else
+		{
+			parent->getScriptProcessor()->controlCallback(parent.get(), outputValue);
+		}
 	}
 }
 

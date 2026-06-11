@@ -204,6 +204,9 @@ struct ScriptingApi::Content::ScriptSlider::MatrixCableConnection: public Matrix
 	Target::List addTargets;
 	ModulationDisplayValue mv;
 
+	bool hasLastCallbackValue = false;
+	double lastCallbackValue = 0.0;
+
 	StringArray sourceNames;
 	valuetree::ChildListener connectionListener;
 	valuetree::RecursivePropertyListener sourceTargetListener;
