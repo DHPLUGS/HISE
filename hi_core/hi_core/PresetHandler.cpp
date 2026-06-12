@@ -1269,7 +1269,7 @@ juce::File FrontendHandler::getSubDirectory(SubDirectories directory) const
 		jassertfalse;
 		break; 
 	case hise::FileHandlerBase::UserPresets:
-		return getRootFolder().getChildFile("User Presets");
+		return getUserPresetDirectory();
 	case hise::FileHandlerBase::Samples:
 		return getSampleLocationForCompiledPlugin();
 	default:
@@ -1539,7 +1539,11 @@ File FrontendHandler::getUserPresetDirectory(bool getRedirect)
     return userPresetDirectory;
     
 #else
+#if HISE_USER_PRESETS_IN_MUSIC_FOLDER
+	File presetDir = File::getSpecialLocation(File::userMusicDirectory).getChildFile(getCompanyName()).getChildFile(getProjectName()).getChildFile("Presets");
+#else
 	File presetDir = getAppDataDirectory().getChildFile("User Presets");
+#endif
     return FileHandlerBase::getFolderOrRedirect(presetDir);
 #endif
 }

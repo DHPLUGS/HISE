@@ -478,6 +478,16 @@ OpenGL should be enabled by default or not.
 #define HISE_USE_SYSTEM_APP_DATA_FOLDER 0
 #endif
 
+/** Config: HISE_USER_PRESETS_IN_MUSIC_FOLDER
+
+    If enabled, the compiled plugin will store its user presets in a "Presets" subfolder
+    of the <Company>/<Product> folder in the user's music directory instead of the
+    "User Presets" folder in the app data directory.
+*/
+#ifndef HISE_USER_PRESETS_IN_MUSIC_FOLDER
+#define HISE_USER_PRESETS_IN_MUSIC_FOLDER 0
+#endif
+
 /** Config: ENABLE_STARTUP_LOGGER
 
 If this is enabled, compiled plugins will write a startup log to the desktop for debugging purposes
