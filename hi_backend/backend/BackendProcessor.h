@@ -563,6 +563,9 @@ public:
 
 	void setEditorData(var editorState);
 
+	/** Returns the persistent editor UI state (loaded from / saved to editorData.json on standalone). */
+	var getEditorData() const { return editorInformation; }
+
 	juce::OnlineUnlockStatus* getLicenseUnlocker() 
 	{
 		return &scriptUnlocker;

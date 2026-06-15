@@ -106,7 +106,8 @@ void PatchBrowser::itemDragEnter(const SourceDetails& dragSourceDetails)
 {
 	for (int i = 0; i < getNumCollections(); i++)
 	{
-		dynamic_cast<PatchCollection*>(getCollection(i))->checkDragState(dragSourceDetails);
+		if (auto pc = dynamic_cast<PatchCollection*>(getCollection(i)))
+			pc->checkDragState(dragSourceDetails);
 	}
 }
 
@@ -114,7 +115,8 @@ void PatchBrowser::itemDragExit(const SourceDetails& /*dragSourceDetails*/)
 {
 	for (int i = 0; i < getNumCollections(); i++)
 	{
-		dynamic_cast<PatchCollection*>(getCollection(i))->resetDragState();
+		if (auto pc = dynamic_cast<PatchCollection*>(getCollection(i)))
+			pc->resetDragState();
 	}
 }
 
@@ -319,6 +321,39 @@ int PatchBrowser::getNumCollectionsToCreate() const
 	return i;
 }
 
+// Persistent fold state for the Global Cables list so it survives a recompile /
+// module-list rebuild and an app restart instead of always reopening. Stored in the
+// BackendProcessor's editorData (editorData.json on standalone). Defaults to folded.
+static const Identifier GlobalCablesFoldedId("GlobalCablesFolded");
+
+static bool loadGlobalCableFolded(MainController* mc)
+{
+	if (auto bp = dynamic_cast<BackendProcessor*>(mc))
+	{
+		if (auto obj = bp->getEditorData().getDynamicObject())
+		{
+			if (obj->hasProperty(GlobalCablesFoldedId))
+				return (bool)obj->getProperty(GlobalCablesFoldedId);
+		}
+	}
+
+	return true; // default: closed
+}
+
+static void storeGlobalCableFolded(MainController* mc, bool folded)
+{
+	if (auto bp = dynamic_cast<BackendProcessor*>(mc))
+	{
+		auto data = bp->getEditorData();
+
+		if (data.getDynamicObject() == nullptr)
+			data = var(new DynamicObject());
+
+		data.getDynamicObject()->setProperty(GlobalCablesFoldedId, folded);
+		bp->setEditorData(data);
+	}
+}
+
 struct GlobalCableCollection : public SearchableListComponent::Collection,
 						       public ControlledObject,
 							   public PooledUIUpdater::SimpleTimer
@@ -404,6 +439,11 @@ struct GlobalCableCollection : public SearchableListComponent::Collection,
 			items.add(new CableItem(manager->getSlotBase(c, type)));
 			addAndMakeVisible(items.getLast());
 		}
+
+		// Restore the persisted fold state so the list doesn't pop open on every rebuild.
+		auto folded = loadGlobalCableFolded(mc);
+		foldButton.setToggleStateAndUpdateIcon(folded);
+		setFolded(folded);
 	};
 
 	String getSearchTermForCollection() const override { return "GlobalCables"; }
@@ -418,7 +458,9 @@ struct GlobalCableCollection : public SearchableListComponent::Collection,
 
 	void toggleFold()
 	{
-		setFolded(foldButton.getToggleState());
+		auto folded = foldButton.getToggleState();
+		storeGlobalCableFolded(getMainController(), folded);
+		setFolded(folded);
 		findParentComponentOfClass<PatchBrowser>()->refreshDisplayedItems();
 	}
 
@@ -480,14 +522,6 @@ SearchableListComponent::Collection * PatchBrowser::createCollection(int index)
 {
 	auto mc = rootWindow.getComponent()->getMainController();
 
-	if (auto obj = mc->getGlobalRoutingManager())
-	{
-		if (index == 0)
-			return new GlobalCableCollection(var(obj), mc);
-		else
-			index -= 1;
-	}
-	
 	Processor::Iterator<ModulatorSynth> iter(rootWindow.getComponent()->getMainSynthChain(), true);
 
 	Array<ModulatorSynth*> synths;
@@ -497,6 +531,13 @@ SearchableListComponent::Collection * PatchBrowser::createCollection(int index)
 	{
 		synths.add(synth);
 		hierarchies.add(iter.getHierarchyForCurrentProcessor());
+	}
+
+	// Global Cables collection sits at the bottom of the module tree (after all sound generators).
+	if (auto obj = mc->getGlobalRoutingManager())
+	{
+		if (index >= synths.size())
+			return new GlobalCableCollection(var(obj), mc);
 	}
 
 	jassert(index < synths.size());
@@ -523,9 +564,12 @@ void PatchBrowser::paint(Graphics &g)
 	{
 		PatchCollection *c = dynamic_cast<PatchCollection*>(getCollection(i));
 
+		if (c == nullptr) // skip non-synth collections (e.g. the Global Cables list)
+			continue;
+
         if(i == 0) // skip the Master Chain
             continue;
-        
+
 		if (!c->hasVisibleItems()) continue;
 
 		// Skip drawing joining lines if parent is folded
@@ -692,8 +736,13 @@ void PatchBrowser::toggleFoldAll()
 	for (int i = 0; i < getNumCollections(); i++)
 	{
 		getCollection(i)->setFolded(foldAll);
-		dynamic_cast<PatchCollection*>(getCollection(i))->getProcessor()->setEditorState(ModulatorSynth::OverviewFolded, foldAll, sendNotification);
-		dynamic_cast<PatchCollection*>(getCollection(i))->refreshFoldButton();
+
+		// Not every collection is a PatchCollection (e.g. the Global Cables list).
+		if (auto pc = dynamic_cast<PatchCollection*>(getCollection(i)))
+		{
+			pc->getProcessor()->setEditorState(ModulatorSynth::OverviewFolded, foldAll, sendNotification);
+			pc->refreshFoldButton();
+		}
 	}
 
 	refreshDisplayedItems();

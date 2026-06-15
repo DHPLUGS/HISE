@@ -877,6 +877,14 @@ void BackendRootWindow::saveInterfaceData()
 
 		DynamicObject::Ptr obj = new DynamicObject();
 
+		// Preserve any custom editor properties stored elsewhere (e.g. the Global Cables
+		// fold state set by the PatchBrowser) so rebuilding the layout doesn't wipe them.
+		if (auto existing = getBackendProcessor()->getEditorData().getDynamicObject())
+		{
+			for (const auto& p : existing->getProperties())
+				obj->setProperty(p.name, p.value);
+		}
+
 		var editorData = getRootFloatingTile()->getCurrentFloatingPanel()->toDynamicObject();
 
 		if (editorData.getDynamicObject() != nullptr)
