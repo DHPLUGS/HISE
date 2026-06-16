@@ -542,6 +542,29 @@ void PluginParameterAudioProcessor::createScriptedParameters(juce::AudioProcesso
 			flatList[i]->parameterIndex = i;
 	}
 
+	// The host groups parameters into folders by the order the groups appear here
+	// (AU clump id = index of the group in the parameter tree). The scripted sort
+	// callback can't run while the parameters are built in a compiled plugin, so it
+	// silently falls back to layout order and the folders end up scrambled in the
+	// DAW even though the backend simulator looks correct. Stable-sort by group name
+	// so the parameter folders are always alphabetical regardless of the callback;
+	// the within-group order established above is preserved.
+	{
+		struct GroupSorter
+		{
+			int compareElements(HisePluginParameterBase* p1, HisePluginParameterBase* p2) const
+			{
+				return p1->getHisePluginParameterGroupName().compareIgnoreCase(p2->getHisePluginParameterGroupName());
+			}
+		};
+
+		GroupSorter gs;
+		flatList.sort(gs, true);
+
+		for(int i = 0; i < flatList.size(); i++)
+			flatList[i]->parameterIndex = i;
+	}
+
 	while(!flatList.isEmpty())
 	{
 		std::unique_ptr<juce::AudioProcessorParameter> ptr;
