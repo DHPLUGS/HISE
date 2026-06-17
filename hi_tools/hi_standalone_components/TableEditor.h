@@ -200,6 +200,8 @@ public:
 			useMouseWheelForCurve = obj.getProperty("useMouseWheelForCurve", useMouseWheelForCurve);
 			margin = obj.getProperty("margin", margin);
 			closePath = obj.getProperty("closePath", closePath);
+			drawShape = obj.getProperty("drawShape", drawShape);
+			snapToGrid = obj.getProperty("snapToGrid", snapToGrid);
 		}
 
 		bool useMouseWheelForCurve = HISE_USE_MOUSE_WHEEL_FOR_TABLE_CURVE;
@@ -214,6 +216,18 @@ public:
 		int endPointSize = 20;
 		float margin = 0.0f;
 		bool closePath = true;
+
+		// Serum-style per-grid-cell shape drawing. 0 = off (normal point editing);
+		// 1 = ramp up, 2 = ramp down, 3 = triangle, 4 = square, 5 = sine, 6 = exp up,
+		// 7 = exp down, 8 = column, 9 = exp up mirrored, 10 = exp down mirrored,
+		// 11 = valley. When non-zero, a left click (or drag) stamps the shape into the
+		// grid cell under the mouse, snapped to the snapValues lines.
+		int drawShape = 0;
+
+		// When false, manual point editing is NOT snapped to snapValues (the grid is
+		// then a purely visual / draw-tool guide). Default true preserves the legacy
+		// behaviour for numSteps step-sequencer tables that rely on edit snapping.
+		bool snapToGrid = true;
 
 		// The cursors default to the previous behaviour (normal arrow on drag points,
 		// dragging hand on mid points) so existing tables keep their look.
@@ -457,6 +471,23 @@ private:
 	void updateTable(bool refreshLookUpTable);;
 
 	float snapXValueToGrid(float x) const;
+
+	// Stamps the active draw shape (dragProperties.drawShape) into the grid cell
+	// containing the normalized x position, scaled to amplitude (0..1, the height of
+	// the shape's peak; 1 = full cell). No-op if drawing is off, there is no grid, or
+	// the same cell at the same amplitude was already stamped during the gesture.
+	void stampDrawShapeAt(float normalizedX, float amplitude);
+
+	// Builds the points for a draw shape spanning the normalized cell [left, right],
+	// scaled vertically by amplitude (every shape sits on the y = 0 baseline, so this
+	// is a uniform multiply and amplitude becomes the height of the shape's peak).
+	Array<Table::GraphPoint> getDrawShapePoints(int shapeId, float left, float right, float amplitude) const;
+
+	// The grid cell + amplitude stamped most recently in the current click/drag
+	// gesture, so a drag paints each cell once but still re-stamps live when the
+	// cursor height (amplitude) changes within a cell.
+	int lastStampedCell = -1;
+	float lastStampedAmp = -1.0f;
 
 	Array<WeakReference<EditListener>, CriticalSection> editListeners;
 

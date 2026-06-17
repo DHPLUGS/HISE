@@ -125,7 +125,7 @@ float TableEditor::snapXValueToGrid(float x) const
 {
 	auto a = getTableArea();
 
-	if (snapValues.size() == 0)
+	if (snapValues.size() == 0 || !dragProperties.snapToGrid)
 		return x;
 
 	auto normalizedX = (x - a.getX()) / a.getWidth();
@@ -432,6 +432,9 @@ void TableEditor::setSnapValues(var snapArray)
 			DBG((float)v);
 			snapValues.add((float)v);
 		}
+
+		// Refresh so a grid drawn in the look and feel updates immediately.
+		repaint();
 	}
 }
 
@@ -449,6 +452,18 @@ void TableEditor::mouseDown(const MouseEvent &e)
 	MouseEvent parentEvent = e.getEventRelativeTo(this);
 	int x = parentEvent.getMouseDownPosition().getX();
 	int y = parentEvent.getMouseDownPosition().getY();
+
+	// Shape draw mode: a left click stamps the active shape into the grid cell under
+	// the mouse (right / cmd click still falls through to delete / curve editing).
+	if (dragProperties.drawShape != 0 && e.mods.isLeftButtonDown() && !e.mods.isCommandDown())
+	{
+		auto a = getTableArea();
+		lastStampedCell = -1;
+		lastStampedAmp = -1.0f;
+		const float amp = jlimit(0.0f, 1.0f, 1.0f - ((float)y - a.getY()) / a.getHeight());
+		stampDrawShapeAt((float)(x - a.getX()) / a.getWidth(), amp);
+		return;
+	}
 
 	auto midPointIndex = getDraggedMidPointIndex(parentEvent);
 
@@ -626,6 +641,17 @@ void TableEditor::mouseDrag(const MouseEvent &e)
 
 	float x = parentEvent.position.getX();
 	float y = parentEvent.position.getY();
+
+	// Shape draw mode: dragging paints the active shape across each grid cell the
+	// cursor crosses, and the cursor height sets each cell's amplitude live (re-stamps
+	// the current cell as the height changes, paints new cells as x crosses them).
+	if (dragProperties.drawShape != 0 && e.mods.isLeftButtonDown())
+	{
+		auto a = getTableArea();
+		const float amp = jlimit(0.0f, 1.0f, 1.0f - (y - a.getY()) / a.getHeight());
+		stampDrawShapeAt((x - a.getX()) / a.getWidth(), amp);
+		return;
+	}
 
 	if (draggedMidPointIndex != -1)
 	{
@@ -1448,6 +1474,262 @@ void TableEditor::addNormalizedDragPoint(Table::GraphPoint normalizedPoint, bool
 {
 	auto a = getTableArea();
 	addDragPoint((int)(a.getX() + normalizedPoint.x * a.getWidth()), (int)(a.getY() + (1.0f - normalizedPoint.y) * a.getHeight()), normalizedPoint.curve, isStart, isEnd);
+}
+
+Array<Table::GraphPoint> TableEditor::getDrawShapePoints(int shapeId, float left, float right, float amplitude) const
+{
+	Array<Table::GraphPoint> p;
+
+	const float w = right - left;
+	const float mid = left + w * 0.5f;
+	const float tiny = jmax(1.0e-4f, w * 0.001f);
+
+	// y: 1 = top, 0 = bottom. curve 0.5 = linear (factor applies to the segment to
+	// the LEFT of the point), so the left edge of every shape stays 0.5 to keep the
+	// join with the neighbouring cell linear.
+	switch (shapeId)
+	{
+	case 1: // ramp up
+		p.add(Table::GraphPoint(left, 0.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 1.0f, 0.5f));
+		break;
+	case 2: // ramp down
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 0.0f, 0.5f));
+		break;
+	case 3: // triangle
+		p.add(Table::GraphPoint(left, 0.0f, 0.5f));
+		p.add(Table::GraphPoint(mid, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 0.0f, 0.5f));
+		break;
+	case 4: // square
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(mid, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(jmin(mid + tiny, right), 0.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 0.0f, 0.5f));
+		break;
+	case 5: // sine (one cycle, starts at centre rising)
+	{
+		const int n = 16;
+		for (int i = 0; i <= n; i++)
+		{
+			const float t = (float)i / (float)n;
+			const float x = left + t * w;
+			const float y = 0.5f + 0.5f * std::sin(t * MathConstants<float>::twoPi);
+			p.add(Table::GraphPoint(x, y, 0.5f));
+		}
+		break;
+	}
+	case 6: // exp up
+		p.add(Table::GraphPoint(left, 0.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 1.0f, 0.75f));
+		break;
+	case 7: // exp down
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 0.0f, 0.75f));
+		break;
+	case 8: // column (flat plateau across the whole cell; the vertical sides are formed
+	        // by the cell-boundary steps to the neighbouring cells)
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 1.0f, 0.5f));
+		break;
+	case 9: // exp up mirrored (curve 0.25 = concave: slow start, steep finish)
+		p.add(Table::GraphPoint(left, 0.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 1.0f, 0.25f));
+		break;
+	case 10: // exp down mirrored (curve 0.25 = stays high, steep finish)
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 0.0f, 0.25f));
+		break;
+	case 11: // valley (inverted triangle)
+		p.add(Table::GraphPoint(left, 1.0f, 0.5f));
+		p.add(Table::GraphPoint(mid, 0.0f, 0.5f));
+		p.add(Table::GraphPoint(right, 1.0f, 0.5f));
+		break;
+	default:
+		break;
+	}
+
+	// Scale the height by amplitude. Most shapes sit on the y = 0 baseline, so this is
+	// a uniform multiply and amplitude is the height of the peak. Sine is anchored at
+	// its centre (0.5) instead, so its edges stay at 0.5 at any amplitude - that keeps
+	// a row of sines joining cleanly even when neighbouring cells differ in height.
+	amplitude = jlimit(0.0f, 1.0f, amplitude);
+
+	if (amplitude != 1.0f)
+	{
+		const float anchor = (shapeId == 5) ? 0.5f : 0.0f;
+
+		for (auto& gp : p)
+			gp.y = anchor + (gp.y - anchor) * amplitude;
+	}
+
+	return p;
+}
+
+void TableEditor::stampDrawShapeAt(float normalizedX, float amplitude)
+{
+	const int shapeId = dragProperties.drawShape;
+
+	if (shapeId == 0 || snapValues.size() < 2 || editedTable.get() == nullptr)
+		return;
+
+	normalizedX = jlimit(0.0f, 1.0f, normalizedX);
+
+	// Find the grid cell [left, right] containing the click (snapValues are sorted
+	// ascending and are expected to span 0..1, e.g. eighths = nine values).
+	float left = 0.0f, right = 1.0f;
+	int cellIndex = -1;
+
+	for (int i = 0; i < snapValues.size() - 1; i++)
+	{
+		const float a = (float)snapValues[i];
+		const float b = (float)snapValues[i + 1];
+
+		if (normalizedX >= a && normalizedX <= b)
+		{
+			left = a;
+			right = b;
+			cellIndex = i;
+			break;
+		}
+	}
+
+	if (cellIndex == -1 || right <= left)
+		return; // outside the gridded range
+
+	// Quantise the height so micro-jitter during a drag does not re-stamp, but a real
+	// vertical move (changing the cursor height within a cell) still updates it live.
+	const float ampQuant = floorf(jlimit(0.0f, 1.0f, amplitude) * 256.0f) / 256.0f;
+
+	if (cellIndex == lastStampedCell && fabsf(ampQuant - lastStampedAmp) < 1.0e-4f)
+		return; // same cell and same height already stamped during the current gesture
+
+	lastStampedCell = cellIndex;
+	lastStampedAmp = ampQuant;
+
+	const float eps = jmax(1.0e-5f, (right - left) * 0.0001f);
+
+	// Width of the discontinuity between two adjacent cells. Each interior grid line
+	// B is shared by two cells, but a table holds one y per x, so a shape whose left
+	// and right edges differ (ramp / square / exp) cannot simply own the point at B -
+	// doing so overwrites the neighbour's value and flattens it. Convention: the cell
+	// to the LEFT of B owns the point exactly at B; the cell to the RIGHT starts at
+	// B + step. That keeps both cells intact and draws a near-vertical step between
+	// them (so adjacent ramps make a sawtooth). Shapes with matching edges (triangle,
+	// sine) are unaffected either way.
+	const float step = jlimit(0.0025f, (right - left) * 0.4f, (right - left) * 0.05f);
+
+	const bool leftIsInterior = left > eps;             // not the table start (x = 0)
+	const bool rightIsInterior = right < 1.0f - eps;    // not the table end   (x = 1)
+
+	// Keep the neighbours; drop the cell interior, the point exactly at `right` (this
+	// cell's own old right edge), and the table start/end that the shape will replace.
+	Array<Table::GraphPoint> keepLeft, keepRight;
+
+	for (auto* dp : drag_points)
+	{
+		auto gp = dp->getGraphPoint();
+
+		if (gp.x < left - eps)
+			keepLeft.add(gp);                                       // entirely left
+		else if (gp.x > right + eps)
+			keepRight.add(gp);                                      // entirely right (incl. right neighbour's B + step start)
+		else if (leftIsInterior && fabsf(gp.x - left) <= eps)
+			keepLeft.add(gp);                                       // left neighbour's boundary point at `left`
+		// else: drop
+	}
+
+	const bool leftOwned = !keepLeft.isEmpty() && fabsf(keepLeft.getLast().x - left) <= eps;
+
+	// Decide how the shape joins the left neighbour. Peek the shape's left-edge value
+	// (independent of the x range): if it matches the neighbour's boundary value, the
+	// two cells share a SINGLE point (smooth join - e.g. a row of sines); otherwise
+	// the shape is inset by `step` so they form a clean vertical step (e.g. ramps ->
+	// sawtooth). This removes the redundant double point / flat spot where cells meet
+	// at the same level.
+	auto shapePts = getDrawShapePoints(shapeId, left, right, amplitude);
+	const float shapeLeftVal = shapePts.getFirst().y;
+
+	const float joinEps = 1.0e-3f;
+	const bool leftJoin = leftIsInterior && leftOwned && fabsf(keepLeft.getLast().y - shapeLeftVal) <= joinEps;
+
+	float innerLeft = left;
+	if (leftIsInterior && leftOwned && !leftJoin)
+		innerLeft = jmin(left + step, right);   // values differ -> vertical step
+	else if (leftJoin)
+		keepLeft.removeLast();                  // values match -> drop the duplicate, share one point
+
+	if (innerLeft != left)
+		shapePts = getDrawShapePoints(shapeId, innerLeft, right, amplitude);
+
+	Array<Table::GraphPoint> merged;
+	merged.addArray(keepLeft);
+	merged.addArray(shapePts);
+	merged.addArray(keepRight);
+
+	struct GraphPointXComparator
+	{
+		static int compareElements(const Table::GraphPoint& a, const Table::GraphPoint& b)
+		{
+			if (a.x < b.x) return -1;
+			if (a.x > b.x) return 1;
+			return 0;
+		}
+	};
+
+	GraphPointXComparator comparator;
+	merged.sort(comparator);
+
+	if (merged.size() < 2)
+		return;
+
+	// Keep the loop seamless without distorting the drawn shape. x = 0 and x = 1 are
+	// the same phase point of a looping LFO, so their y must match or the wrap clicks.
+	// Shapes whose boundary edge does not already sit on the y = 0 baseline get a
+	// near-vertical grounding point in the first and/or last cell (per shape) so both
+	// global endpoints land at 0 while the shape itself is preserved. Shapes whose
+	// edges already match (triangle 0/0, sine 0.5/0.5, valley 1/1) are left untouched.
+	if (dragProperties.syncStartEnd)
+	{
+		// front = add (0,0) at the start of the first cell; end = add (1,0) at the
+		// end of the last cell. ramp/exp follow their direction; square + column are
+		// self-contained bars (both).
+		const bool groundsFront = (shapeId == 2 || shapeId == 4 || shapeId == 7 || shapeId == 8 || shapeId == 10);
+		const bool groundsEnd   = (shapeId == 1 || shapeId == 4 || shapeId == 6 || shapeId == 8 || shapeId == 9);
+
+		const float groundEps = 1.0e-4f;
+
+		if (cellIndex == 0 && groundsFront && merged.getFirst().y > groundEps)
+		{
+			merged.getReference(0).x = jmin(step, merged[1].x);          // steep rise from 0
+			merged.insert(0, Table::GraphPoint(0.0f, 0.0f, 0.5f));
+		}
+
+		if (cellIndex == snapValues.size() - 2 && groundsEnd && merged.getLast().y > groundEps)
+		{
+			const int li = merged.size() - 1;
+			merged.getReference(li).x = jmax(1.0f - step, merged[li - 1].x); // steep fall to 0
+			merged.add(Table::GraphPoint(1.0f, 0.0f, 0.5f));
+		}
+	}
+
+	drag_points.clear();
+
+	addNormalizedDragPoint(merged.getFirst(), true, false);
+
+	for (int i = 1; i < merged.size() - 1; i++)
+		addNormalizedDragPoint(merged[i], false, false);
+
+	addNormalizedDragPoint(merged.getLast(), false, true);
+
+	updateTable(true);
+	refreshGraph();
+
+	needsRepaint = true;
+	repaint();
+
+	editedTable->sendGraphUpdateMessage();
 }
 
 void TableEditor::updateTable(bool refreshLookUpTable)
