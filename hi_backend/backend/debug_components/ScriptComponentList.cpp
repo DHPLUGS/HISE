@@ -40,7 +40,7 @@ Component* ScriptComponentList::Panel::createContentComponent(int /*index*/)
 	auto jp = dynamic_cast<JavascriptProcessor*>(getConnectedProcessor());
 	auto c = jp->getContent();
 
-	return new ScriptComponentList(c, defaultOpeness);
+	return new ScriptComponentList(c, defaultOpeness, &defaultOpeness);
 }
 
 
@@ -416,12 +416,13 @@ void ScriptComponentListItem::updateSelection(ScriptComponentSelection newSelect
 
 #define ADD_SCRIPT_COMPONENT(cIndex, cClass) case (int)cIndex: ScriptingApi::Content::Helpers::createNewComponentData(content, pTree, cClass::getStaticObjectName().toString(), ScriptingApi::Content::Helpers::getUniqueIdentifier(content, cClass::getStaticObjectName().toString()).toString()); break;
 
-ScriptComponentList::ScriptComponentList(ScriptingApi::Content* c, bool openess) :
+ScriptComponentList::ScriptComponentList(ScriptingApi::Content* c, bool openess, bool* panelOpenessFlag_) :
 	ScriptComponentEditListener(dynamic_cast<Processor*>(c->getScriptProcessor())),
 	undoManager(getScriptComponentEditBroadcaster()->getUndoManager()),
 	content(c),
 	foldState(ValueTree("FoldState")),
-    defaultOpeness(openess)
+    defaultOpeness(openess),
+    panelOpenessFlag(panelOpenessFlag_)
 {
 	
 
@@ -619,6 +620,12 @@ void ScriptComponentList::mouseUp(const MouseEvent& event)
         case CollapseAll:
         {
             defaultOpeness = !defaultOpeness;
+
+            // Write back to the Panel so the choice is serialized into the floating layout
+            // and survives recompiles / app restarts.
+            if (panelOpenessFlag != nullptr)
+                *panelOpenessFlag = defaultOpeness;
+
             resetRootItem();
             break;
         }
@@ -665,7 +672,8 @@ void ScriptComponentList::resetRootItem()
 	tree->setDefaultOpenness(defaultOpeness);
 
 	rootItem = new ScriptComponentListItem(v, undoManager, content, searchTerm);
-    
+	rootItem->defaultOpeness = defaultOpeness;
+
 	tree->setRootItem(rootItem);
 
 	

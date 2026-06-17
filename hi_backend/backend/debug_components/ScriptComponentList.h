@@ -63,6 +63,10 @@ public:
 		return id;
 	}
 
+	// Mirrors the list's "Open tree by default" setting so incremental tree changes don't
+	// force a node back open when the user has chosen to keep the tree folded.
+	bool defaultOpeness = true;
+
 	XmlElement* getBetterOpennessState()
 	{
 		ScopedPointer<XmlElement> xml = new XmlElement("OpenState");
@@ -180,7 +184,7 @@ private:
 	WeakReference<ScriptingApi::Content> content;
 
     String searchTerm;
-    
+
 	String id;
 
 	void refreshSubItems()
@@ -195,6 +199,7 @@ private:
 				break;
 
 			auto scli = new ScriptComponentListItem(tree.getChild(i), undoManager, content, searchTerm);
+			scli->defaultOpeness = defaultOpeness;
 
 			addSubItem(scli);
 			scli->checkSearchTerm(searchTerm);
@@ -229,7 +234,7 @@ private:
 
 				list->refreshSubItems();
 				list->treeHasChanged();
-				list->setOpen(true);
+				list->setOpen(list->defaultOpeness);
 
 				return Dispatchable::Status::OK;
 			};
@@ -252,7 +257,7 @@ class ScriptComponentList : public Component,
 	public Timer
 {
 public:
-	ScriptComponentList(ScriptingApi::Content* c, bool openess);
+	ScriptComponentList(ScriptingApi::Content* c, bool openess, bool* panelOpenessFlag = nullptr);
 
 	~ScriptComponentList();
 
@@ -397,7 +402,11 @@ private:
 	int scrollY = 0;
 
     bool defaultOpeness = true;
-    
+
+	// Points at the owning Panel's serialized defaultOpeness so a menu toggle persists
+	// in the floating layout (editorData) instead of resetting on the next load.
+	bool* panelOpenessFlag = nullptr;
+
 	void timerCallback() override
 	{
 		if (tree != nullptr)
