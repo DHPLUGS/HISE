@@ -664,7 +664,15 @@ void TableEditor::mouseDrag(const MouseEvent &e)
 		auto y1 = drag_points[draggedMidPointIndex]->getGraphPoint().y;
 		auto y2 = drag_points[draggedMidPointIndex+1]->getGraphPoint().y;
 
-		delta /= hmath::abs(y2 - y1);
+		// A flat segment (e.g. a drawn Column / plateau) has equal endpoints, so there
+		// is nothing to bend. Without this guard the divide below is by ~zero, which
+		// slams the curve to its limit and makes the handle jump to the top.
+		const float dy = hmath::abs(y2 - y1);
+
+		if (dy < 0.0001f)
+			return;
+
+		delta /= dy;
 
 		delta /= (float)getHeight();
 		delta *= -6.0f;
