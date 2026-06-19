@@ -359,8 +359,6 @@ private:
 	bool loopEnabled;
 	bool legato;
 
-    
-
 	int lastCycleIndex = 0;
 	int lastIndex = 0;
 

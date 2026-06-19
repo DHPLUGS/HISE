@@ -374,6 +374,8 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
 		break;
 	case Parameters::LoopEnabled:
 		loopEnabled = newValue > 0.5f;
+		// re-arm so toggling loop off then on plays / holds cleanly
+		loopEndValue = -1.0f;
 		break;
 	case Parameters::PhaseOffset:
 	{
@@ -649,7 +651,13 @@ void LfoModulator::resyncInternal(double ppqPosition)
 {
     if(!(syncToMasterClock && tempoSync))
         return;
-        
+
+    // When loop is off the LFO must play once and stop. Re-pinning uptime to the transport
+    // every block forces it to loop forever (uptime stays within one cycle, so the value-hold /
+    // ruler-freeze logic never engages). Stop re-syncing and let uptime free-run past one cycle.
+    if(!loopEnabled)
+        return;
+
     auto cycleLength = (double)TempoSyncer::getTempoFactor(currentTempo);
     
     auto ppqOffset = hmath::fmod(ppqPosition, cycleLength);
