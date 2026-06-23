@@ -1117,7 +1117,8 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
 
         for (int c = 0; c < numChannels; ++c)
         {
-            const double x   = buffer.getSample(c, startSample + n);
+            double x = buffer.getSample(c, startSample + n);
+            if (!std::isfinite(x)) x = 0.0;   // an upstream NaN/Inf would otherwise latch the leak-free integrators forever
             const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
             const double v1  = g_i * hpf + s1[c];
             const double bpf = fastTanh(v1);
@@ -1153,6 +1154,12 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
         }
     }
 
+    // Self-heal: if a state ever went non-finite, zero it so the filter recovers
+    // instead of ringing dead noise on every following note.
+    for (int c = 0; c < numChannels; ++c)
+        if (!std::isfinite(s1[c]) || !std::isfinite(s2[c]))
+            s1[c] = s2[c] = 0.0;
+
     g_prev      = g_t;
     alpha0_prev = a0_t;
     FBs1_prev   = FBs1_t;
@@ -1162,7 +1169,8 @@ void OberheimSubType::processFrame(float* frameData, int numChannels)
 {
     for (int c = 0; c < numChannels; ++c)
     {
-        const double x   = frameData[c];
+        double x = frameData[c];
+        if (!std::isfinite(x)) { x = 0.0; s1[c] = s2[c] = 0.0; }   // sanitize input + self-heal state
         const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
         const double v1  = g * hpf + s1[c];
         const double bpf = fastTanh(v1);
@@ -1345,7 +1353,8 @@ void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 
         for (int c = 0; c < numChannels; ++c)
         {
-            const double x   = buffer.getSample(c, startSample + n);
+            double x = buffer.getSample(c, startSample + n);
+            if (!std::isfinite(x)) x = 0.0;   // an upstream NaN/Inf would otherwise latch the leak-free integrators forever
 
             // CMOS inverter nonlinearity on both integrators
             const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
@@ -1383,6 +1392,12 @@ void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
         }
     }
 
+    // Self-heal: if a state ever went non-finite, zero it so the filter recovers
+    // instead of ringing dead noise on every following note.
+    for (int c = 0; c < numChannels; ++c)
+        if (!std::isfinite(s1[c]) || !std::isfinite(s2[c]))
+            s1[c] = s2[c] = 0.0;
+
     g_prev      = g_t;
     alpha0_prev = a0_t;
     FBs1_prev   = FBs1_t;
@@ -1392,7 +1407,8 @@ void WaspFilterSubType::processFrame(float* frameData, int numChannels)
 {
     for (int c = 0; c < numChannels; ++c)
     {
-        const double x   = frameData[c];
+        double x = frameData[c];
+        if (!std::isfinite(x)) { x = 0.0; s1[c] = s2[c] = 0.0; }   // sanitize input + self-heal state
 
         const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
         const double v1  = g * hpf + s1[c];
@@ -1817,7 +1833,8 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
             const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
             const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
 
-            const double input = (double)d[i];
+            double input = (double)d[i];
+            if (!std::isfinite(input)) input = 0.0;   // stop an upstream NaN/Inf latching the ladder (the 0.9999 leak can't clear a NaN)
 
             const double u = input - fb_i * diodeSat(y4prev[c]);
 
@@ -1862,6 +1879,15 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
 
             d[i] = (float)out;
         }
+
+        // Self-heal: a non-finite state would otherwise ring dead noise forever
+        // (the 0.9999 leak can't clear a NaN). Zero this channel's ladder if it happens.
+        if (!std::isfinite(s[0][c]) || !std::isfinite(s[1][c]) ||
+            !std::isfinite(s[2][c]) || !std::isfinite(s[3][c]) || !std::isfinite(y4prev[c]))
+        {
+            s[0][c] = s[1][c] = s[2][c] = s[3][c] = 0.0;
+            y4prev[c] = 0.0;
+        }
     }
 
     // Advance previous-buffer coefficients for next call
@@ -1873,7 +1899,13 @@ void DiodeLadderSubType::processFrame(float* frameData, int numChannels)
 {
     for (int c = 0; c < numChannels; c++)
     {
-        const double input = (double)frameData[c];
+        double input = (double)frameData[c];
+        if (!std::isfinite(input))   // sanitize input + self-heal the ladder
+        {
+            input = 0.0;
+            s[0][c] = s[1][c] = s[2][c] = s[3][c] = 0.0;
+            y4prev[c] = 0.0;
+        }
 
         const double u = input - fb * diodeSat(y4prev[c]);
 
