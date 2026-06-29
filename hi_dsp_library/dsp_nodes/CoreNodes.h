@@ -2492,18 +2492,23 @@ struct granulator: public data::base,
     static const int NumGrains = 128;
     static const int NumAudioFiles = 1;
 
+    // Density as a spawn RATE in Hz (decoupled from grain size). The Density param
+    // (0..1) maps exponentially onto [kGrainMinHz, kGrainMaxHz].
+    static constexpr double kGrainMinHz = 1.0;
+    static constexpr double kGrainMaxHz = 200.0;
+
+    // Back-pressure: once the grain pool is more than kBpThreshold full, stretch the
+    // spawn interval (scale = 1 + kBpStrength * x^2) so it can't exhaust the pool.
+    static constexpr float kBpThreshold = 0.7f;
+    static constexpr float kBpStrength  = 8.0f;
+
     SNEX_NODE(granulator);
     SN_DESCRIPTION("A granular synthesiser");
 
-    enum GrainMode
-    {
-        Free = 0,
-        Rhythmic,
-        RhythmicDrift,
-        Synced,
-        SyncedDrift,
-        numModes
-    };
+    // The old 5-way "Mode" enum (Free / Rhythmic / RhythmicDrift / Synced /
+    // SyncedDrift) has been replaced by orthogonal controls: Jitter (timing
+    // randomness), Sync (tempo lock), Scatter (random position), Drift (position
+    // scan) and Width (stereo). The old modes are now just combinations of these.
 
     granulator() = default;
 
@@ -2667,15 +2672,36 @@ struct granulator: public data::base,
 
         auto thisTimeBetweenGrains = timeBetweenGrains;
 
-        if ((grainMode == Synced || grainMode == SyncedDrift) && syncTimeBetweenGrains > 0)
+        if (syncEnabled && syncTimeBetweenGrains > 0)
             thisTimeBetweenGrains = syncTimeBetweenGrains;
 
         if (delta > thisTimeBetweenGrains)
         {
-            if (grainMode == Free)
+            // Back-pressure: once the grain pool is filling, require more elapsed time
+            // before spawning (stretch the effective interval) so high density / large
+            // overlapping grains can't exhaust the pool and drop grains. The active
+            // count only runs at spawn-decision rate (when delta passes the base
+            // interval), not per sample, so it's cheap.
+            int activeGrains = 0;
+            for (const auto& g : grains)
+                if (g.fadeState != 3)
+                    ++activeGrains;
+
+            const float occ = (float)activeGrains * (1.0f / (float)NumGrains);
+            if (occ > kBpThreshold)
             {
-                auto jitter = ((Math.randomDouble() - 0.5) * (double)thisTimeBetweenGrains * 0.3);
-                timeOfLastGrainStart = uptime + jitter;
+                const float x = (occ - kBpThreshold) * (1.0f / (1.0f - kBpThreshold));
+                const int effInterval = (int)((float)thisTimeBetweenGrains * (1.0f + kBpStrength * x * x));
+                if (delta < effInterval)
+                    return;   // pool too full — hold off this spawn
+            }
+
+            // Timing jitter: 0 = even spacing; higher = random +-(Jitter*50%) of the
+            // grain interval (the old "Free" mode was a fixed ~15% of this).
+            if (jitterAmount > 0.0f)
+            {
+                auto jitter = (Math.randomDouble() - 0.5) * (double)thisTimeBetweenGrains * (double)jitterAmount;
+                timeOfLastGrainStart = uptime + (int)jitter;
             }
             else
             {
@@ -2687,51 +2713,82 @@ struct granulator: public data::base,
 
             StereoSample nextSample;
 
-            if (activeEvents.size() > 0)
+            // Monophonic grain source: every grain reads from the most recent note's
+            // sample. Picking a random held voice per grain (the polyphonic path) made
+            // consecutive grains jump between different XYZ samples of different
+            // lengths -> the grain size jumped (clamped to each sample's buffer) and
+            // the constant buffer switching buzzed. One stable event keeps grain size,
+            // pitch and content consistent, and also carries the release/loop tail.
+            HiseEvent grainEvent;
+            bool haveEvent = false;
+
+            if (lastNoteEvent.isNoteOn())
             {
-                index::wrapped<0> eIdx(eventIndex);
+                grainEvent = lastNoteEvent;
+                haveEvent = true;
+            }
 
-                auto e = activeEvents[eIdx];
-
-                ed.getStereoSample(nextSample, e);
+            if (haveEvent)
+            {
+                ed.getStereoSample(nextSample, grainEvent);
 
                 if (!ed.isXYZ())
                     nextSample.rootNote = 64;
 
                 thisPitch *= nextSample.getPitchFactor();
-
-                eventIndex = (int)(Math.random() * 190.0f);
             }
 
             if (!nextSample.isEmpty())
             {
-                bool isDrift = (grainMode == RhythmicDrift || grainMode == SyncedDrift);
-                auto usableRange = (double)(nextSample.data[0].size()) - 2.0 * grainLengthSamples;
+                // The grain reads a window [idx, idx + grainLen) straight from the
+                // sample buffer (Grain::startIfIdle -> referTo, which is NOT bounds
+                // checked), so the grain length and start index are clamped below to
+                // keep the window inside the buffer (short samples + large GrainSize,
+                // or a big Scatter offset, would otherwise read past the end ->
+                // garbage/NaN noise bursts).
+                auto bufferLen = (int)nextSample.data[0].size();
+                auto grainLen = jlimit(1, bufferLen, (int)grainLengthSamples);
+
+                auto usableRange = (double)bufferLen - 2.0 * grainLengthSamples;
                 auto safeRange = jmax(1.0, usableRange);
-                auto positionToUse = isDrift ? driftPosition : currentPosition;
-                auto idx = jlimit(0, (int)safeRange, (int)(positionToUse * safeRange));
 
-                if (grainMode == Free)
-                    idx += (double)spread * Math.randomDouble() * grainLengthSamples;
-
-                if (isDrift)
+                // Drift: deterministic forward scan of the read head. Drift == 0 tracks
+                // the live Position knob; Drift > 0 advances the head every grain
+                // (reset to Position on note-on when DriftReset is on). Orthogonal to
+                // the timing and scatter controls.
+                if (driftAmount > 0.0f)
                 {
-                    driftPosition += (double)spread * (double)thisTimeBetweenGrains / safeRange;
+                    driftPosition += (double)driftAmount * (double)thisTimeBetweenGrains / safeRange;
                     driftPosition = std::fmod(driftPosition, 1.0);
                 }
+                else
+                {
+                    driftPosition = currentPosition;
+                }
+
+                auto positionToUse = driftPosition;
+                auto idx = jlimit(0, (int)safeRange, (int)(positionToUse * safeRange));
+
+                // Scatter: random per-grain offset around the read head. Available in
+                // any timing mode now (was the old Free-mode-only behaviour).
+                if (scatterAmount > 0.0f)
+                    idx += (int)((double)scatterAmount * Math.randomDouble() * grainLengthSamples);
 
                 auto offset = idx % 4;
                 idx -= offset;
 
+                // Hard safety clamp: keep the whole grain window inside the buffer.
+                idx = jlimit(0, jmax(0, bufferLen - grainLen), idx);
+
                 for (auto& grain : grains)
                 {
-                    if (grain.startIfIdle(nextSample.data, idx, (int)grainLengthSamples))
+                    if (grain.startIfIdle(nextSample.data, idx, grainLen))
                     {
                         grain.setPitchRatio(thisPitch);
-                        grain.setSpread(spread, thisGain, detune);
+                        grain.setSpread(width, thisGain, detune);
 
                         if (onGrainSpawn)
-                            onGrainSpawn((float)positionToUse, (float)(grainLengthSamples / sampleRate * 1000.0));
+                            onGrainSpawn((float)positionToUse, (float)(grainLen / sampleRate * 1000.0));
 
                         break;
                     }
@@ -2744,7 +2801,16 @@ struct granulator: public data::base,
     {
         if (data.size() == 2)
         {
-            if (voiceCounter != 0)
+            // EnvGain is driven by an external modulator (e.g. ENV 1 via a
+            // global_mod node) and does two jobs: it scales the grain layer's
+            // amplitude AND keeps grains spawning while the envelope is still
+            // alive. That lets the grains follow the envelope's release and loop
+            // tails after note-off (the node would otherwise stop spawning the
+            // instant voiceCounter hits 0). With no modulator connected EnvGain
+            // sits at 0 -> silent, so it must be driven to make sound.
+            envGainSmoothed += (envGain - envGainSmoothed) * envGainCoeff;
+
+            if (voiceCounter != 0 || envGainSmoothed > 0.0005f)
                 startNextGrain(1);
 
             span<float, 2> sum;
@@ -2752,8 +2818,8 @@ struct granulator: public data::base,
             for(auto& g: grains)
                 g.tick(sum);
 
-            data[0] += totalGrainGain * sum[0];
-            data[1] += totalGrainGain * sum[1];
+            data[0] += totalGrainGain * envGainSmoothed * sum[0];
+            data[1] += totalGrainGain * envGainSmoothed * sum[1];
         }
     }
 
@@ -2806,6 +2872,8 @@ struct granulator: public data::base,
             if (voiceCounter == 0 && driftReset)
                 driftPosition = currentPosition;
 
+            lastNoteEvent = e;   // kept for the release/loop tail after note-off
+
             voices[voiceCounter] = e;
             voiceCounter = Math.min(voices.size()-1, voiceCounter + 1);
         }
@@ -2837,15 +2905,33 @@ struct granulator: public data::base,
 
     void updateGrainLength()
     {
-        grainLengthSamples = grainLength * 0.001 * sampleRate;
-        timeBetweenGrains = (int)(grainLengthSamples * (1.0 / pitchRatio) * (1.0 - density)) / 2;
-        timeBetweenGrains = jmax(400, timeBetweenGrains);
+        // Guard against a zero/garbage grain length (e.g. updateGrainLength running
+        // before prepare(), so sampleRate is still 0). A zero here divides to NaN in
+        // updateOverlapGain() and would poison totalGrainGain -> the whole output.
+        // In normal operation grainLengthSamples is >> 1, so jmax is a no-op.
+        grainLengthSamples = jmax(1.0, grainLength * 0.001 * sampleRate);
+
+        // Density is now a spawn RATE in Hz, independent of grain size and pitch
+        // (was coupled via grainLengthSamples * (1-density), which made Size and
+        // Pitch shift the grain rate). density 0..1 -> kMinHz..kMaxHz exponential.
+        // Back-pressure (in startNextGrain) handles overload, so no big fixed floor.
+        const double densityHz = kGrainMinHz * std::pow(kGrainMaxHz / kGrainMinHz, jlimit(0.0, 1.0, density));
+        timeBetweenGrains = (int)(sampleRate / densityHz);
+        timeBetweenGrains = jmax(8, timeBetweenGrains);
         updateOverlapGain();
     }
 
     void updateOverlapGain()
     {
-        auto effectiveInterval = ((grainMode == Synced || grainMode == SyncedDrift) && syncTimeBetweenGrains > 0)
+        // Belt-and-suspenders: never divide by a zero grain length (totalGrainGain
+        // feeds straight into the output, so a NaN here would mute/explode it).
+        if (grainLengthSamples <= 0.0)
+        {
+            totalGrainGain = 1.0f;
+            return;
+        }
+
+        auto effectiveInterval = (syncEnabled && syncTimeBetweenGrains > 0)
             ? (double)syncTimeBetweenGrains
             : (double)timeBetweenGrains;
         auto gainDelta = (float)(jmin(effectiveInterval, grainLengthSamples) / grainLengthSamples);
@@ -2893,6 +2979,11 @@ struct granulator: public data::base,
     {
         sampleRate = ps.sampleRate;
 
+        // ~8 ms one-pole for the EnvGain ramp so envelope retriggers (esp. on a
+        // chord, where the single monophonic envelope snaps back to attack) don't
+        // step the whole grain layer's gain and click.
+        envGainCoeff = (float)(1.0 - std::exp(-1.0 / (0.008 * jmax(1.0, sampleRate))));
+
         if (syncer == nullptr && ps.voiceIndex != nullptr)
         {
             syncer = ps.voiceIndex->getTempoSyncer();
@@ -2929,27 +3020,35 @@ struct granulator: public data::base,
             grainLength = (int)Math.range(v, 20.0, 800.0);
             updateGrainLength();
         }
-        if (P == 3) // Density
+        if (P == 3) // Density (spawn rate, mapped to Hz in updateGrainLength)
         {
-            density = Math.range(v, 0.0, 0.99);
+            density = Math.range(v, 0.0, 1.0);
             updateGrainLength();
         }
-        if (P == 4) // Spread
-            spread = (float)v;
-        if (P == 5) // Detune
+        if (P == 4) // Detune
             detune = Math.range(v, 0.0, 1.0);
-        if (P == 6) // Mode
+        if (P == 5) // Width (per-grain stereo spread)
+            width = (float)Math.range(v, 0.0, 1.0);
+        if (P == 6) // Scatter (random per-grain position offset)
+            scatterAmount = (float)Math.range(v, 0.0, 1.0);
+        if (P == 7) // Drift (deterministic forward scan rate)
+            driftAmount = (float)Math.range(v, 0.0, 1.0);
+        if (P == 8) // Jitter (random timing jitter; 0 = even spacing)
+            jitterAmount = (float)Math.range(v, 0.0, 1.0);
+        if (P == 9) // Sync (tempo-lock the grain interval)
         {
-            grainMode = (GrainMode)jlimit(0, (int)numModes - 1, (int)v);
+            syncEnabled = v >= 0.5;
             updateOverlapGain();
         }
-        if (P == 7) // SyncTempo
+        if (P == 10) // SyncTempo
         {
             syncTempo = (TempoSyncer::Tempo)jlimit(0, (int)TempoSyncer::numTempos - 1, (int)v);
             updateSyncTiming();
         }
-        if (P == 8) // DriftReset
+        if (P == 11) // DriftReset
             driftReset = v >= 0.5;
+        if (P == 12) // EnvGain (external envelope: grain amplitude + keep-alive gate)
+            envGain = (float)Math.range(v, 0.0, 1.0);
     }
 
     void createParameters(ParameterDataList& l)
@@ -2979,20 +3078,35 @@ struct granulator: public data::base,
             l.add(d);
         }
         {
-            parameter::data d("Spread", { 0.0, 1.0 });
+            parameter::data d("Detune", { 0.0, 1.0 });
             registerCallback<4>(d);
             l.add(d);
         }
         {
-            parameter::data d("Detune", { 0.0, 1.0 });
+            parameter::data d("Width", { 0.0, 1.0 });
             registerCallback<5>(d);
             l.add(d);
         }
         {
-            parameter::data d("Mode", { 0.0, 4.0 });
-            d.setParameterValueNames({"Free", "Rhythmic", "Rhythmic Drift", "Synced", "Synced Drift"});
-            d.setDefaultValue(0.0);
+            parameter::data d("Scatter", { 0.0, 1.0 });
             registerCallback<6>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("Drift", { 0.0, 1.0 });
+            registerCallback<7>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("Jitter", { 0.0, 1.0 });
+            registerCallback<8>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("Sync", { 0.0, 1.0 });
+            d.setParameterValueNames({"Off", "On"});
+            d.setDefaultValue(0.0);
+            registerCallback<9>(d);
             l.add(d);
         }
         {
@@ -3000,14 +3114,20 @@ struct granulator: public data::base,
             d.setRange({ 0.0, 1.0 });
             d.setParameterValueNames(TempoSyncer::getTempoNames());
             d.setDefaultValue((double)TempoSyncer::getTempoIndex("1/4"));
-            registerCallback<7>(d);
+            registerCallback<10>(d);
             l.add(d);
         }
         {
             parameter::data d("DriftReset", { 0.0, 1.0 });
             d.setParameterValueNames({"Continue", "Reset"});
             d.setDefaultValue(1.0);
-            registerCallback<8>(d);
+            registerCallback<11>(d);
+            l.add(d);
+        }
+        {
+            parameter::data d("EnvGain", { 0.0, 1.0 });
+            d.setDefaultValue(0.0);
+            registerCallback<12>(d);
             l.add(d);
         }
     }
@@ -3033,7 +3153,14 @@ struct granulator: public data::base,
 
     double density = 1.0;
     double detune = 0.0;
-    float spread = 0.0f;
+    float width = 0.0f;          // per-grain stereo spread (the old 'spread')
+    float scatterAmount = 0.0f;  // random per-grain position offset
+    float driftAmount = 0.0f;    // deterministic forward scan rate
+    float jitterAmount = 0.0f;   // random timing jitter (0 = even spacing)
+    bool  syncEnabled = false;   // tempo-lock the grain interval
+    float envGain = 0.0f;        // external envelope target (amplitude + spawn keep-alive)
+    float envGainSmoothed = 0.0f;// click-free ramp of envGain, applied to the grain output
+    float envGainCoeff = 0.01f;  // one-pole smoothing coeff (set in prepare)
 
     bool pedal = false;
 
@@ -3051,9 +3178,10 @@ struct granulator: public data::base,
     double driftPosition = 0.0;
     bool driftReset = true;
 
+    HiseEvent lastNoteEvent;     // last note-on, for the post-release grain tail
+
     std::function<void(float p0, float durMs)> onGrainSpawn;
 
-    GrainMode grainMode = Free;
     TempoSyncer::Tempo syncTempo = TempoSyncer::Quarter;
     int syncTimeBetweenGrains = 0;
     double bpm = 120.0;
