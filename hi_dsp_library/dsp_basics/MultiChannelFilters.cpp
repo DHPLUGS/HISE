@@ -5594,6 +5594,229 @@ float StateVariableEqSubType::State::tick(float inp, const Coefficients& c)
 DEFINE_MULTI_CHANNEL_FILTER(StateVariableEqSubType);
 
 
+// ============================================================================
+// ScreamBodySubType implementation
+//   tanh drive → bank of TPT-SVF band-pass resonators summed on top of the dry
+//   (driven) signal, with an internal envelope follower modulating the resonant
+//   frequencies (Auto). Resonators are linear/zero-delay-feedback so they are
+//   unconditionally stable; drive sits outside the feedback path. Non-finite
+//   guards keep one bad sample from latching the state (see the OB/Diode fix).
+// ============================================================================
+
+// [bodyType][resonator][0=freqHz, 1=Q, 2=boostDb] — hand-voiced for aggression
+const double ScreamBodySubType::bodyData[ScreamBodySubType::numModes][ScreamBodySubType::NUM_RES][3] =
+{
+	{ {  800.0, 4.0,  9.0 }, { 1900.0, 5.0, 11.0 }, { 3000.0, 4.0,  7.0 } },  // A small box / megaphone
+	{ {  350.0, 3.0,  8.0 }, { 1000.0, 4.0, 10.0 }, { 2400.0, 3.5,  6.0 } },  // B wooden body
+	{ {  150.0, 2.5,  9.0 }, {  500.0, 3.5,  8.0 }, { 1400.0, 3.0,  6.0 } },  // C large hollow / cab
+	{ {  600.0, 6.0, 12.0 }, { 1000.0, 6.0, 10.0 }, { 2700.0, 5.0,  8.0 } },  // D vocal / talkbox
+};
+
+ScreamBodySubType::ScreamBodySubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	updateCoefficients(44100.0, 1000.0, 1.0, 1.0);
+}
+
+hise::FilterHelpers::FilterSubType ScreamBodySubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::ScreamBodySubType;
+}
+
+juce::Identifier ScreamBodySubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("scream_body");
+}
+
+juce::StringArray ScreamBodySubType::getModes() const
+{
+	return { "Body A", "Body B", "Body C", "Body D" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> ScreamBodySubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::BandPass, FilterHelpers::BandPass, FilterHelpers::BandPass };
+}
+
+void ScreamBodySubType::setType(int t)
+{
+	mode = (Mode)jlimit(0, (int)numModes - 1, t);
+}
+
+void ScreamBodySubType::reset(int /*numChannels*/)
+{
+	memset(s1,  0, sizeof(s1));
+	memset(s2,  0, sizeof(s2));
+	memset(env, 0, sizeof(env));
+}
+
+void ScreamBodySubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = q;
+	storedGain       = gain;
+
+	// Freq → Scale (body size): 1 kHz = neutral, lower = bigger body, higher = smaller.
+	const double scale = jlimit(0.25, 4.0, frequency / 1000.0);
+
+	// Q → Reso: scales resonator Q and boost depth together.
+	const double resoNorm = jlimit(0.0, 1.0, (q - 0.3) / 9.6);
+	const double Qmult    = 0.6 + resoNorm * 2.4;   // 0.6 .. 3.0
+	const double gMult    = 0.5 + resoNorm * 1.5;   // 0.5 .. 2.0
+
+	// Gain → Drive (arrives as linear amplitude, like the formant filter).
+	driveGain = jlimit(0.1, 8.0, gain);
+
+	double gkSum = 0.0;
+	for (int k = 0; k < NUM_RES; k++)
+	{
+		fc[k] = jlimit(20.0, sampleRate * 0.45, bodyData[mode][k][0] * scale);
+		Qf[k] = jmax(0.3, bodyData[mode][k][1] * Qmult);
+		gk[k] = (Decibels::decibelsToGain((float)bodyData[mode][k][2]) - 1.0) * gMult;  // boost over unity
+		gkSum += gk[k];
+	}
+
+	// Drive makeup + resonance taming so the default stays gain-sane.
+	outComp = (1.0 / std::sqrt(driveGain)) / (1.0 + 0.45 * gkSum);
+}
+
+FilterCoefficientData ScreamBodySubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<ScreamBodySubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ    = q;
+	m->storedGain = gain;
+
+	FilterCoefficientData cd;
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double ScreamBodySubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* typed = static_cast<ScreamBodySubType*>(obj);
+	const double sr = typed->storedSampleRate;
+
+	// Peaking response: dry (unity) + Σ gk · BP_k, evaluated with the live coeffs.
+	const double w = 2.0 * double_Pi * jmax(1.0, freqNorm * sr);   // query angular freq (Hz domain)
+
+	std::complex<double> response(1.0, 0.0);
+	for (int k = 0; k < NUM_RES; k++)
+	{
+		const double wc = 2.0 * double_Pi * typed->fc[k];
+		const std::complex<double> jbw(0.0, w * wc / jmax(0.3, typed->Qf[k]));
+		const std::complex<double> H = jbw / (std::complex<double>(wc * wc - w * w, 0.0) + jbw);
+		response += typed->gk[k] * H;
+	}
+
+	response *= typed->outComp;
+	return getMagnitude ? std::abs(response) : std::arg(response);
+}
+
+void ScreamBodySubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const double sr = storedSampleRate;
+	const int numChannels = buffer.getNumChannels();
+
+	// SR-correct envelope-follower coefficients (≈2 ms attack, ≈25 ms release).
+	const double envAtk = 1.0 - std::exp(-1.0 / (sr * 0.002));
+	const double envRel = 1.0 - std::exp(-1.0 / (sr * 0.025));
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		float* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			double x = (double)d[i];
+			if (!std::isfinite(x)) x = 0.0;
+
+			const double driven = sat(x * driveGain);
+
+			// Auto: envelope follower on the driven signal → 0..1 soft.
+			const double a = std::fabs(driven);
+			env[c] += (a - env[c]) * (a > env[c] ? envAtk : envRel);
+			const double envN = env[c] / (1.0 + env[c]);
+
+			double sum = 0.0;
+			for (int k = 0; k < NUM_RES; k++)
+			{
+				double f = fc[k] * (1.0 + autoDepth * envN);
+				f = jlimit(20.0, sr * 0.45, f);
+
+				const double g  = std::tan(double_Pi * f / sr);
+				const double R  = 1.0 / (2.0 * Qf[k]);
+				const double a0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+				const double FB = 2.0 * R + g;
+
+				const double hp = (driven - s2[c][k] - FB * s1[c][k]) * a0;
+				const double bp = g * hp + s1[c][k];
+
+				s1[c][k] = g * hp + bp;
+				s2[c][k] = s2[c][k] + 2.0 * g * bp;
+
+				sum += gk[k] * bp;
+
+				// Self-heal: never let a non-finite state latch (see OB/Diode fix).
+				if (!std::isfinite(s1[c][k]) || !std::isfinite(s2[c][k]))
+					s1[c][k] = s2[c][k] = 0.0;
+			}
+
+			d[i] = (float)((driven + sum) * outComp);
+		}
+	}
+}
+
+void ScreamBodySubType::processFrame(float* frameData, int numChannels)
+{
+	const double sr = storedSampleRate;
+	const double envAtk = 1.0 - std::exp(-1.0 / (sr * 0.002));
+	const double envRel = 1.0 - std::exp(-1.0 / (sr * 0.025));
+
+	for (int c = 0; c < numChannels; c++)
+	{
+		double x = (double)frameData[c];
+		if (!std::isfinite(x)) x = 0.0;
+
+		const double driven = sat(x * driveGain);
+
+		const double a = std::fabs(driven);
+		env[c] += (a - env[c]) * (a > env[c] ? envAtk : envRel);
+		const double envN = env[c] / (1.0 + env[c]);
+
+		double sum = 0.0;
+		for (int k = 0; k < NUM_RES; k++)
+		{
+			double f = fc[k] * (1.0 + autoDepth * envN);
+			f = jlimit(20.0, sr * 0.45, f);
+
+			const double g  = std::tan(double_Pi * f / sr);
+			const double R  = 1.0 / (2.0 * Qf[k]);
+			const double a0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
+			const double FB = 2.0 * R + g;
+
+			const double hp = (driven - s2[c][k] - FB * s1[c][k]) * a0;
+			const double bp = g * hp + s1[c][k];
+
+			s1[c][k] = g * hp + bp;
+			s2[c][k] = s2[c][k] + 2.0 * g * bp;
+
+			sum += gk[k] * bp;
+
+			if (!std::isfinite(s1[c][k]) || !std::isfinite(s2[c][k]))
+				s1[c][k] = s2[c][k] = 0.0;
+		}
+
+		frameData[c] = (float)((driven + sum) * outComp);
+	}
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
+
+
 double FilterHelpers::RenderData::applyModValue(double f) const
 {
 	bool calcModulation = !HISE_LOG_FILTER_FREQMOD || ((1.0 + bipolarDelta) * freqModValue != 1.0);

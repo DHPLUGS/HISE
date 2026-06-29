@@ -1852,6 +1852,7 @@ Factory::Factory(DspNetwork* n) :
 	registerPolyNode<df<linkwitzriley<1>>,	df<linkwitzriley<NUM_POLYPHONIC_VOICES>>,   filter_editor>();
 	registerPolyNode<df<zdf_diode<1>>,		df<zdf_diode<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
 	registerPolyNode<df<dj<1>>,				df<dj<NUM_POLYPHONIC_VOICES>>,				filter_editor>();
+	registerPolyNode<df<scream_body<1>>,	df<scream_body<NUM_POLYPHONIC_VOICES>>,		filter_editor>();
 
 	registerNode<wrap::data<convolution, data::dynamic::audiofile>, data::ui::audiofile_editor>();
 	//registerPolyNode<fir, fir_poly>();

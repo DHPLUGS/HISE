@@ -255,6 +255,7 @@ DEFINE_FILTER_NODE_TEMPLATE2(svf_eq, StateVariableEqSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(linkwitzriley, LinkwitzRiley);
 DEFINE_FILTER_NODE_TEMPLATE2(zdf_diode, ZDFDiodeLadderSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(dj, DJFilterSubType);
+DEFINE_FILTER_NODE_TEMPLATE2(scream_body, ScreamBodySubType);
 
 #undef DEFINE_FILTER_NODE_TEMPLATE2
 

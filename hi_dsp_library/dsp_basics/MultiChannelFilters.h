@@ -109,6 +109,7 @@ public:
 		DisperserFilterSubType,
 		ZDFDiodeLadderSubType,
 		DJFilterSubType,
+		ScreamBodySubType,
 		numFilterSubTypes
 	};
 
@@ -1568,6 +1569,88 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DJFilterSubType);
+
+// ============================================================================
+// ScreamBodySubType
+//   Reason Scream-4 "Body" style resonant body filter, voiced to scream.
+//   A bank of NUM_RES zero-delay-feedback (TPT) SVF band-pass resonators summed
+//   on top of the dry signal (series-peaking → fuller, no parallel-BP thinning),
+//   with a tanh drive stage feeding the resonators and an internal envelope
+//   follower (Auto) that pushes the resonant frequencies with input dynamics.
+//
+//   Mode  → Body type A/B/C/D (different resonant-peak voicings)
+//   Freq  → Scale  (global multiplier on all peak frequencies = body size)
+//   Q     → Reso   (resonator Q + boost depth)
+//   Gain  → Drive  (pre-resonator saturation amount; arrives as linear gain)
+//   (Auto is a fixed internal depth for now; promoted to a real param in the
+//    custom node stage.)
+// ============================================================================
+
+class ScreamBodySubType
+{
+public:
+
+	enum Mode
+	{
+		BodyA = 0,   // small box / megaphone honk
+		BodyB,       // wooden body
+		BodyC,       // large hollow / cabinet
+		BodyD,       // vocal / talkbox
+		numModes
+	};
+
+	static constexpr int NUM_RES = 3;
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	ScreamBodySubType();
+
+	StringArray getModes() const;
+
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+private:
+
+	static inline double sat(double x) { return std::tanh(x); }
+
+	// [bodyType][resonator][0=freqHz, 1=Q, 2=boostDb]
+	static const double bodyData[numModes][NUM_RES][3];
+
+	Mode mode = BodyA;
+
+	// Per-resonator coefficients (recomputed in updateCoefficients)
+	double fc[NUM_RES] = {};   // base centre frequency (Hz), pre Auto-modulation
+	double Qf[NUM_RES] = {};   // resonator Q
+	double gk[NUM_RES] = {};   // boost gain on the band-pass output (peaking)
+
+	double driveGain = 1.0;    // pre-resonator drive (linear)
+	double autoDepth = 0.25;   // internal Auto amount (env → frequency)
+	double outComp   = 1.0;    // drive/resonance makeup so it stays gain-sane
+
+	// Per-channel resonator state + envelope follower
+	double s1[NUM_MAX_CHANNELS][NUM_RES] = {};
+	double s2[NUM_MAX_CHANNELS][NUM_RES] = {};
+	double env[NUM_MAX_CHANNELS] = {};
+
+	// Stored for graph/coefficient queries
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	double storedQ          = 1.0;
+	double storedGain       = 1.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 
 
 }
