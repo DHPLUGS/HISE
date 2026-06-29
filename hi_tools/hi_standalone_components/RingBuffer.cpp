@@ -2186,6 +2186,12 @@ GoniometerBase::Shape::Shape(const AudioSampleBuffer& buffer, Rectangle<int> are
 
 juce::Point<float> GoniometerBase::Shape::createPointFromSample(float left, float right, float size)
 {
+	// A single non-finite sample (NaN/Inf from an upstream node blowing up) would otherwise
+	// produce NaN dot coordinates, and juce::EdgeTable hard-crashes building integer bounds
+	// from NaN. Collapse non-finite samples to silence so the scope can never take the app down.
+	if (!std::isfinite(left))  left  = 0.0f;
+	if (!std::isfinite(right)) right = 0.0f;
+
 	float lScaled = sqrt(fabsf(left));
 	float rScaled = sqrt(fabsf(right));
 

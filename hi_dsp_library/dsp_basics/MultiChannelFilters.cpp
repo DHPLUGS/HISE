@@ -1009,6 +1009,7 @@ void OberheimSubType::reset(int /*numChannels*/)
 {
     memset(s1, 0, sizeof(s1));
     memset(s2, 0, sizeof(s2));
+    coeffInit = false;   // force the next updateCoefficients to snap _prev (no ramp-from-zero click)
 }
 
 void OberheimSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
@@ -1029,6 +1030,14 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
     // Four-stage sweep: -18dB=LP, -6dB=BP, +6dB=HP, +18dB=BSF
     morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+
+    // First update after a reset/type-switch: snap the interpolation start to the new
+    // coefficients so the first block doesn't ramp up from the stale "zero cutoff" default.
+    if (!coeffInit)
+    {
+        g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+        coeffInit = true;
+    }
 }
 
 FilterCoefficientData OberheimSubType::getCoefficients(double freqNorm, double q, double gain) const
@@ -1150,6 +1159,10 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
                 }
             }
 
+            // Last line of defense: never write a non-finite sample (the analyser/goniometer
+            // builds an EdgeTable from it and hard-crashes). Heal the state on the spot.
+            if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }
+
             buffer.setSample(c, startSample + n, (float)out);
         }
     }
@@ -1201,6 +1214,8 @@ void OberheimSubType::processFrame(float* frameData, int numChannels)
                 default:  out = lpf;       break;
             }
         }
+
+        if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }   // never emit non-finite (crashes the goniometer)
 
         frameData[c] = (float)out;
     }

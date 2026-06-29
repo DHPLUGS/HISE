@@ -799,6 +799,12 @@ private:
 
 	static inline double fastTanh(double x)
 	{
+		// Padé approximant of tanh. The raw form is NOT bounded — it grows ~x/9 for
+		// large |x|, so it cannot limit the loop gain of a leak-free resonant filter
+		// (output runs away → volume spike → Inf). Clamp the argument to its monotonic,
+		// bounded region: at |x|=3 the value is exactly ±1.0, so the result is bounded
+		// to [-1,1], continuous in slope, and unchanged across the normal drive range.
+		x = jlimit(-3.0, 3.0, x);
 		const double x2 = x * x;
 		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 	}
@@ -946,6 +952,11 @@ private:
 		// Padé approximant of tanh — monotonically increasing everywhere, so it
 		// cannot create the positive feedback that the cubic (v - v³/3) produces
 		// when |v| > 1 (where the cubic's slope goes negative and destabilises the filter).
+		// BUT the raw Padé is unbounded (grows ~x/9 for large |x|): in BP mode the output
+		// IS this value, and with leak-free integrators that lets the resonant loop run
+		// away → volume spike → Inf → crash. Clamp the argument to its bounded region:
+		// at |x|=3 the value is exactly ±1.0, so the result is bounded to [-1,1].
+		x = jlimit(-3.0, 3.0, x);
 		const double x2 = x * x;
 		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 	}
@@ -967,6 +978,11 @@ private:
 	double g_prev      = 0.0;
 	double alpha0_prev = 1.0;
 	double FBs1_prev   = 0.0;
+
+	// On the first update after a reset/type-switch the _prev coefficients are stale
+	// (constructor g=0 = "zero cutoff"); ramping from them gives a click on first use.
+	// Snap _prev to the freshly computed coefficients once instead.
+	bool coeffInit = false;
 
 	// Stored for graph/coefficient queries
 	double storedSampleRate = 44100.0;
@@ -1086,6 +1102,10 @@ private:
 
     static inline double fastTanh(double x)
     {
+        // Padé approximant of tanh, argument-clamped to its bounded region. The raw
+        // form grows ~x/9 for large |x|; clamping to |x|=3 (where it equals ±1.0)
+        // keeps it bounded to [-1,1] so the ladder feedback can't run away.
+        x = jlimit(-3.0, 3.0, x);
         const double x2 = x * x;
         return x * (27.0 + x2) / (27.0 + 9.0 * x2);
     }
