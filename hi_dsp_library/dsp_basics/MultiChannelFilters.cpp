@@ -975,7 +975,7 @@ DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
 OberheimSubType::OberheimSubType()
 {
     reset(NUM_MAX_CHANNELS);
-    g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+    g_sm = g;
 }
 
 hise::FilterHelpers::FilterSubType OberheimSubType::getFilterType()
@@ -1009,8 +1009,13 @@ void OberheimSubType::reset(int /*numChannels*/)
 {
     memset(s1, 0, sizeof(s1));
     memset(s2, 0, sizeof(s2));
-    coeffInit = false;   // force the next updateCoefficients to snap _prev (no ramp-from-zero click)
+    coeffInit = false;   // force the next updateCoefficients to snap g_sm (no glide-from-zero click)
 }
+
+// Cutoff-smoothing time constant for the Oberheim SVF. Tunable: longer = safer against very
+// fast cutoff jumps at high resonance, shorter = snappier modulation. ~8 ms is inaudible on
+// sweeps yet keeps a 20 Hz->1 kHz double-click reset transient-free.
+static constexpr double kCoeffSmoothSeconds = 0.008;
 
 void OberheimSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
@@ -1022,7 +1027,7 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     const double fc = jlimit(20.0, sampleRate * 0.499, FilterLimits::limitFrequency(frequency));
     g = std::tan(double_Pi * fc / sampleRate);
 
-    const double R = 1.0 / (2.0 * jmax(0.01, q * 0.5));
+    R      = 1.0 / (2.0 * jmax(0.01, q * 0.5));
     FBs1   = 2.0 * R + g;
     alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
 
@@ -1031,11 +1036,18 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     // Four-stage sweep: -18dB=LP, -6dB=BP, +6dB=HP, +18dB=BSF
     morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
 
-    // First update after a reset/type-switch: snap the interpolation start to the new
-    // coefficients so the first block doesn't ramp up from the stale "zero cutoff" default.
+    // One-pole cutoff-smoothing time constant. Block-size independent, so a double-click reset
+    // of the cutoff (an instantaneous parameter jump) glides instead of clicking/blowing up,
+    // while normal LFO/automation sweeps pass essentially intact. Because alpha0/FBs1 are
+    // recomputed from the glided g (consistent, always-stable), this only has to be long enough
+    // to keep the resonant transient inaudible, not to mask an instability.
+    coeffSmooth = std::exp(-1.0 / (jmax(1.0, sampleRate) * kCoeffSmoothSeconds));
+
+    // First update after a reset/type-switch: snap g_sm to the new target so the first block
+    // doesn't glide up from the stale "zero cutoff" default.
     if (!coeffInit)
     {
-        g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+        g_sm = g;
         coeffInit = true;
     }
 }
@@ -1110,19 +1122,17 @@ double OberheimSubType::getPlotValue(void* obj, bool getMagnitude, double freqNo
 
 void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-    const double g_t    = g;
-    const double a0_t   = alpha0;
-    const double FBs1_t = FBs1;
-
     const int numChannels = buffer.getNumChannels();
-    const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+    const double a = 1.0 - coeffSmooth;   // one-pole glide rate toward the target cutoff
 
     for (int n = 0; n < numSamples; ++n)
     {
-        const double t    = n * inv;
-        const double g_i  = g_prev      + t * (g_t    - g_prev);
-        const double a0_i = alpha0_prev  + t * (a0_t   - alpha0_prev);
-        const double fb_i = FBs1_prev   + t * (FBs1_t - FBs1_prev);
+        // Glide the cutoff alone, then recompute the dependent coefficients from it so the
+        // triple stays consistent (always a valid, stable filter) for every intermediate sample.
+        g_sm += a * (g - g_sm);
+        const double g_i  = g_sm;
+        const double fb_i = 2.0 * R + g_i;
+        const double a0_i = 1.0 / (1.0 + 2.0 * R * g_i + g_i * g_i);
 
         for (int c = 0; c < numChannels; ++c)
         {
@@ -1173,24 +1183,29 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
         if (!std::isfinite(s1[c]) || !std::isfinite(s2[c]))
             s1[c] = s2[c] = 0.0;
 
-    g_prev      = g_t;
-    alpha0_prev = a0_t;
-    FBs1_prev   = FBs1_t;
 }
 
 void OberheimSubType::processFrame(float* frameData, int numChannels)
 {
+    // Glide the cutoff alone, recompute dependents consistently (this path had no smoothing
+    // before, so an instantaneous cutoff change here clicked/blew up outright). Once per frame.
+    const double a = 1.0 - coeffSmooth;
+    g_sm += a * (g - g_sm);
+    const double g_f    = g_sm;
+    const double FBs1_f = 2.0 * R + g_f;
+    const double a0_f   = 1.0 / (1.0 + 2.0 * R * g_f + g_f * g_f);
+
     for (int c = 0; c < numChannels; ++c)
     {
         double x = frameData[c];
         if (!std::isfinite(x)) { x = 0.0; s1[c] = s2[c] = 0.0; }   // sanitize input + self-heal state
-        const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
-        const double v1  = g * hpf + s1[c];
+        const double hpf = (x - s2[c] - FBs1_f * s1[c]) * a0_f;
+        const double v1  = g_f * hpf + s1[c];
         const double bpf = fastTanh(v1);
-        const double lpf = g * bpf + s2[c];
+        const double lpf = g_f * bpf + s2[c];
 
-        s1[c] = g * hpf + bpf;
-        s2[c] = s2[c] + 2.0 * g * bpf;
+        s1[c] = g_f * hpf + bpf;
+        s2[c] = s2[c] + 2.0 * g_f * bpf;
 
         double out;
         if (mode == Morph)
@@ -1230,7 +1245,7 @@ DEFINE_MULTI_CHANNEL_FILTER(OberheimSubType);
 WaspFilterSubType::WaspFilterSubType()
 {
     reset(NUM_MAX_CHANNELS);
-    g_prev = g; alpha0_prev = alpha0; FBs1_prev = FBs1;
+    g_sm = g;
 }
 
 hise::FilterHelpers::FilterSubType WaspFilterSubType::getFilterType()
@@ -1264,6 +1279,7 @@ void WaspFilterSubType::reset(int /*numChannels*/)
 {
     memset(s1, 0, sizeof(s1));
     memset(s2, 0, sizeof(s2));
+    coeffInit = false;   // force the next update to snap g_sm (no glide-from-zero click)
 }
 
 void WaspFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
@@ -1275,12 +1291,15 @@ void WaspFilterSubType::updateCoefficients(double sampleRate, double frequency, 
     g = std::tan(double_Pi * fc / sampleRate);
 
     // Wasp has a tighter Q range than Oberheim — maps to slightly higher damping
-    const double R = 1.0 / (2.0 * jmax(0.01, q));
+    R      = 1.0 / (2.0 * jmax(0.01, q));
     FBs1   = 2.0 * R + g;
     alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
 
     const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
     morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
+
+    coeffSmooth = std::exp(-1.0 / (jmax(1.0, sampleRate) * kCoeffSmoothSeconds));
+    if (!coeffInit) { g_sm = g; coeffInit = true; }
 }
 
 FilterCoefficientData WaspFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
@@ -1352,19 +1371,17 @@ double WaspFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 
 void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-    const double g_t    = g;
-    const double a0_t   = alpha0;
-    const double FBs1_t = FBs1;
-
     const int numChannels = buffer.getNumChannels();
-    const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
+    const double a = 1.0 - coeffSmooth;   // one-pole glide rate toward the target cutoff
 
     for (int n = 0; n < numSamples; ++n)
     {
-        const double t    = n * inv;
-        const double g_i  = g_prev      + t * (g_t    - g_prev);
-        const double a0_i = alpha0_prev  + t * (a0_t   - alpha0_prev);
-        const double fb_i = FBs1_prev   + t * (FBs1_t - FBs1_prev);
+        // Glide the cutoff alone, recompute dependents from it so the triple stays consistent
+        // (always a valid, stable SVF) for every intermediate sample.
+        g_sm += a * (g - g_sm);
+        const double g_i  = g_sm;
+        const double fb_i = 2.0 * R + g_i;
+        const double a0_i = 1.0 / (1.0 + 2.0 * R * g_i + g_i * g_i);
 
         for (int c = 0; c < numChannels; ++c)
         {
@@ -1403,6 +1420,9 @@ void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
                 }
             }
 
+            // Never write a non-finite sample (the analyser/goniometer crashes on it); heal state.
+            if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }
+
             buffer.setSample(c, startSample + n, (float)out);
         }
     }
@@ -1412,26 +1432,29 @@ void WaspFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
     for (int c = 0; c < numChannels; ++c)
         if (!std::isfinite(s1[c]) || !std::isfinite(s2[c]))
             s1[c] = s2[c] = 0.0;
-
-    g_prev      = g_t;
-    alpha0_prev = a0_t;
-    FBs1_prev   = FBs1_t;
 }
 
 void WaspFilterSubType::processFrame(float* frameData, int numChannels)
 {
+    // Glide the cutoff alone, recompute dependents consistently (once per frame).
+    const double a = 1.0 - coeffSmooth;
+    g_sm += a * (g - g_sm);
+    const double g_f    = g_sm;
+    const double FBs1_f = 2.0 * R + g_f;
+    const double a0_f   = 1.0 / (1.0 + 2.0 * R * g_f + g_f * g_f);
+
     for (int c = 0; c < numChannels; ++c)
     {
         double x = frameData[c];
         if (!std::isfinite(x)) { x = 0.0; s1[c] = s2[c] = 0.0; }   // sanitize input + self-heal state
 
-        const double hpf = (x - s2[c] - FBs1 * s1[c]) * alpha0;
-        const double v1  = g * hpf + s1[c];
+        const double hpf = (x - s2[c] - FBs1_f * s1[c]) * a0_f;
+        const double v1  = g_f * hpf + s1[c];
         const double bpf = wasp_nl(v1);
-        const double lpf = g * wasp_nl(bpf) + s2[c];
+        const double lpf = g_f * wasp_nl(bpf) + s2[c];
 
-        s1[c] = g * hpf + bpf;
-        s2[c] = s2[c] + 2.0 * g * bpf;
+        s1[c] = g_f * hpf + bpf;
+        s2[c] = s2[c] + 2.0 * g_f * bpf;
 
         double out;
         if (mode == Morph)
@@ -1455,6 +1478,8 @@ void WaspFilterSubType::processFrame(float* frameData, int numChannels)
                 default:  out = lpf;       break;
             }
         }
+
+        if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }   // never emit non-finite
 
         frameData[c] = (float)out;
     }
@@ -1729,10 +1754,10 @@ DEFINE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
 DiodeLadderSubType::DiodeLadderSubType()
 {
     reset(NUM_MAX_CHANNELS);
-    // Initialise coefficients so the first buffer interpolates from a valid state
+    // Initialise coefficients so the first buffer glides from a valid state
     updateCoefficients(44100.0, 20000.0, 0.3, 0.0);
-    G_prev  = G;
-    fb_prev = fb;
+    G_sm  = G;
+    fb_sm = fb;
 }
 
 hise::FilterHelpers::FilterSubType DiodeLadderSubType::getFilterType()
@@ -1764,6 +1789,7 @@ void DiodeLadderSubType::reset(int numChannels)
 {
     memset(s,      0, sizeof(s));
     memset(y4prev, 0, sizeof(double) * numChannels);
+    coeffInit = false;   // force the next update to snap the smoothed coeffs (no glide-from-zero click)
 }
 
 void DiodeLadderSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
@@ -1781,6 +1807,9 @@ void DiodeLadderSubType::updateCoefficients(double sampleRate, double frequency,
     // More aggressive resonance reduction above 2kHz
     const double freqScale = 1.0 - jmax(0.0, (fc - 2000.0) / 18000.0);
     fb *= freqScale;
+
+    coeffSmooth = std::exp(-1.0 / (jmax(1.0, sampleRate) * kCoeffSmoothSeconds));
+    if (!coeffInit) { G_sm = G; fb_sm = fb; coeffInit = true; }
 }
 
 FilterCoefficientData DiodeLadderSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
@@ -1836,17 +1865,21 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
 {
     const double G_t  = G;
     const double fb_t = fb;
+    const double G0   = G_sm;    // smoothed coefficients at block entry
+    const double fb0  = fb_sm;
 
     for (int c = 0; c < buffer.getNumChannels(); c++)
     {
         float* d = buffer.getWritePointer(c, startSample);
 
+        double pw = 1.0;   // coeffSmooth^(i+1): closed-form one-pole glide, identical for every channel
         for (int i = 0; i < numSamples; i++)
         {
-            // Linear interpolation of coefficients across the buffer
-            const double interp = (numSamples > 1) ? (double)i / (double)(numSamples - 1) : 1.0;
-            const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
-            const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
+            // Block-size-independent one-pole glide of the coefficients (G and fb are independent
+            // and each already in a stable range, so they smooth directly — no recompute needed).
+            pw *= coeffSmooth;
+            const double G_i  = G_t  + (G0  - G_t)  * pw;
+            const double fb_i = fb_t + (fb0 - fb_t) * pw;
 
             double input = (double)d[i];
             if (!std::isfinite(input)) input = 0.0;   // stop an upstream NaN/Inf latching the ladder (the 0.9999 leak can't clear a NaN)
@@ -1892,6 +1925,14 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
                 default: out = y3;                                             break;
             }
 
+            // Never write a non-finite sample (crashes the analyser/goniometer); heal the ladder.
+            if (!std::isfinite(out))
+            {
+                out = 0.0;
+                s[0][c] = s[1][c] = s[2][c] = s[3][c] = 0.0;
+                y4prev[c] = 0.0;
+            }
+
             d[i] = (float)out;
         }
 
@@ -1905,13 +1946,21 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
         }
     }
 
-    // Advance previous-buffer coefficients for next call
-    G_prev  = G_t;
-    fb_prev = fb_t;
+    // Advance the smoothed coefficients by exactly numSamples one-pole steps for the next block.
+    const double decay = std::pow(coeffSmooth, (double)numSamples);
+    G_sm  = G_t  + (G0  - G_t)  * decay;
+    fb_sm = fb_t + (fb0 - fb_t) * decay;
 }
 
 void DiodeLadderSubType::processFrame(float* frameData, int numChannels)
 {
+    // Glide the coefficients one one-pole step per frame (this path had no smoothing before).
+    const double a = 1.0 - coeffSmooth;
+    G_sm  += a * (G  - G_sm);
+    fb_sm += a * (fb - fb_sm);
+    const double G_f  = G_sm;
+    const double fb_f = fb_sm;
+
     for (int c = 0; c < numChannels; c++)
     {
         double input = (double)frameData[c];
@@ -1922,25 +1971,25 @@ void DiodeLadderSubType::processFrame(float* frameData, int numChannels)
             y4prev[c] = 0.0;
         }
 
-        const double u = input - fb * diodeSat(y4prev[c]);
+        const double u = input - fb_f * diodeSat(y4prev[c]);
 
         const double tu  = diodeSat(u);
-        const double v0  = G * (tu  - s[0][c]);
+        const double v0  = G_f * (tu  - s[0][c]);
         const double y0  = v0 + s[0][c];
         s[0][c] = y0 + v0;
 
         const double ty0 = diodeSat(y0);
-        const double v1  = G * (ty0 - s[1][c]);
+        const double v1  = G_f * (ty0 - s[1][c]);
         const double y1  = v1 + s[1][c];
         s[1][c] = y1 + v1;
 
         const double ty1 = diodeSat(y1);
-        const double v2  = G * (ty1 - s[2][c]);
+        const double v2  = G_f * (ty1 - s[2][c]);
         const double y2  = v2 + s[2][c];
         s[2][c] = y2 + v2;
 
         const double ty2 = diodeSat(y2);
-        const double v3  = G * (ty2 - s[3][c]);
+        const double v3  = G_f * (ty2 - s[3][c]);
         const double y3  = v3 + s[3][c];
         s[3][c] = y3 + v3;
 
@@ -1960,6 +2009,13 @@ void DiodeLadderSubType::processFrame(float* frameData, int numChannels)
             case HP: out = tu - 4.0*y0 + 6.0*y1 - 4.0*y2 + y3;          break;
             case BP: out = tu - 2.0*y0 + y1;                             break;
             default: out = y3;                                             break;
+        }
+
+        if (!std::isfinite(out))   // never emit non-finite; heal the ladder
+        {
+            out = 0.0;
+            s[0][c] = s[1][c] = s[2][c] = s[3][c] = 0.0;
+            y4prev[c] = 0.0;
         }
 
         frameData[c] = (float)out;

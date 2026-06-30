@@ -3099,8 +3099,16 @@ AudioSampleBuffer Spectrum2D::createSpectrumBuffer(bool useFallback)
 			TRACE_EVENT("scripting", "pre FFT");
 	        sb.clear();
 
-	        FloatVectorOperations::copy(sb.getWritePointer(0), originalSource.getReadPointer(0, offset), numToCopy);
-			FloatVectorOperations::multiply(sb.getWritePointer(0), window.getReadPointer(0), numToCopy);
+	        auto* sbw = sb.getWritePointer(0);
+	        FloatVectorOperations::copy(sbw, originalSource.getReadPointer(0, offset), numToCopy);
+
+	        // Guard: a single non-finite sample in the source ring buffer would otherwise be
+	        // smeared by the FFT across the entire spectrum, blanking the analyser until the
+	        // sample scrolls out (or permanently). Zero them so the display self-heals.
+	        for (int s = 0; s < numToCopy; ++s)
+	            if (!std::isfinite(sbw[s])) sbw[s] = 0.0f;
+
+			FloatVectorOperations::multiply(sbw, window.getReadPointer(0), numToCopy);
         }
 
         {

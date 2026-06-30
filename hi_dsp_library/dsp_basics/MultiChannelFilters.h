@@ -967,21 +967,30 @@ private:
 	double s1[NUM_MAX_CHANNELS] = {};
 	double s2[NUM_MAX_CHANNELS] = {};
 
-	// Current buffer coefficients
+	// Target coefficients (recomputed on every parameter change).
 	double g      = 0.0;   // bilinear pre-warped frequency: tan(pi*fc/fs)
-	double alpha0 = 1.0;   // input normalisation: 1/(1 + 2*R*g + g^2)
-	double FBs1   = 0.0;   // damping feedback: 2*R + g
+	double R      = 0.5;   // damping: 1/(2*Q'). Stored so the smoothed coefficients can be
+	                       // recomputed CONSISTENTLY from the glided g (see below).
+	double alpha0 = 1.0;   // input normalisation: 1/(1 + 2*R*g + g^2)  (target; for display)
+	double FBs1   = 0.0;   // damping feedback: 2*R + g                 (target; for display)
     double morph = 0.5;
     double storedGain = 1.0;
 
-	// Previous buffer coefficients for per-sample interpolation
-	double g_prev      = 0.0;
-	double alpha0_prev = 1.0;
-	double FBs1_prev   = 0.0;
+	// Smoothing is applied to the CUTOFF ALONE (g_sm glides toward target g); alpha0/FBs1 are
+	// then recomputed from g_sm + R every sample. Smoothing g, alpha0 and FBs1 as three
+	// independent one-poles was wrong: alpha0 = 1/(1+2Rg+g^2) is nonlinear in g, so a blend of
+	// two valid coefficient sets is itself INVALID — mid-glide the feedback normaliser no longer
+	// matches g, transiently pushing the resonant loop gain above unity (BP, the resonant-peak
+	// output, blows up first). Recomputing from the single glided g keeps the filter a valid,
+	// stable configuration at every intermediate sample.
+	double g_sm = 0.0;
 
-	// On the first update after a reset/type-switch the _prev coefficients are stale
-	// (constructor g=0 = "zero cutoff"); ramping from them gives a click on first use.
-	// Snap _prev to the freshly computed coefficients once instead.
+	// Per-sample one-pole smoothing coefficient (set from sample rate in updateCoefficients).
+	// 0.0 = no smoothing (snaps), used until the first coefficient update runs.
+	double coeffSmooth = 0.0;
+
+	// First update after a reset/type-switch: g_sm is stale (constructor g=0 = "zero cutoff"),
+	// gliding from it gives a click. Snap g_sm to the freshly computed g once instead.
 	bool coeffInit = false;
 
 	// Stored for graph/coefficient queries
@@ -1043,15 +1052,20 @@ Mode mode = LP;
 double s1[NUM_MAX_CHANNELS] = {};
 double s2[NUM_MAX_CHANNELS] = {};
 
-double g      = 0.0;
+double g      = 0.0;   // target pre-warped cutoff: tan(pi*fc/fs)
+double R      = 0.5;   // target damping 1/(2*Q'); stored so the glided coefficients stay consistent
 double alpha0 = 1.0;
 double FBs1   = 0.0;
 double morph  = 0.5;
 double storedGain = 1.0;
 
-double g_prev      = 0.0;
-double alpha0_prev = 1.0;
-double FBs1_prev   = 0.0;
+// Smooth the cutoff alone; recompute alpha0/FBs1 from the glided g + R each sample so the
+// filter stays a valid, unconditionally-stable SVF at every intermediate sample. (See the
+// OberheimSubType note: smoothing the three coefficients independently de-syncs the feedback
+// normaliser from g and lets the resonant loop transiently diverge.)
+double g_sm = 0.0;
+double coeffSmooth = 0.0;   // per-sample one-pole rate; 0 = snap (until first update)
+bool   coeffInit = false;   // snap g_sm to g on the first update after a reset/type-switch
 
 double storedSampleRate = 44100.0;
 double storedFrequency  = 1000.0;
@@ -1192,13 +1206,18 @@ private:
     // Previous stage-4 output for 1-sample-delayed feedback
     double y4prev[NUM_MAX_CHANNELS] = {};
 
-    // Current buffer coefficients
-    double G  = 0.0;   // bilinear stage coefficient g/(1+g)
+    // Target coefficients (recomputed on every parameter change)
+    double G  = 0.0;   // bilinear stage coefficient g/(1+g) — always in [0,1), so independently
+                       // smoothable (unlike the SVF's alpha0, G and fb are not interdependent)
     double fb = 0.0;   // feedback amount [0, 3.8]
 
-    // Previous buffer coefficients for per-sample interpolation
-    double G_prev  = 0.0;
-    double fb_prev = 0.0;
+    // Smoothed running coefficients (block-size-independent one-pole glide toward the targets).
+    // Replaces the old one-block linear interp: too short at small block sizes, and processFrame
+    // had none, so a double-click cutoff reset clicked.
+    double G_sm  = 0.0;
+    double fb_sm = 0.0;
+    double coeffSmooth = 0.0;   // per-sample one-pole rate; 0 = snap (until first update)
+    bool   coeffInit = false;   // snap the smoothed coeffs to target on first update after reset
 
     // Stored for graph/coefficient queries
     double storedSampleRate = 44100.0;
