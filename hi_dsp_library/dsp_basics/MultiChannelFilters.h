@@ -110,6 +110,7 @@ public:
 		ZDFDiodeLadderSubType,
 		DJFilterSubType,
 		ScreamBodySubType,
+		ApexFilterSubType,
 		numFilterSubTypes
 	};
 
@@ -136,6 +137,11 @@ public:
 	};
 };
 
+// Detects whether a filter subtype implements setDrive(double). Only the drive-
+// capable subtypes (apex/diode/tb303) do; the rest ignore the Drive parameter.
+template <class T, class = void> struct FilterHasSetDrive : std::false_type {};
+template <class T> struct FilterHasSetDrive<T, std::void_t<decltype(std::declval<T>().setDrive(0.0))>> : std::true_type {};
+
 /** A base class for filters with multiple channels.
 *
 *   It exposes an interface for different filter types which have common methods for
@@ -160,6 +166,15 @@ public:
 	void setFrequency(double newFrequency);
 	void setQ(double newQ);
 	void setGain(double newGain);
+
+	/** Drive is applied inside the subtype's processing (in-loop), so it just
+	*   forwards to subtypes that implement setDrive; the rest ignore it. */
+	void setDrive(double newDrive)
+	{
+		driveValue = newDrive;
+		if constexpr (FilterHasSetDrive<FilterSubType>::value)
+			internalFilter.setDrive(newDrive);
+	}
 
 	double getGain() const;
 	double getFrequency() const;
@@ -204,6 +219,7 @@ private:
 	int frameCounter = 0;
 	int type = -1;
 	int numChannels = 2;
+	double driveValue = 0.0;
 };
 
 
@@ -1690,6 +1706,107 @@ private:
 };
 
 FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
+
+// ============================================================================
+// ApexFilterSubType
+//   The main multimode filter: Cytomic (TPT) SVF core — same DSP as svf_eq — but
+//   with the mode set/ordering matched to StateVariableFilterSubType (svf) so it
+//   is a drop-in replacement in networks, PLUS a Serum-style pre-filter Drive
+//   (drives the signal INTO the filter) so it adds harmonics while PRESERVING
+//   resonance — unlike saturating the resonance feedback, which nulls resonance
+//   and dulls the sound.
+//
+//   Modes are index-for-index identical to svf: LP, HP, BP, Notch, Allpass,
+//   LP24/36/48, HP24/36/48, BP24, Notch24, Morph. Gain is used only by Morph
+//   (as morph position, like svf); Drive is a separate node parameter.
+//
+//   Drive = 0 is bit-transparent to the clean Cytomic filter (preDrive → identity
+//   at g = 0, and outComp = 1).
+// ============================================================================
+
+class ApexFilterSubType
+{
+public:
+
+	enum FilterType
+	{
+		LP = 0, HP, BP, NOTCH, ALLPASS,
+		LP24, LP36, LP48,
+		HP24, HP36, HP48,
+		BP24, NOTCH24,
+		Morph,
+		numTypes
+	};
+
+	static FilterHelpers::FilterSubType getFilterType();
+	static Identifier getStaticId();
+
+	ApexFilterSubType();
+
+	StringArray getModes() const;
+	Array<FilterHelpers::CoefficientType> getCoefficientTypeList() const;
+
+	FilterCoefficientData getCoefficients(double freqNorm, double q, double gain) const;
+	static double getPlotValue(void* obj, bool getMagnitude, double freqNorm);
+
+	void setType(int t);
+	void setDrive(double newDrive);
+	void reset(int numChannels);
+	void updateCoefficients(double sampleRate, double frequency, double q, double gain);
+	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
+	void processFrame(float* frameData, int numChannels);
+
+	static constexpr int MAX_STAGES = 4;   // up to 4 cascaded SVF stages (48 dB)
+
+private:
+
+	// Pre-filter drive: drives the signal into the filter. Unity full-scale and
+	// transparent at g = 0. A bias (b) makes the curve asymmetric so it generates
+	// even harmonics (2nd/4th) for tube-like low-end weight, à la Serum; b = 0 is
+	// the symmetric tanh (odd harmonics only). Adds harmonics while leaving the
+	// filter (and its resonance) linear.
+	static inline double preDrive(double x, double g, double b)
+	{
+		if (g <= 0.0) return x;
+		return (std::tanh(g * (x + b)) - std::tanh(g * b)) / std::tanh(g);
+	}
+
+	// One Cytomic SVF stage: coefficients (a0..a2, mix m0..m2) + per-channel state.
+	struct Stage
+	{
+		double a0 = 1.0, a1 = 0.0, a2 = 0.0;   // trapezoidal coefficients
+		double m0 = 0.0, m1 = 0.0, m2 = 1.0;   // output mix
+		double ic1eq[NUM_MAX_CHANNELS] = {};
+		double ic2eq[NUM_MAX_CHANNELS] = {};
+
+		void resetState();
+		void computeA(double g, double k);
+		// Processes one sample (clean Cytomic; drive is applied pre-filter).
+		inline double tick(double in, int ch);
+	};
+
+	// Resolve the mode into base type + cascade section Qs (mirrors svf).
+	void configureStages(double sampleRate, double frequency, double q, double gain);
+	static void getMix(FilterType baseType, double k, double& m0, double& m1, double& m2);
+
+	FilterType type = LP;
+	int numStages = 1;
+	double drive = 0.0;       // 0..1 user drive
+	double driveCoeff = 0.0;  // pre-drive gain g (drive * 5)
+	double driveBias = 0.0;   // asymmetry bias → even-harmonic low-end weight
+	double outComp = 1.0;     // partial makeup (lets drive add some weight/level)
+
+	Stage stages[MAX_STAGES];
+
+	// Morph position (Gain repurposed, matching svf), and stored params for the plot.
+	double morphPos = 0.5;
+	double storedSampleRate = 44100.0;
+	double storedFrequency  = 1000.0;
+	double storedQ          = 1.0;
+	double storedGain       = 1.0;
+};
+
+FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ApexFilterSubType);
 
 
 }

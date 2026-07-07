@@ -5888,6 +5888,277 @@ void ScreamBodySubType::processFrame(float* frameData, int numChannels)
 DEFINE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 
 
+// ============================================================================
+// ApexFilterSubType implementation
+//   Cytomic (TPT) SVF core — identical math to svf_eq — with svf's mode ordering
+//   and a Serum-style pre-filter Drive that pushes the signal into the (linear)
+//   filter, so it adds harmonics while preserving resonance. Reuses the file-
+//   static Cytomic helpers (evalCytomicStage, getEqSectionQ). Drive = 0 is
+//   bit-transparent (preDrive → identity, makeup = 1).
+// ============================================================================
+
+static const double apexQ24[2] = { 0.5412, 1.3066 };
+static const double apexQ36[3] = { 0.5176, 0.7071, 1.9319 };
+static const double apexQ48[4] = { 0.5098, 0.6013, 0.8999, 2.5629 };
+
+// Resolve a mode into base type + cascade sections (mirrors svf's higher orders).
+// Returns false for the single-order modes.
+static bool resolveApexCascade(ApexFilterSubType::FilterType t,
+	ApexFilterSubType::FilterType& base, int& sections, const double*& qTable, bool& butter)
+{
+	using A = ApexFilterSubType;
+	butter = true; qTable = nullptr;
+	switch (t)
+	{
+	case A::LP24: base = A::LP; sections = 2; qTable = apexQ24; return true;
+	case A::LP36: base = A::LP; sections = 3; qTable = apexQ36; return true;
+	case A::LP48: base = A::LP; sections = 4; qTable = apexQ48; return true;
+	case A::HP24: base = A::HP; sections = 2; qTable = apexQ24; return true;
+	case A::HP36: base = A::HP; sections = 3; qTable = apexQ36; return true;
+	case A::HP48: base = A::HP; sections = 4; qTable = apexQ48; return true;
+	case A::BP24:    base = A::BP;    sections = 2; butter = false; return true;
+	case A::NOTCH24: base = A::NOTCH; sections = 2; butter = false; return true;
+	default: base = t; sections = 1; return false;
+	}
+}
+
+void ApexFilterSubType::Stage::resetState()
+{
+	memset(ic1eq, 0, sizeof(ic1eq));
+	memset(ic2eq, 0, sizeof(ic2eq));
+}
+
+void ApexFilterSubType::Stage::computeA(double g, double k)
+{
+	a0 = 1.0 / (1.0 + g * (g + k));
+	a1 = g * a0;
+	a2 = g * a1;
+}
+
+double ApexFilterSubType::Stage::tick(double in, int ch)
+{
+	const double v3 = in - ic2eq[ch];
+	const double v1 = a0 * ic1eq[ch] + a1 * v3;   // bandpass
+	const double v2 = ic2eq[ch] + a1 * ic1eq[ch] + a2 * v3;   // lowpass
+	ic1eq[ch] = 2.0 * v1 - ic1eq[ch];
+	ic2eq[ch] = 2.0 * v2 - ic2eq[ch];
+
+	// Self-heal so one non-finite sample can't latch the filter (see OB/Diode fix).
+	if (!std::isfinite(ic1eq[ch]) || !std::isfinite(ic2eq[ch]))
+		ic1eq[ch] = ic2eq[ch] = 0.0;
+
+	return m0 * in + m1 * v1 + m2 * v2;
+}
+
+ApexFilterSubType::ApexFilterSubType()
+{
+	reset(NUM_MAX_CHANNELS);
+	updateCoefficients(44100.0, 1000.0, 1.0, 0.0);
+}
+
+hise::FilterHelpers::FilterSubType ApexFilterSubType::getFilterType()
+{
+	return FilterHelpers::FilterSubType::ApexFilterSubType;
+}
+
+juce::Identifier ApexFilterSubType::getStaticId()
+{
+	RETURN_STATIC_IDENTIFIER("apex");
+}
+
+juce::StringArray ApexFilterSubType::getModes() const
+{
+	return { "LP", "HP", "BP", "Notch", "Allpass",
+	         "LP 24dB", "LP 36dB", "LP 48dB",
+	         "HP 24dB", "HP 36dB", "HP 48dB",
+	         "BP 24dB", "Notch 24dB", "Morph" };
+}
+
+Array<hise::FilterHelpers::CoefficientType> ApexFilterSubType::getCoefficientTypeList() const
+{
+	return { FilterHelpers::LowPassReso, FilterHelpers::HighPass,
+	         FilterHelpers::BandPass, FilterHelpers::Notch, FilterHelpers::AllPass,
+	         FilterHelpers::LowPassReso, FilterHelpers::LowPassReso, FilterHelpers::LowPassReso,
+	         FilterHelpers::HighPass, FilterHelpers::HighPass, FilterHelpers::HighPass,
+	         FilterHelpers::BandPass, FilterHelpers::Notch, FilterHelpers::BandPass };
+}
+
+void ApexFilterSubType::setType(int t)
+{
+	type = (FilterType)jlimit(0, (int)numTypes - 1, t);
+}
+
+void ApexFilterSubType::setDrive(double newDrive)
+{
+	drive = jlimit(0.0, 1.0, newDrive);
+	driveCoeff = drive * 5.0;                // pre-drive gain g          (tunable)
+	driveBias  = drive * 0.25;               // asymmetry → low-end weight (tunable)
+	outComp    = 1.0 / (1.0 + 0.8 * drive);  // partial makeup: drive adds some weight
+}
+
+void ApexFilterSubType::reset(int /*numChannels*/)
+{
+	for (auto& s : stages)
+		s.resetState();
+}
+
+// Cytomic output mix (m0,m1,m2) for a single base type, k = 1/Q.
+void ApexFilterSubType::getMix(FilterType baseType, double k, double& m0, double& m1, double& m2)
+{
+	switch (baseType)
+	{
+	case LP:      m0 = 0.0; m1 = 0.0;      m2 = 1.0;  break;
+	case HP:      m0 = 1.0; m1 = -k;       m2 = -1.0; break;
+	case BP:      m0 = 0.0; m1 = 1.0;      m2 = 0.0;  break;
+	case NOTCH:   m0 = 1.0; m1 = -k;       m2 = 0.0;  break;
+	case ALLPASS: m0 = 1.0; m1 = -2.0 * k; m2 = 0.0;  break;
+	default:      m0 = 0.0; m1 = 0.0;      m2 = 1.0;  break;
+	}
+}
+
+void ApexFilterSubType::configureStages(double sampleRate, double frequency, double q, double gain)
+{
+	storedSampleRate = sampleRate;
+	storedFrequency  = frequency;
+	storedQ          = q;
+	storedGain       = gain;
+
+	const double g = std::tan((frequency / sampleRate) * double_Pi);
+
+	if (type == Morph)
+	{
+		numStages = 1;
+		// Gain (dB) repurposed as morph position, sweeping LP -> BP -> HP -> Notch.
+		const double gainDb = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
+		morphPos = jlimit(0.0, 1.0, (gainDb + 18.0) / 36.0);
+		const double k  = 1.0 / jmax(0.0001, q);
+		const double mt = morphPos * 3.0;
+		double m0, m1, m2;
+		if (mt <= 1.0)      { const double s = mt;       m0 = 0.0; m1 = s;              m2 = 1.0 - s; }
+		else if (mt <= 2.0) { const double s = mt - 1.0; m0 = s;   m1 = (1.0 - s) - k*s; m2 = -s; }
+		else                { const double s = mt - 2.0; m0 = 1.0; m1 = -k;             m2 = -(1.0 - s); }
+		stages[0].m0 = m0; stages[0].m1 = m1; stages[0].m2 = m2;
+		stages[0].computeA(g, k);
+		return;
+	}
+
+	FilterType base; int sections; const double* qTable; bool butter;
+	resolveApexCascade(type, base, sections, qTable, butter);
+	numStages = sections;
+
+	for (int s = 0; s < sections; ++s)
+	{
+		const double sq = (sections == 1) ? q : getEqSectionQ(butter, qTable, s, q);
+		const double k  = 1.0 / jmax(0.0001, sq);
+		double m0, m1, m2;
+		getMix(base, k, m0, m1, m2);
+		stages[s].m0 = m0; stages[s].m1 = m1; stages[s].m2 = m2;
+		stages[s].computeA(g, k);
+	}
+}
+
+void ApexFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
+{
+	configureStages(sampleRate, frequency, q, gain);
+}
+
+void ApexFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
+{
+	const int numChannels = buffer.getNumChannels();
+	const double d  = driveCoeff;
+	const double b  = driveBias;
+	const double mk = outComp;
+
+	for (int c = 0; c < numChannels; ++c)
+	{
+		float* data = buffer.getWritePointer(c, startSample);
+		for (int i = 0; i < numSamples; ++i)
+		{
+			double v = (double)data[i];
+			if (!std::isfinite(v)) v = 0.0;
+			v = preDrive(v, d, b);              // Serum-style pre-filter drive (asymmetric)
+			for (int s = 0; s < numStages; ++s)
+				v = stages[s].tick(v, c);
+			data[i] = (float)(v * mk);
+		}
+	}
+}
+
+void ApexFilterSubType::processFrame(float* frameData, int numChannels)
+{
+	const double d  = driveCoeff;
+	const double b  = driveBias;
+	const double mk = outComp;
+
+	for (int c = 0; c < numChannels; ++c)
+	{
+		double v = (double)frameData[c];
+		if (!std::isfinite(v)) v = 0.0;
+		v = preDrive(v, d, b);
+		for (int s = 0; s < numStages; ++s)
+			v = stages[s].tick(v, c);
+		frameData[c] = (float)(v * mk);
+	}
+}
+
+FilterCoefficientData ApexFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
+{
+	auto* m = const_cast<ApexFilterSubType*>(this);
+	if (storedSampleRate > 0.0)
+		m->storedFrequency = jlimit(20.0, 20000.0, freqNorm * storedSampleRate);
+	m->storedQ    = q;
+	m->storedGain = gain;
+
+	FilterCoefficientData cd;
+	cd.first.coefficients[0] = Random::getSystemRandom().nextFloat();   // force repaint
+	cd.customFunction = getPlotValue;
+	cd.obj = m;
+	return cd;
+}
+
+double ApexFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm)
+{
+	auto* t = static_cast<ApexFilterSubType*>(obj);
+	const double sr = t->storedSampleRate;
+	const double g0 = std::tan(double_Pi * jlimit(20.0, sr * 0.499, t->storedFrequency) / sr);
+	const double q  = t->storedQ;
+
+	// Drive doesn't alter the linear magnitude curve — the plot shows filter shape.
+	std::complex<double> h(1.0, 0.0);
+
+	if (t->type == Morph)
+	{
+		const double gainDb = Decibels::gainToDecibels(jmax((float)t->storedGain, 1.0e-6f));
+		const double mp = jlimit(0.0, 1.0, (gainDb + 18.0) / 36.0);
+		const double k  = 1.0 / jmax(0.0001, q);
+		const double mt = mp * 3.0;
+		double m0, m1, m2;
+		if (mt <= 1.0)      { const double s = mt;       m0 = 0.0; m1 = s;               m2 = 1.0 - s; }
+		else if (mt <= 2.0) { const double s = mt - 1.0; m0 = s;   m1 = (1.0 - s) - k*s;  m2 = -s; }
+		else                { const double s = mt - 2.0; m0 = 1.0; m1 = -k;              m2 = -(1.0 - s); }
+		h = evalCytomicStage(g0, k, m0, m1, m2, freqNorm);
+	}
+	else
+	{
+		FilterType base; int sections; const double* qTable; bool butter;
+		const bool casc = resolveApexCascade(t->type, base, sections, qTable, butter);
+
+		for (int s = 0; s < sections; ++s)
+		{
+			const double sq = (!casc) ? q : getEqSectionQ(butter, qTable, s, q);
+			const double k  = 1.0 / jmax(0.0001, sq);
+			double m0, m1, m2;
+			getMix(base, k, m0, m1, m2);
+			h *= evalCytomicStage(g0, k, m0, m1, m2, freqNorm);
+		}
+	}
+
+	return getMagnitude ? std::abs(h) : std::arg(h);
+}
+
+DEFINE_MULTI_CHANNEL_FILTER(ApexFilterSubType);
+
+
 double FilterHelpers::RenderData::applyModValue(double f) const
 {
 	bool calcModulation = !HISE_LOG_FILTER_FREQMOD || ((1.0 + bipolarDelta) * freqModValue != 1.0);

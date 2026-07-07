@@ -58,6 +58,7 @@ public:
 		Mode,
 		Enabled,
 		Mix,
+		Drive,
 		numParameters
 	};
 
@@ -192,6 +193,7 @@ public:
 	void setSmoothing(double newSmoothingTime);
 	void setEnabled(double isEnabled);
 	void setMix(double newMix);
+	void setDrive(double newDrive);
 
 	static double getPlotValueStatic(void* obj, bool getMagnitude, double freqNorm);
 
@@ -204,6 +206,7 @@ public:
 		DEF_PARAMETER(Mode, FilterNodeBase);
 		DEF_PARAMETER(Enabled, FilterNodeBase);
 		DEF_PARAMETER(Mix, FilterNodeBase);
+		DEF_PARAMETER(Drive, FilterNodeBase);
 	}
 	SN_PARAMETER_MEMBER_FUNCTION;
 
@@ -256,6 +259,7 @@ DEFINE_FILTER_NODE_TEMPLATE2(linkwitzriley, LinkwitzRiley);
 DEFINE_FILTER_NODE_TEMPLATE2(zdf_diode, ZDFDiodeLadderSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(dj, DJFilterSubType);
 DEFINE_FILTER_NODE_TEMPLATE2(scream_body, ScreamBodySubType);
+DEFINE_FILTER_NODE_TEMPLATE2(apex, ApexFilterSubType);
 
 #undef DEFINE_FILTER_NODE_TEMPLATE2
 

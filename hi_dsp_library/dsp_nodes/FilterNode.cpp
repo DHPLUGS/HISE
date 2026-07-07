@@ -190,6 +190,12 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 		p.setDefaultValue(1.0);
 		parameters.add(std::move(p));
 	}
+	{
+		DEFINE_PARAMETERDATA(FilterNodeBase, Drive);
+		p.setRange({ 0.0, 1.0 });
+		p.setDefaultValue(0.0);
+		parameters.add(std::move(p));
+	}
 }
 
 
@@ -234,6 +240,13 @@ void FilterNodeBase<FilterType, NV>::setMix(double newMix)
 }
 
 template <class FilterType, int NV>
+void FilterNodeBase<FilterType, NV>::setDrive(double newDrive)
+{
+	for (auto& f : filter)
+		f.setDrive(newDrive);
+}
+
+template <class FilterType, int NV>
 double FilterNodeBase<FilterType, NV>::getPlotValueStatic(void* obj, bool getMagnitude, double freqNorm)
 {
 	auto* typed = static_cast<FilterNodeBase*>(obj);
@@ -269,6 +282,7 @@ DEFINE_FILTER_NODE_TEMPIMPL(LinkwitzRiley);
 DEFINE_FILTER_NODE_TEMPIMPL(ZDFDiodeLadderSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(DJFilterSubType);
 DEFINE_FILTER_NODE_TEMPIMPL(ScreamBodySubType);
+DEFINE_FILTER_NODE_TEMPIMPL(ApexFilterSubType);
 
 #undef DEFINE_FILTER_NODE_TEMPIMPL
 
