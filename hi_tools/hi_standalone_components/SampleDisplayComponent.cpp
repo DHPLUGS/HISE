@@ -2563,7 +2563,7 @@ void MultiChannelAudioBufferDisplay::paintOverChildren(Graphics& g)
 	jassert(laf != nullptr);
 
 
-	static const String text = "Drop audio file or Right click to open browser";
+	static const String text = "DROP AUDIO FILE OR RIGHT-CLICK FOR BROWSER";
 
 	auto f = GLOBAL_BOLD_FONT();
 

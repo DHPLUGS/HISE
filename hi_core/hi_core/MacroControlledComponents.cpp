@@ -230,7 +230,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 		}
 		else
 		{
-			m.addItem(RemoveMacroControl, "Remove Macro control");
+			m.addItem(RemoveMacroControl, "REMOVE MACRO CONTROL");
 		}
 	}
 	else
