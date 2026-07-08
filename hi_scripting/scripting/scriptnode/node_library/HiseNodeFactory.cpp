@@ -907,6 +907,8 @@ Factory::Factory(DspNetwork* network) :
 	registerPolyModNode<dp<limiter>, dp<wrap::illegal_poly<limiter>>, data::ui::displaybuffer_editor>();
 	registerPolyModNode<dp<ott>, dp<wrap::illegal_poly<ott>>, ott_editor>();
 	registerPolyModNode<dp<updown_comp>, dp<wrap::illegal_poly<updown_comp>>, updown_editor>();
+	// same static curve as updown_comp, so the editor (which only draws the curve) is shared
+	registerPolyModNode<dp<halo>, dp<wrap::illegal_poly<halo>>, updown_editor>();
 	registerPolyModNode<dp<envelope_follower<1>>, dp<envelope_follower<NUM_POLYPHONIC_VOICES>>, data::ui::displaybuffer_editor >();
 	registerPolyModNode<dp<rms<1>>, dp<rms<NUM_POLYPHONIC_VOICES>>, data::ui::displaybuffer_editor >();
 }
