@@ -318,6 +318,11 @@ private:
 	LinearSmoothedValue<float> mixSmoother_invR;
 	LinearSmoothedValue<float> bitCrushSmoother;
 
+	LinearSmoothedValue<float> biasLeftSmoothed;
+	LinearSmoothedValue<float> biasRightSmoothed;
+
+	int startupCounter = 0;
+
 	AudioSampleBuffer dryBuffer;
 
 	float inPeakValueL = 0.0f;

@@ -193,8 +193,8 @@ void ShapeFX::setInternalAttribute(int parameterIndex, float newValue)
 {
 	switch (parameterIndex)
 	{
-	case BiasLeft: biasLeft = newValue; break;
-	case BiasRight: biasRight = newValue; break;
+	case BiasLeft: biasLeft = newValue; biasLeftSmoothed.setTargetValue(newValue); break;
+	case BiasRight: biasRight = newValue; biasRightSmoothed.setTargetValue(newValue); break;
 	case HighPass: highpass = jmax<float>(20.0f, newValue); updateFilter(false); break;
 	case LowPass: lowpass = jmax<float>(20.0f, newValue); updateFilter(true); break;
 	case Mode: mode = (ShapeMode)(int)newValue; updateMode(); break;
@@ -362,6 +362,31 @@ void ShapeFX::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 	lDcRemover.setCoefficients(dcCoeffs);
 	rDcRemover.setCoefficients(dcCoeffs);
+
+	// The bias is DC by design, so a step in it (moving the parameter or the first block after a
+	// host reinit) is an audible click. Start the smoothers at the current value - the startup
+	// fade below covers the stream start - and prewarm the DC removers so they don't have to
+	// ring in against the bias offset when the stream starts.
+	startupCounter = 0;
+
+	biasLeftSmoothed.reset(sampleRate, 0.05);
+	biasLeftSmoothed.setCurrentAndTargetValue(biasLeft);
+	biasRightSmoothed.reset(sampleRate, 0.05);
+	biasRightSmoothed.setCurrentAndTargetValue(biasRight);
+
+	if (biasLeft != 0.0f || biasRight != 0.0f)
+	{
+		static constexpr int NumWarmupSamples = 4096;
+
+		float warmupL[NumWarmupSamples];
+		float warmupR[NumWarmupSamples];
+
+		FloatVectorOperations::fill(warmupL, biasLeft, NumWarmupSamples);
+		FloatVectorOperations::fill(warmupR, biasRight, NumWarmupSamples);
+
+		lDcRemover.processSamples(warmupL, NumWarmupSamples);
+		rDcRemover.processSamples(warmupR, NumWarmupSamples);
+	}
 
 	limiter.setSampleRate(sampleRate);
 	limiter.setAttack(0.03);
@@ -599,8 +624,11 @@ void ShapeFX::applyEffect(AudioSampleBuffer &b, int startSample, int numSamples)
 	inPeakValueL = b.getMagnitude(0, startSample, numSamples) * autogainValue - biasLeft;
 	inPeakValueR = b.getMagnitude(1, startSample, numSamples) * autogainValue;
 
-	FloatVectorOperations::add(wetL, biasLeft, numSamples);
-	FloatVectorOperations::add(wetR, biasRight, numSamples);
+	for (int i = 0; i < numSamples; i++)
+	{
+		wetL[i] += biasLeftSmoothed.getNextValue();
+		wetR[i] += biasRightSmoothed.getNextValue();
+	}
 
 	if (limitInput)
 	{
@@ -645,7 +673,9 @@ void ShapeFX::applyEffect(AudioSampleBuffer &b, int startSample, int numSamples)
 		processBitcrushedValues(wetL, wetR, numSamples);
 	}
 
-	if (!bypassFilters)
+	// BypassFilters must not disable the DC removal: a non-zero bias (or an asymmetrical curve)
+	// creates a standing DC offset that would otherwise end up in the rendered audio.
+	if (!bypassFilters || biasLeft != 0.0f || biasRight != 0.0f || mode == AsymetricalCurve)
 	{
 		lDcRemover.processSamples(wetL, numSamples);
 		rDcRemover.processSamples(wetR, numSamples);
@@ -662,6 +692,21 @@ void ShapeFX::applyEffect(AudioSampleBuffer &b, int startSample, int numSamples)
 
 	FloatVectorOperations::add(wetL, dryL, numSamples);
 	FloatVectorOperations::add(wetR, dryR, numSamples);
+
+	// Fade in the first few blocks after a reinit - some hosts (FL Studio) call prepareToPlay
+	// right before every render and the output would otherwise start with a click.
+	if (startupCounter < 256)
+	{
+		for (int i = 0; i < numSamples; i++)
+		{
+			auto fade = jmin(1.0f, (float)startupCounter / 256.0f);
+
+			wetL[i] *= fade;
+			wetR[i] *= fade;
+
+			startupCounter++;
+		}
+	}
 }
 
 
