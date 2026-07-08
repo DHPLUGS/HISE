@@ -187,9 +187,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 			else
 			{
 				m.addItem(Learn, "Learn " + ccName, true, learningActive);
-				PopupMenu s;
-				addNumbersToMenu(s);
-				m.addSubMenu("Assign " + ccName, s, true);
+				// Assign CC submenu removed (Learn CC kept)
 			}
 		}
 	}
