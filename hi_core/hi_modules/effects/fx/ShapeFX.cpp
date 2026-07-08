@@ -206,7 +206,7 @@ void ShapeFX::setInternalAttribute(int parameterIndex, float newValue)
 			break;
 		}
 	case Gain: gain = Decibels::decibelsToGain(newValue); updateMode(); break;
-	case Reduce: reduce = newValue; break;
+	case Reduce: reduce = newValue; reduceSmoothed.setTargetValue(newValue); break;
 	case Autogain: autogain = newValue > 0.5f; updateMode(); break;
 	case LimitInput: limitInput = newValue > 0.5f; break;
 	case Drive: drive = newValue; break;
@@ -358,10 +358,16 @@ void ShapeFX::prepareToPlay(double sampleRate, int samplesPerBlock)
 	lDcRemover.reset();
 	rDcRemover.reset();
 
+	lDcRemover2.reset();
+	rDcRemover2.reset();
+
 	auto dcCoeffs = IIRCoefficients::makeHighPass(sampleRate, 30.0f);
 
 	lDcRemover.setCoefficients(dcCoeffs);
 	rDcRemover.setCoefficients(dcCoeffs);
+
+	lDcRemover2.setCoefficients(dcCoeffs);
+	rDcRemover2.setCoefficients(dcCoeffs);
 
 	// The bias is DC by design, so a step in it (moving the parameter or the first block after a
 	// host reinit) is an audible click. Start the smoothers at the current value - the startup
@@ -386,6 +392,9 @@ void ShapeFX::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 		lDcRemover.processSamples(warmupL, NumWarmupSamples);
 		rDcRemover.processSamples(warmupR, NumWarmupSamples);
+
+		lDcRemover2.processSamples(warmupL, NumWarmupSamples);
+		rDcRemover2.processSamples(warmupR, NumWarmupSamples);
 	}
 
 	limiter.setSampleRate(sampleRate);
@@ -428,16 +437,19 @@ const hise::ShapeFX::TableShaper * ShapeFX::getTableShaper() const
 
 void ShapeFX::processBitcrushedValues(float* l, float* r, int numSamples)
 {
-	if (reduce != 0.0f)
+	// Keep processing while the smoothed amount ramps towards zero - it converges against the
+	// (transparent) 16 bit quantisation, so the effect fades out without a step.
+	if (reduce != 0.0f || reduceSmoothed.isSmoothing())
 	{
-		const float invStepSize = pow(2.0f, 16.0f - reduce);
-		const float stepSize = 1.0f / invStepSize;
-
 		for (int i = 0; i < numSamples; i++)
 		{
 			const float gainValue = bitCrushSmoother.getNextValue();
 
-
+			// The step size has to follow the smoothed value per sample, otherwise the quantisation
+			// grid (and the half step offset below) jumps between blocks and thumps when the
+			// parameter is moved quickly.
+			const float invStepSize = pow(2.0f, 16.0f - reduceSmoothed.getNextValue());
+			const float stepSize = 1.0f / invStepSize;
 
 			l[i] = (stepSize * ceil(l[i] * gainValue * invStepSize) - 0.5f * stepSize) / gainValue;
 			r[i] = (stepSize * ceil(r[i] * gainValue * invStepSize) - 0.5f * stepSize) / gainValue;
@@ -548,7 +560,10 @@ void ShapeFX::updateOversampling()
 		oversampler.swapWith(newOverSampler);
 
 		if (getSampleRate() > 0.0)
+		{
 			bitCrushSmoother.reset(getSampleRate() * oversampleFactor, 0.04);
+			reduceSmoothed.reset(getSampleRate() * oversampleFactor, 0.05);
+		}
 	}
 }
 
@@ -673,12 +688,29 @@ void ShapeFX::applyEffect(AudioSampleBuffer &b, int startSample, int numSamples)
 		processBitcrushedValues(wetL, wetR, numSamples);
 	}
 
-	// BypassFilters must not disable the DC removal: a non-zero bias (or an asymmetrical curve)
-	// creates a standing DC offset that would otherwise end up in the rendered audio.
-	if (!bypassFilters || biasLeft != 0.0f || biasRight != 0.0f || mode == AsymetricalCurve)
+	// BypassFilters must not disable the DC removal: a non-zero bias, the bit reduction (its
+	// quantiser has a half step offset that shifts low level signals) or an asymmetrical curve
+	// create a standing DC offset that would otherwise end up in the rendered audio. The
+	// smoothers are checked too so the filters keep running (and stay converged) until a ramp
+	// towards zero has fully settled.
+	const bool producesDC = biasLeft != 0.0f || biasRight != 0.0f || reduce != 0.0f ||
+	                        mode == AsymetricalCurve ||
+	                        biasLeftSmoothed.isSmoothing() || biasRightSmoothed.isSmoothing() ||
+	                        reduceSmoothed.isSmoothing();
+
+	if (!bypassFilters || producesDC)
 	{
 		lDcRemover.processSamples(wetL, numSamples);
 		rDcRemover.processSamples(wetR, numSamples);
+	}
+
+	// A single 12dB/oct stage barely attenuates the subsonic rumble of a quickly moving bias
+	// or reduce parameter, so add a second stage whenever DC is actually being produced. Plain
+	// filter usage keeps the stock single stage response.
+	if (producesDC)
+	{
+		lDcRemover2.processSamples(wetL, numSamples);
+		rDcRemover2.processSamples(wetR, numSamples);
 	}
 
 	if (autogain)

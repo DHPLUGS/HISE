@@ -320,6 +320,7 @@ private:
 
 	LinearSmoothedValue<float> biasLeftSmoothed;
 	LinearSmoothedValue<float> biasRightSmoothed;
+	LinearSmoothedValue<float> reduceSmoothed;
 
 	int startupCounter = 0;
 
@@ -338,6 +339,9 @@ private:
 
 	IIRFilter lDcRemover;
 	IIRFilter rDcRemover;
+
+	IIRFilter lDcRemover2;
+	IIRFilter rDcRemover2;
 
 	bool limitInput;
 
