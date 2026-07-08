@@ -1459,6 +1459,12 @@ struct HiSlider::HoverPopup: public Component,
 				parentToUseRef->getLocalPoint(parent.getComponent(), Point<float>());
 
 			positionWatcher = new SliderPositionWatcher(*this);
+
+			// The watcher only fires on isShowing() transitions (it seeds its state from the current
+			// value), so a popup rebuilt while the slider's container is already hidden - the exclusive
+			// source broadcaster rebuilds every connected popup on selection - would stay visible from
+			// the addAndMakeVisible() above. Reconcile the initial state explicitly.
+			updateExclusiveVisibility();
 		}
 
 		rebuild();
