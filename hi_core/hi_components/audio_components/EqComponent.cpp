@@ -872,8 +872,9 @@ void FilterDragOverlay::fillPopupMenu(PopupMenu& m, int handleIndex)
 			m.addItem(1, "Delete all bands", true, false);
 
 
-		if(filterStats->getFFTBuffer() != nullptr && fftVisibility == SpectrumVisibility::Dynamic)
-			m.addItem(2, "Enable Spectrum Analyser", true, filterStats->getFFTBuffer()->isActive());
+		// EQ spectral analyser popup menu option removed (analyser itself kept)
+		//if(filterStats->getFFTBuffer() != nullptr && fftVisibility == SpectrumVisibility::Dynamic)
+		//	m.addItem(2, "Enable Spectrum Analyser", true, filterStats->getFFTBuffer()->isActive());
 
 		m.addItem(3, "Cancel");
 	}
@@ -924,8 +925,9 @@ void FilterDragOverlay::popupMenuAction(int result, int handleIndex)
 					filterStats->removeFilterBand(0);
 			}
 		}
-		else if (result == 2)
-			filterStats->toggleSpectrumAnalyser();
+		// EQ spectral analyser popup menu option removed (analyser itself kept)
+		//else if (result == 2)
+		//	filterStats->toggleSpectrumAnalyser();
 	}
 }
 
