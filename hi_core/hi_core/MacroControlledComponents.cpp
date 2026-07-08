@@ -1121,6 +1121,17 @@ void HiSlider::ModUpdater::timerCallback()
 				mv.accumulatedLiveValue = mv.scaledValue + mv.addValue;
 			}
 
+			// APEX: gate the continuous (mono) mod thumb like the poly voice-gated path — when no
+			// voice is alive, freeze the live modulated position to base while KEEPING the ring +
+			// draggers (range/modulationActive) visible, so synth and post-FX controls animate
+			// consistently (thumb moves only while a note plays).
+			if(p->getMainController()->getNumActiveVoices() == 0)
+			{
+				mv.scaledValue          = mv.normalisedValue;
+				mv.addValue             = 0.0;
+				mv.accumulatedLiveValue = mv.normalisedValue;
+			}
+
 			auto lastModValue = lastValue.lastModValue;
 			auto thisModValue = mv.getNormalisedModulationValue();
 
