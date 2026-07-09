@@ -488,25 +488,25 @@ void MoogLadderSubType::updateCoefficients(double sampleRate, double frequency, 
 	auto lFrequency = jmax(20.0, FilterLimits::limitFrequency(frequency));
 
 	// Bilinear pre-warped cutoff coefficient: g = tan(pi * fc / fs)
-	// Stage coefficient: G = g / (1 + g)  →  DC gain per stage = 1.0 (unity, inherent in bilinear)
+	// Stage coefficient: G = g / (1 + g)  ->  DC gain per stage = 1.0 (unity, inherent in bilinear)
 	const double g = std::tan(double_Pi * lFrequency / sampleRate);
 	G = g / (1.0 + g);
 
-	// Normalisation: unity DC gain is inherent in the bilinear formulation —
+	// Normalisation: unity DC gain is inherent in the bilinear formulation -
 	// H_lp(z=1) = G*2 / (2G) = 1.0 for every stage, so norm = 1.0 for all modes.
 	norm = 1.0;
 
-	// Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
-	//   Q = 0.3   → fb = 0.0  (no resonance)
-	//   Q ≈ 5.15  → fb ≈ 1.75 (moderate resonance, midpoint)
-	//   Q = 9.999 → fb = 3.5  (just below self-oscillation)
+	// Resonance: maps Q [0.3, 9.999] -> feedback fb [0.0, 3.5]
+	//   Q = 0.3   -> fb = 0.0  (no resonance)
+	//   Q ~ 5.15  -> fb ~ 1.75 (moderate resonance, midpoint)
+	//   Q = 9.999 -> fb = 3.5  (just below self-oscillation)
 	fb = jmin(3.8, jmax(0.0, (q - 0.3) * (3.8 / 9.699)));
 }
 
 FilterCoefficientData MoogLadderSubType::getCoefficients(double freqNorm, double q, double /*gain*/) const
 {
 	// getApproximateCoefficients() discards any FilterCoefficientData that lacks a
-	// customFunction — the switch(CoefficientType) fallback overrides it. The only
+	// customFunction - the switch(CoefficientType) fallback overrides it. The only
 	// way to return our own coefficients is through the custom-function early exit.
 	auto* m = const_cast<MoogLadderSubType*>(this);
 	if (storedSampleRate > 0.0)
@@ -532,7 +532,7 @@ double MoogLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	const double fb    = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
 
 	// Exact TPT one-pole LP transfer function evaluated at this frequency:
-	//   H_lp(z) = G*(1 + z^-1) / (1 - (1-2G)*z^-1),  z = e^(j2π·freqNorm)
+	//   H_lp(z) = G*(1 + z^-1) / (1 - (1-2G)*z^-1),  z = e^(j2pi*freqNorm)
 	const double omega = 2.0 * double_Pi * freqNorm;
 	const double a     = 1.0 - 2.0 * G;
 	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
@@ -540,8 +540,8 @@ double MoogLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	const std::complex<double> H2 = H * H;
 	const std::complex<double> H4 = H2 * H2;
 
-	// Global feedback denominator: D = 1 + fb·H^4
-	// (linearised analysis — tanh ≈ identity, standard practice for graph display)
+	// Global feedback denominator: D = 1 + fb*H^4
+	// (linearised analysis - tanh ~ identity, standard practice for graph display)
 	const std::complex<double> D = 1.0 + fb * H4;
 
 	// Numerator per mode:
@@ -585,7 +585,7 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			// Feedback with tanh nonlinearity on the feedback signal
 			const double u = input - fb_i * fastTanh(y4prev[c]);
 
-			// Cache tanh values — reused for both LP stage coefficients and HP outputs
+			// Cache tanh values - reused for both LP stage coefficients and HP outputs
 			const double tu  = fastTanh(u);
 			const double v0  = G_i * (tu  - s[0][c]);
 			const double y0  = v0 + s[0][c];
@@ -679,7 +679,7 @@ DEFINE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
 
 // ============================================================================
 // Korg35SubType
-// Korg 35 LP / HP filter — Simper TPT resolved topology.
+// Korg 35 LP / HP filter - Simper TPT resolved topology.
 //   LP: 2-pole lowpass with resonance
 //   HP: 1-pole highpass with resonance
 // Coefficients derived from:
@@ -798,8 +798,8 @@ double Korg35SubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm
 		B2v = -Gv * oneMinusG;
 	}
 
-	// H(z) = G*(1+z^-1)/(1-a*z^-1)   — single TPT one-pole LP transfer function
-	// P(z) = 2G*z^-1/(1-a*z^-1)       — state (memory register) transfer function
+	// H(z) = G*(1+z^-1)/(1-a*z^-1)   - single TPT one-pole LP transfer function
+	// P(z) = 2G*z^-1/(1-a*z^-1)       - state (memory register) transfer function
 	const double omega = 2.0 * double_Pi * freqNorm;
 	const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 	const std::complex<double> denom_pole = 1.0 - a * e_neg;
@@ -962,13 +962,13 @@ DEFINE_MULTI_CHANNEL_FILTER(Korg35SubType);
 // Signal flow per sample (derived from Faust letrec):
 //   hpf  = (x - s2 - FBs1*s1) * alpha0
 //   v1   = g*hpf + s1                       // pre-saturation integrator 1 sum
-//   bpf  = fastTanh(v1)                      // BPF — bounded soft saturation
+//   bpf  = fastTanh(v1)                      // BPF - bounded soft saturation
 //   lpf  = g*bpf + s2                        // LPF
 //   bsf  = lpf + hpf                         // BSF = LP + HP
 //   s1  := g*hpf + bpf                       // = 2*g*hpf + s1 in linear case
 //   s2  := s2 + 2*g*bpf
 //
-// Morph mode: Gain parameter sweeps LP → BP → HP continuously.
+// Morph mode: Gain parameter sweeps LP -> BP -> HP continuously.
 //   gain -18dB = pure LP, 0dB = pure BP, +18dB = pure HP
 // ============================================================================
 
@@ -1022,8 +1022,8 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     storedSampleRate = sampleRate;
     storedGain       = gain;
 
-    // Cap below Nyquist — limitFrequency tops at 20 kHz but sample rate can be lower,
-    // and tan(π/2) → ∞, so guard against fc/sr ≥ 0.5.
+    // Cap below Nyquist - limitFrequency tops at 20 kHz but sample rate can be lower,
+    // and tan(pi/2) -> inf, so guard against fc/sr >= 0.5.
     const double fc = jlimit(20.0, sampleRate * 0.499, FilterLimits::limitFrequency(frequency));
     g = std::tan(double_Pi * fc / sampleRate);
 
@@ -1031,7 +1031,7 @@ void OberheimSubType::updateCoefficients(double sampleRate, double frequency, do
     FBs1   = 2.0 * R + g;
     alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
 
-    // Morph: gain -18dB → morph=0.0 (pure LP), 0dB → 0.5 (pure BP), +18dB → 1.0 (pure HP)
+    // Morph: gain -18dB -> morph=0.0 (pure LP), 0dB -> 0.5 (pure BP), +18dB -> 1.0 (pure HP)
     const double gain_dB = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
     // Four-stage sweep: -18dB=LP, -6dB=BP, +6dB=HP, +18dB=BSF
     morph = jlimit(0.0, 1.0, (gain_dB + 18.0) / 36.0);
@@ -1290,7 +1290,7 @@ void WaspFilterSubType::updateCoefficients(double sampleRate, double frequency, 
     const double fc = jmax(20.0, FilterLimits::limitFrequency(frequency));
     g = std::tan(double_Pi * fc / sampleRate);
 
-    // Wasp has a tighter Q range than Oberheim — maps to slightly higher damping
+    // Wasp has a tighter Q range than Oberheim - maps to slightly higher damping
     R      = 1.0 / (2.0 * jmax(0.01, q));
     FBs1   = 2.0 * R + g;
     alpha0 = 1.0 / (1.0 + 2.0 * R * g + g * g);
@@ -1554,7 +1554,7 @@ void TB303FilterSubType::updateCoefficients(double sampleRate, double frequency,
     const double g  = std::tan(double_Pi * fc / sampleRate);
     G  = g / (1.0 + g);
 
-    // Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
+    // Resonance: maps Q [0.3, 9.999] -> feedback fb [0.0, 3.5]
     fb = jmin(3.5, jmax(0.0, (q - 0.3) * (4.5 / 9.699)));
 
     // More aggressive resonance reduction above 2kHz
@@ -1588,7 +1588,7 @@ double TB303FilterSubType::getPlotValue(void* obj, bool getMagnitude, double fre
     const double g_hp_v = std::tan(double_Pi * 35.0 / sr);
     const double G_hp_v = g_hp_v / (1.0 + g_hp_v);
 
-    // z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
+    // z-domain evaluation at z = e^{jomega}, omega = 2pi*freqNorm
     const double omega = 2.0 * double_Pi * freqNorm;
     const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
@@ -1642,22 +1642,22 @@ void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
             // Four-pole diode ladder with feedback
             const double u = compensated - fb_i * fastTanh(y4prev[c]);
 
-            // Stage 0 — even, drive 1.1
+            // Stage 0 - even, drive 1.1
             const double v0 = G_i * (fastTanh(u  * 1.1) - s[0][c]);
             const double y0 = v0 + s[0][c];
             s[0][c] = y0 + v0;
 
-            // Stage 1 — odd, drive 0.9
+            // Stage 1 - odd, drive 0.9
             const double v1 = G_i * (fastTanh(y0 * 0.9) - s[1][c]);
             const double y1 = v1 + s[1][c];
             s[1][c] = y1 + v1;
 
-            // Stage 2 — even, drive 1.1
+            // Stage 2 - even, drive 1.1
             const double v2 = G_i * (fastTanh(y1 * 1.1) - s[2][c]);
             const double y2 = v2 + s[2][c];
             s[2][c] = y2 + v2;
 
-            // Stage 3 — odd, drive 0.9
+            // Stage 3 - odd, drive 0.9
             const double v3 = G_i * (fastTanh(y2 * 0.9) - s[3][c]);
             const double y3 = v3 + s[3][c];
             s[3][c] = y3 + v3;
@@ -1702,22 +1702,22 @@ void TB303FilterSubType::processFrame(float* frameData, int numChannels)
         // Four-pole diode ladder with feedback
         const double u = compensated - fb * fastTanh(y4prev[c]);
 
-        // Stage 0 — even, drive 1.1
+        // Stage 0 - even, drive 1.1
         const double v0 = G * (fastTanh(u  * 1.1) - s[0][c]);
         const double y0 = v0 + s[0][c];
         s[0][c] = y0 + v0;
 
-        // Stage 1 — odd, drive 0.9
+        // Stage 1 - odd, drive 0.9
         const double v1 = G * (fastTanh(y0 * 0.9) - s[1][c]);
         const double y1 = v1 + s[1][c];
         s[1][c] = y1 + v1;
 
-        // Stage 2 — even, drive 1.1
+        // Stage 2 - even, drive 1.1
         const double v2 = G * (fastTanh(y1 * 1.1) - s[2][c]);
         const double y2 = v2 + s[2][c];
         s[2][c] = y2 + v2;
 
-        // Stage 3 — odd, drive 0.9
+        // Stage 3 - odd, drive 0.9
         const double v3 = G * (fastTanh(y2 * 0.9) - s[3][c]);
         const double y3 = v3 + s[3][c];
         s[3][c] = y3 + v3;
@@ -1744,7 +1744,7 @@ DEFINE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
 // Doepfer A-102 / EMS VCS3 style diode ladder filter.
 //   Signal flow per sample:
 //     u  = input - fb * diodeSat(y4prev)          // feedback
-//     Stages 0–3: TPT one-pole LP with diodeSat nonlinearity
+//     Stages 0-3: TPT one-pole LP with diodeSat nonlinearity
 //     Output modes via binomial complement of the LP taps:
 //       LP: y3
 //       HP: tu - 4*y0 + 6*y1 - 4*y2 + y3
@@ -1801,7 +1801,7 @@ void DiodeLadderSubType::updateCoefficients(double sampleRate, double frequency,
     const double g  = std::tan(double_Pi * fc / sampleRate);
     G  = g / (1.0 + g);
 
-    // Resonance: maps Q [0.3, 9.999] → feedback fb [0.0, 3.5]
+    // Resonance: maps Q [0.3, 9.999] -> feedback fb [0.0, 3.5]
     fb = jmin(3.5, jmax(0.0, (q - 0.3) * (4.5 / 9.699)));
 
     // More aggressive resonance reduction above 2kHz
@@ -1834,8 +1834,8 @@ double DiodeLadderSubType::getPlotValue(void* obj, bool getMagnitude, double fre
     const double G_v  = g_v / (1.0 + g_v);
     const double fb_v = jmin(3.9, jmax(0.0, ((double)typed->storedQ - 0.3) * (3.8 / 9.699)));
 
-    // z-domain evaluation at z = e^{jω}, ω = 2π·freqNorm
-    // (linear approximation: diodeSat ≈ identity for small signals)
+    // z-domain evaluation at z = e^{jomega}, omega = 2pi*freqNorm
+    // (linear approximation: diodeSat ~ identity for small signals)
     const double omega = 2.0 * double_Pi * freqNorm;
     const std::complex<double> e_neg(std::cos(omega), -std::sin(omega));
 
@@ -1876,7 +1876,7 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
         for (int i = 0; i < numSamples; i++)
         {
             // Block-size-independent one-pole glide of the coefficients (G and fb are independent
-            // and each already in a stable range, so they smooth directly — no recompute needed).
+            // and each already in a stable range, so they smooth directly - no recompute needed).
             pw *= coeffSmooth;
             const double G_i  = G_t  + (G0  - G_t)  * pw;
             const double fb_i = fb_t + (fb0 - fb_t) * pw;
@@ -1886,7 +1886,7 @@ void DiodeLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
 
             const double u = input - fb_i * diodeSat(y4prev[c]);
 
-            // Cache diodeSat values — reused for HP/BP output modes
+            // Cache diodeSat values - reused for HP/BP output modes
             const double tu  = diodeSat(u);
             const double v0  = G_i * (tu  - s[0][c]);
             const double y0  = v0 + s[0][c];
@@ -2031,16 +2031,16 @@ DEFINE_MULTI_CHANNEL_FILTER(DiodeLadderSubType);
 // Signal flow per sample:
 //   1. Read integer-delay sample from circular buffer.
 //   2. Apply first-order all-pass interpolation for fractional delay:
-//        ap_out = η*(delayed_raw - y[n-1]) + x[n-1]
-//        η = (1-d)/(1+d),  d = fractional part of delay
+//        ap_out = eta*(delayed_raw - y[n-1]) + x[n-1]
+//        eta = (1-d)/(1+d),  d = fractional part of delay
 //   3. Feed ap_out through a one-pole lowpass (damping):
-//        fb_lp_s += α*(ap_out - fb_lp_s),  α = fb_lp_coeff
+//        fb_lp_s += alpha*(ap_out - fb_lp_s),  alpha = fb_lp_coeff
 //   4. Mix back: output = input + effective_fb * fb_lp_s
 //   5. Write output to circular buffer, advance write head.
 //
 // Gain parameter arrives as linear amplitude from the framework
-// (FilterNodeBase::setGain converts dB→linear before passing through).
-// Converted back to dB here to give a symmetric ±18 dB → ±0.99 fb_gain.
+// (FilterNodeBase::setGain converts dB->linear before passing through).
+// Converted back to dB here to give a symmetric +-18 dB -> +-0.99 fb_gain.
 // ============================================================================
 
 CombFilterSubType::CombFilterSubType()
@@ -2098,34 +2098,34 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 	storedQ          = (float)q;
 
 	// All modes use the same parameter mapping:
-	//   Q   → feedback depth (fb_gain 0–0.95)
-	//   Gain → bidirectional LP/HP in the feedback/feedforward path
+	//   Q   -> feedback depth (fb_gain 0-0.95)
+	//   Gain -> bidirectional LP/HP in the feedback/feedforward path
 	const double gain_dB = Decibels::gainToDecibels(jmax(gain, 1.0e-6));
 
-	// Q → feedback depth: q=0.3 → 0%, q=9.9 → 95%
+	// Q -> feedback depth: q=0.3 -> 0%, q=9.9 -> 95%
 	fb_gain = jlimit(0.0, 0.95, 0.95 * (q - 0.3) / 9.6);
 
-	// Gain → bidirectional feedback filter:
-	//   gain_dB < 0: LP, cutoff log-sweeps 200 Hz (−18 dB) → 20 kHz (0 dB)
-	//   gain_dB > 0: HP, cutoff log-sweeps  20 Hz ( 0 dB) → 10 kHz (+18 dB)
-	//   gain_dB ≈ 0: passthrough (lp_coeff = 0 → one-pole update becomes identity)
+	// Gain -> bidirectional feedback filter:
+	//   gain_dB < 0: LP, cutoff log-sweeps 200 Hz (-18 dB) -> 20 kHz (0 dB)
+	//   gain_dB > 0: HP, cutoff log-sweeps  20 Hz ( 0 dB) -> 10 kHz (+18 dB)
+	//   gain_dB ~ 0: passthrough (lp_coeff = 0 -> one-pole update becomes identity)
 	if (gain_dB < -0.1)
 	{
-		const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);  // 0 at −18 dB, 1 at 0 dB
-		const double lp_cutoff = 200.0 * std::pow(100.0, t);           // log-sweep 200 → 20000 Hz
+		const double t = jlimit(0.0, 1.0, (gain_dB + 18.0) / 18.0);  // 0 at -18 dB, 1 at 0 dB
+		const double lp_cutoff = 200.0 * std::pow(100.0, t);           // log-sweep 200 -> 20000 Hz
 		lp_coeff = (float)std::exp(-2.0 * double_Pi * lp_cutoff / sampleRate);
 		fb_is_hp = false;
 	}
 	else if (gain_dB > 0.1)
 	{
 		const double t = jlimit(0.0, 1.0, gain_dB / 18.0);             // 0 at 0 dB, 1 at +18 dB
-		const double hp_cutoff = 20.0 * std::pow(500.0, t);             // log-sweep 20 → 10000 Hz
+		const double hp_cutoff = 20.0 * std::pow(500.0, t);             // log-sweep 20 -> 10000 Hz
 		lp_coeff = (float)std::exp(-2.0 * double_Pi * hp_cutoff / sampleRate);
 		fb_is_hp = true;
 	}
 	else
 	{
-		// Passthrough: lp_coeff = 0 → lp_s[c] = ap_out each sample → identity
+		// Passthrough: lp_coeff = 0 -> lp_s[c] = ap_out each sample -> identity
 		lp_coeff = 0.0f;
 		fb_is_hp = false;
 	}
@@ -2135,9 +2135,9 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 
 	if (isFlanger)
 	{
-		// Map frequency 20–20000 Hz to flanger delay range, inverted:
-		//   low  freq → long  delay (~20 ms, slow whoosh)
-		//   high freq → short delay (~0.1 ms, high-pitched shimmer)
+		// Map frequency 20-20000 Hz to flanger delay range, inverted:
+		//   low  freq -> long  delay (~20 ms, slow whoosh)
+		//   high freq -> short delay (~0.1 ms, high-pitched shimmer)
 		const double fc = jlimit(20.0, 20000.0, frequency);
 		storedFrequency = fc;
 		const double t  = (fc - 20.0) / (20000.0 - 20.0);
@@ -2153,7 +2153,7 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 
 	delayLengthInt = jlimit(1, maxDelayLine - 1, (int)std::floor(delayLength));
 
-	// All-pass fractional interpolation coefficient: η = (1-d)/(1+d)
+	// All-pass fractional interpolation coefficient: eta = (1-d)/(1+d)
 	const double delayFrac = delayLength - (double)delayLengthInt;
 	ap_coeff = (1.0 - delayFrac) / (1.0 + delayFrac);
 
@@ -2187,7 +2187,7 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 
 	// Helper: evaluate the one-pole feedback filter magnitude at the current omega.
 	// Used by isCombFB and isFeedforward branches (both use lp_coeff / fb_is_hp).
-	// Returns 1.0 for passthrough (lp_coeff < ε).
+	// Returns 1.0 for passthrough (lp_coeff < eps).
 	const auto filterMag = [&]() -> double
 	{
 		const double c = (double)typed->lp_coeff;
@@ -2200,9 +2200,9 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 
 	if (isCombFB)
 	{
-		// fb_gain is Q-controlled (always ≥ 0); isInv flips sign for display.
-		// Effective feedback at ω: fb_eff = fb_signed × |H_filter(ω)|
-		// Comb magnitude:   |H|² = 1 / (1 + fb_eff² − 2·fb_eff·cos(ωD))
+		// fb_gain is Q-controlled (always >= 0); isInv flips sign for display.
+		// Effective feedback at omega: fb_eff = fb_signed * |H_filter(omega)|
+		// Comb magnitude:   |H|^2 = 1 / (1 + fb_eff^2 - 2*fb_eff*cos(omegaD))
 		// Normalised so resonance peak = 1.
 		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
 		const double fb_signed = isInv ? -fb_raw : fb_raw;
@@ -2216,9 +2216,9 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 
 	if (isFeedforward)
 	{
-		// fb_gain is Q-controlled (always ≥ 0); isInv flips sign for display.
-		// Effective feedforward gain at ω: fb_eff = fb_signed × |H_filter(ω)|
-		// Feedforward magnitude: |H|² = 1 + fb_eff² + 2·fb_eff·cos(ωD)
+		// fb_gain is Q-controlled (always >= 0); isInv flips sign for display.
+		// Effective feedforward gain at omega: fb_eff = fb_signed * |H_filter(omega)|
+		// Feedforward magnitude: |H|^2 = 1 + fb_eff^2 + 2*fb_eff*cos(omegaD)
 		// Normalised by (1 + fb_raw) so peak = 1 when filter is flat.
 		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
 		const double fb_signed = isInv ? -fb_raw : fb_raw;
@@ -2229,7 +2229,7 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 		return jlimit(0.0, 1.0, mag / (1.0 + fb_raw + 1.0e-12));
 	}
 
-	// FlangerFB / FlangerFBInv: Q → feedback depth, Gain → LP/HP in write path.
+	// FlangerFB / FlangerFBInv: Q -> feedback depth, Gain -> LP/HP in write path.
 	// Same parameter mapping as Comb/Feedforward modes.
 	{
 		const double fb_raw    = jlimit(0.0, 0.90, typed->fb_gain);
@@ -2270,7 +2270,7 @@ void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			const int readPos = (writePos[c] - delayLengthInt + maxDelayLine) % maxDelayLine;
 			const double delayed_raw = dl[readPos];
 
-			// All-pass fractional interpolation: y[n] = η*(x[n]-y[n-1]) + x[n-1]
+			// All-pass fractional interpolation: y[n] = eta*(x[n]-y[n-1]) + x[n-1]
 			const double ap_out = ap_coeff * (delayed_raw - ap_s[c]) + ap_s_prev[c];
 			ap_s_prev[c] = delayed_raw;
 			ap_s[c]      = ap_out;
@@ -2474,7 +2474,7 @@ void FormantFilterSubType::updateCoefficients(double sampleRate, double frequenc
 	const int voiceIndex = (int)mode;
 
 	// Vowel position: log scale so the perceptual vowel spread feels even
-	// freq=20 Hz → u (0.0),  freq=20000 Hz → i (1.0)
+	// freq=20 Hz -> u (0.0),  freq=20000 Hz -> i (1.0)
 	const double vowelPos  = jlimit(0.0, 1.0,
 		std::log(jmax(frequency, 20.0) / 20.0) / std::log(20000.0 / 20.0));
 	const double vowelIdxD = vowelPos * 4.0;
@@ -2482,10 +2482,10 @@ void FormantFilterSubType::updateCoefficients(double sampleRate, double frequenc
 	const int    v1        = v0 + 1;
 	const double blend     = vowelIdxD - (double)v0;
 
-	// Color (Q): bandwidth scale 1x–3x — higher Q = narrower formants
+	// Color (Q): bandwidth scale 1x-3x - higher Q = narrower formants
 	const double bandwidthScale = 1.0 + (q - 0.3) / 9.6 * 2.0;
 
-	// Shift (Gain): gain arrives as linear amplitude → convert to dB
+	// Shift (Gain): gain arrives as linear amplitude -> convert to dB
 	const double gainDB    = jlimit(-100.0, 100.0,
 		(double)Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f)));
 	const double freqScale = std::pow(2.0, gainDB / 18.0);
@@ -2556,9 +2556,9 @@ double FormantFilterSubType::getPlotValue(void* obj, bool getMagnitude, double f
 		(double)Decibels::gainToDecibels(jmax((float)typed->storedGain, 1.0e-6f)));
 	const double freqScale = std::pow(2.0, gainDB / 18.0);
 
-	// freqNorm = inputFrequency / sampleRate (linear digital frequency, range 0–0.5).
-	// The FilterGraph already converts log-scale x → Hz → normFreq before calling us,
-	// so we evaluate the TF at the digital frequency omega = 2π·freqNorm directly —
+	// freqNorm = inputFrequency / sampleRate (linear digital frequency, range 0-0.5).
+	// The FilterGraph already converts log-scale x -> Hz -> normFreq before calling us,
+	// so we evaluate the TF at the digital frequency omega = 2pi*freqNorm directly -
 	// the same convention used by MoogLadder, DiodeLadder, CombFilter, etc.
 	const double w      = 2.0 * double_Pi * freqNorm;
 	const double cos_w  = std::cos(w);
@@ -2589,9 +2589,9 @@ double FormantFilterSubType::getPlotValue(void* obj, bool getMagnitude, double f
 		const double a1_d   = -2.0 * std::cos(omega) * inv_n;
 		const double a2_d   = (1.0 - alpha) * inv_n;
 
-		// |H(e^jw)|² with b1=0:
-		// num = b0²+b2²+2*b0*b2*cos(2w)
-		// den = 1+a1²+a2²+2*a1*(1+a2)*cos(w)+2*a2*cos(2w)
+		// |H(e^jw)|^2 with b1=0:
+		// num = b0^2+b2^2+2*b0*b2*cos(2w)
+		// den = 1+a1^2+a2^2+2*a1*(1+a2)*cos(w)+2*a2*cos(2w)
 		const double num = b0_d*b0_d + b2_d*b2_d + 2.0*b0_d*b2_d*cos_2w;
 		const double den = 1.0 + a1_d*a1_d + a2_d*a2_d
 		                 + 2.0*a1_d*(1.0 + a2_d)*cos_w
@@ -2709,7 +2709,7 @@ void DisperserFilterSubType::reset(int /*numChannels*/)
 	memset(innerZ, 0, sizeof(innerZ));
 }
 
-// Base delay times (ms) for diffuser stages — mutually-prime-like ratios
+// Base delay times (ms) for diffuser stages - mutually-prime-like ratios
 static const double kDiffuserBaseDelaysMs[8] = {
 	0.97, 1.51, 2.33, 3.19, 4.33, 5.87, 7.61, 10.13
 };
@@ -2740,7 +2740,7 @@ void DisperserFilterSubType::updateCoefficients(double sampleRate, double freque
 	{
 		// Diffuser / Dense mode
 
-		// Frequency → size (inverse: low freq = long delays)
+		// Frequency -> size (inverse: low freq = long delays)
 		const double fc = jlimit(20.0, 20000.0, frequency);
 		const double logPos = std::log(fc / 20.0) / std::log(1000.0);
 		const double scaleMs = 1.0 * std::pow(0.02, logPos);
@@ -2752,10 +2752,10 @@ void DisperserFilterSubType::updateCoefficients(double sampleRate, double freque
 				(int)(delayMs * sampleRate / 1000.0));
 		}
 
-		// Q → feedback coefficient (0.3 → 0.3, 9.9 → 0.75)
+		// Q -> feedback coefficient (0.3 -> 0.3, 9.9 -> 0.75)
 		diffFeedback = jmap(jlimit(0.3, 9.9, q), 0.3, 9.9, 0.3, 0.75);
 
-		// Gain → number of active stages (1–8)
+		// Gain -> number of active stages (1-8)
 		numDiffuserStages = 1 + (int)((gainDB + 18.0) / 36.0 * 7.0);
 		numDiffuserStages = jlimit(1, MAX_DIFFUSER_STAGES, numDiffuserStages);
 
@@ -3346,7 +3346,7 @@ void DJFilterSubType::updateCoefficients(double sampleRate, double frequency, do
 
 	if (t < 0.45)
 	{
-		// LP mode: cutoff sweeps from 200 Hz (t=0) → 20 kHz (t=0.45)
+		// LP mode: cutoff sweeps from 200 Hz (t=0) -> 20 kHz (t=0.45)
 		const double norm = t / 0.45;
 		const double cutoff = jlimit(20.0, 20000.0, 200.0 * std::pow(100.0, norm));
 		const double w0 = 2.0 * double_Pi * cutoff / sampleRate;
@@ -3362,7 +3362,7 @@ void DJFilterSubType::updateCoefficients(double sampleRate, double frequency, do
 	}
 	else if (t > 0.55)
 	{
-		// HP mode: cutoff sweeps from 20 Hz (t=0.55) → 10 kHz (t=1.0)
+		// HP mode: cutoff sweeps from 20 Hz (t=0.55) -> 10 kHz (t=1.0)
 		const double norm = (t - 0.55) / 0.45;
 		const double cutoff = jlimit(20.0, 20000.0, 20.0 * std::pow(500.0, norm));
 		const double w0 = 2.0 * double_Pi * cutoff / sampleRate;
@@ -3656,34 +3656,34 @@ DEFINE_MULTI_CHANNEL_FILTER(SimpleOnePoleSubType);
 
 hise::FilterHelpers::FilterSubType RingmodFilterSubType::getFilterType()
 {
-    return FilterHelpers::FilterSubType::RingmodFilterSubType;
+	return FilterHelpers::FilterSubType::RingmodFilterSubType;
 }
 
 juce::Identifier RingmodFilterSubType::getStaticId()
 {
-    RETURN_STATIC_IDENTIFIER("ring_mod");
+	RETURN_STATIC_IDENTIFIER("ring_mod");
 }
 
 juce::StringArray RingmodFilterSubType::getModes() const
 {
-    return { "RingMod" };
+	return { "RingMod" };
 }
 
 Array<hise::FilterHelpers::CoefficientType> RingmodFilterSubType::getCoefficientTypeList() const
 {
-    return { FilterHelpers::AllPass };
+	return { FilterHelpers::AllPass };
 }
 
 void RingmodFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
 {
-    uptimeDelta = frequency / sampleRate * 2.0 * double_Pi;
-    oscGain = jmap<float>((float)q, 0.3f, 9.9f, 0.0f, 1.0f);
-    oscGain = jlimit<float>(0.0f, 1.0f, oscGain);
+	uptimeDelta = frequency / sampleRate * 2.0 * double_Pi;
+	oscGain = jmap<float>((float)q, 0.3f, 9.9f, 0.0f, 1.0f);
+	oscGain = jlimit<float>(0.0f, 1.0f, oscGain);
 }
 
 void RingmodFilterSubType::reset(int /*numChannels*/)
 {
-    uptime = 0.0;
+	uptime = 0.0;
 }
 
 void RingmodFilterSubType::setType(int /*t*/)
@@ -3693,36 +3693,36 @@ void RingmodFilterSubType::setType(int /*t*/)
 
 void RingmodFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
-    const float invGain = 1.0f - oscGain;
+	const float invGain = 1.0f - oscGain;
 
-    int numChannels = buffer.getNumChannels();
+	int numChannels = buffer.getNumChannels();
 
-    for (int i = 0; i < numSamples; i++)
-    {
-        const float oscValue = oscGain * (float)std::sin(uptime);;
+	for (int i = 0; i < numSamples; i++)
+	{
+		const float oscValue = oscGain * (float)std::sin(uptime);;
 
-        for (int c = 0; c < numChannels; c++)
-        {
-            const float input = buffer.getSample(c, i + startSample);
-            buffer.setSample(c, i + startSample, invGain * input + input * oscValue);
-        }
+		for (int c = 0; c < numChannels; c++)
+		{
+			const float input = buffer.getSample(c, i + startSample);
+			buffer.setSample(c, i + startSample, invGain * input + input * oscValue);
+		}
 
-        uptime += uptimeDelta;
-    }
+		uptime += uptimeDelta;
+	}
 }
 
 void RingmodFilterSubType::processFrame(float* d, int numChannels)
 {
-    const float invGain = 1.0f - oscGain;
-    const float oscValue = oscGain * (float)std::sin(uptime);;
+	const float invGain = 1.0f - oscGain;
+	const float oscValue = oscGain * (float)std::sin(uptime);;
 
-    for (int c = 0; c < numChannels; c++)
-    {
-        const float input = d[c];
-        d[c] = invGain * input + input * oscValue;
-    }
+	for (int c = 0; c < numChannels; c++)
+	{
+		const float input = d[c];
+		d[c] = invGain * input + input * oscValue;
+	}
 
-    uptime += uptimeDelta;
+	uptime += uptimeDelta;
 }
 
 DEFINE_MULTI_CHANNEL_FILTER(RingmodFilterSubType);
@@ -3835,7 +3835,7 @@ void PhaseAllpassSubType::processSamples(AudioSampleBuffer& b, int startSample, 
 			float* d = b.getWritePointer(c, i + startSample);
 			*d = filters[c].getNextSample(*d);
 
-			// Post-allpass LPHP filter with continuous LP↔HP crossfade
+			// Post-allpass LPHP filter with continuous LP<->HP crossfade
 			lp_s[c] = (1.0f - lp_coeff) * (*d) + lp_coeff * lp_s[c];
 			const float amount = std::abs(lp_hp_mix);
 			const float wet = (lp_hp_mix < 0.0f) ? lp_s[c] : (*d - lp_s[c]);
@@ -3849,7 +3849,7 @@ void PhaseAllpassSubType::processFrame(float* d, int numChannels)
 	{
 		d[c] = filters[c].getNextSample(d[c]);
 
-		// Post-allpass LPHP filter with continuous LP↔HP crossfade
+		// Post-allpass LPHP filter with continuous LP<->HP crossfade
 		lp_s[c] = (1.0f - lp_coeff) * d[c] + lp_coeff * lp_s[c];
 		const float amount = std::abs(lp_hp_mix);
 		const float wet = (lp_hp_mix < 0.0f) ? lp_s[c] : (d[c] - lp_s[c]);
@@ -4284,7 +4284,7 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
 		    type == LP48 || type == HP48)
 		{
 			// Proportional Butterworth scaling: all stage k values scale together.
-			// sf = raw user Q param; neutral at 1.0 → pure Butterworth on every stage.
+			// sf = raw user Q param; neutral at 1.0 -> pure Butterworth on every stage.
 			static constexpr float kBw1_24 = 1.0f / 0.5412f;
 			static constexpr float kBw1_36 = 1.0f / 0.5176f;
 			static constexpr float kBw1_48 = 1.0f / 0.5098f;
@@ -4317,7 +4317,7 @@ void StateVariableFilterSubType::updateCoefficients(double sampleRate, double fr
 
 			if (type == BP24 || type == NOTCH24)
 			{
-				// Both stages use user Q — copy stage-1 coefficients
+				// Both stages use user Q - copy stage-1 coefficients
 				g1_s[0] = g1; g2_s[0] = g2; g3_s[0] = g3; g4_s[0] = g4; k_s[0] = k;
 			}
 		}
@@ -5667,14 +5667,14 @@ DEFINE_MULTI_CHANNEL_FILTER(StateVariableEqSubType);
 
 // ============================================================================
 // ScreamBodySubType implementation
-//   tanh drive → bank of TPT-SVF band-pass resonators summed on top of the dry
+//   tanh drive -> bank of TPT-SVF band-pass resonators summed on top of the dry
 //   (driven) signal, with an internal envelope follower modulating the resonant
 //   frequencies (Auto). Resonators are linear/zero-delay-feedback so they are
 //   unconditionally stable; drive sits outside the feedback path. Non-finite
 //   guards keep one bad sample from latching the state (see the OB/Diode fix).
 // ============================================================================
 
-// [bodyType][resonator][0=freqHz, 1=Q, 2=boostDb] — hand-voiced for aggression
+// [bodyType][resonator][0=freqHz, 1=Q, 2=boostDb] - hand-voiced for aggression
 const double ScreamBodySubType::bodyData[ScreamBodySubType::numModes][ScreamBodySubType::NUM_RES][3] =
 {
 	{ {  800.0, 4.0,  9.0 }, { 1900.0, 5.0, 11.0 }, { 3000.0, 4.0,  7.0 } },  // A small box / megaphone
@@ -5728,15 +5728,15 @@ void ScreamBodySubType::updateCoefficients(double sampleRate, double frequency, 
 	storedQ          = q;
 	storedGain       = gain;
 
-	// Freq → Scale (body size): 1 kHz = neutral, lower = bigger body, higher = smaller.
+	// Freq -> Scale (body size): 1 kHz = neutral, lower = bigger body, higher = smaller.
 	const double scale = jlimit(0.25, 4.0, frequency / 1000.0);
 
-	// Q → Reso: scales resonator Q and boost depth together.
+	// Q -> Reso: scales resonator Q and boost depth together.
 	const double resoNorm = jlimit(0.0, 1.0, (q - 0.3) / 9.6);
 	const double Qmult    = 0.6 + resoNorm * 2.4;   // 0.6 .. 3.0
 	const double gMult    = 0.5 + resoNorm * 1.5;   // 0.5 .. 2.0
 
-	// Gain → Drive (arrives as linear amplitude, like the formant filter).
+	// Gain -> Drive (arrives as linear amplitude, like the formant filter).
 	driveGain = jlimit(0.1, 8.0, gain);
 
 	double gkSum = 0.0;
@@ -5771,7 +5771,7 @@ double ScreamBodySubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	auto* typed = static_cast<ScreamBodySubType*>(obj);
 	const double sr = typed->storedSampleRate;
 
-	// Peaking response: dry (unity) + Σ gk · BP_k, evaluated with the live coeffs.
+	// Peaking response: dry (unity) + sum gk * BP_k, evaluated with the live coeffs.
 	const double w = 2.0 * double_Pi * jmax(1.0, freqNorm * sr);   // query angular freq (Hz domain)
 
 	std::complex<double> response(1.0, 0.0);
@@ -5792,7 +5792,7 @@ void ScreamBodySubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 	const double sr = storedSampleRate;
 	const int numChannels = buffer.getNumChannels();
 
-	// SR-correct envelope-follower coefficients (≈2 ms attack, ≈25 ms release).
+	// SR-correct envelope-follower coefficients (~2 ms attack, ~25 ms release).
 	const double envAtk = 1.0 - std::exp(-1.0 / (sr * 0.002));
 	const double envRel = 1.0 - std::exp(-1.0 / (sr * 0.025));
 
@@ -5807,7 +5807,7 @@ void ScreamBodySubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 
 			const double driven = sat(x * driveGain);
 
-			// Auto: envelope follower on the driven signal → 0..1 soft.
+			// Auto: envelope follower on the driven signal -> 0..1 soft.
 			const double a = std::fabs(driven);
 			env[c] += (a - env[c]) * (a > env[c] ? envAtk : envRel);
 			const double envN = env[c] / (1.0 + env[c]);
@@ -5890,11 +5890,11 @@ DEFINE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 
 // ============================================================================
 // ApexFilterSubType implementation
-//   Cytomic (TPT) SVF core — identical math to svf_eq — with svf's mode ordering
+//   Cytomic (TPT) SVF core - identical math to svf_eq - with svf's mode ordering
 //   and a Serum-style pre-filter Drive that pushes the signal into the (linear)
 //   filter, so it adds harmonics while preserving resonance. Reuses the file-
 //   static Cytomic helpers (evalCytomicStage, getEqSectionQ). Drive = 0 is
-//   bit-transparent (preDrive → identity, makeup = 1).
+//   bit-transparent (preDrive -> identity, makeup = 1).
 // ============================================================================
 
 static const double apexQ24[2] = { 0.5412, 1.3066 };
@@ -5992,7 +5992,7 @@ void ApexFilterSubType::setDrive(double newDrive)
 {
 	drive = jlimit(0.0, 1.0, newDrive);
 	driveCoeff = drive * 5.0;                // pre-drive gain g          (tunable)
-	driveBias  = drive * 0.25;               // asymmetry → low-end weight (tunable)
+	driveBias  = drive * 0.25;               // asymmetry -> low-end weight (tunable)
 	outComp    = 1.0 / (1.0 + 0.8 * drive);  // partial makeup: drive adds some weight
 }
 
@@ -6123,7 +6123,7 @@ double ApexFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	const double g0 = std::tan(double_Pi * jlimit(20.0, sr * 0.499, t->storedFrequency) / sr);
 	const double q  = t->storedQ;
 
-	// Drive doesn't alter the linear magnitude curve — the plot shows filter shape.
+	// Drive doesn't alter the linear magnitude curve - the plot shows filter shape.
 	std::complex<double> h(1.0, 0.0);
 
 	if (t->type == Morph)

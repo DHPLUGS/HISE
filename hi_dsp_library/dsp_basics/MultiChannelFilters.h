@@ -815,10 +815,10 @@ private:
 
 	static inline double fastTanh(double x)
 	{
-		// Padé approximant of tanh. The raw form is NOT bounded — it grows ~x/9 for
+		// Pade approximant of tanh. The raw form is NOT bounded - it grows ~x/9 for
 		// large |x|, so it cannot limit the loop gain of a leak-free resonant filter
-		// (output runs away → volume spike → Inf). Clamp the argument to its monotonic,
-		// bounded region: at |x|=3 the value is exactly ±1.0, so the result is bounded
+		// (output runs away -> volume spike -> Inf). Clamp the argument to its monotonic,
+		// bounded region: at |x|=3 the value is exactly +-1.0, so the result is bounded
 		// to [-1,1], continuous in slope, and unchanged across the normal drive range.
 		x = jlimit(-3.0, 3.0, x);
 		const double x2 = x * x;
@@ -852,7 +852,7 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(MoogLadderSubType);
 
 // ============================================================================
 // Korg35SubType
-// Korg 35 LP / HP filter — Simper TPT resolved topology.
+// Korg 35 LP / HP filter - Simper TPT resolved topology.
 //   LP: 2-pole lowpass with resonance (K-feedback into stage-2 output)
 //   HP: 1-pole highpass with resonance
 // ============================================================================
@@ -965,13 +965,13 @@ private:
 
 	static inline double fastTanh(double x)
 	{
-		// Padé approximant of tanh — monotonically increasing everywhere, so it
-		// cannot create the positive feedback that the cubic (v - v³/3) produces
+		// Pade approximant of tanh - monotonically increasing everywhere, so it
+		// cannot create the positive feedback that the cubic (v - v^3/3) produces
 		// when |v| > 1 (where the cubic's slope goes negative and destabilises the filter).
-		// BUT the raw Padé is unbounded (grows ~x/9 for large |x|): in BP mode the output
+		// BUT the raw Pade is unbounded (grows ~x/9 for large |x|): in BP mode the output
 		// IS this value, and with leak-free integrators that lets the resonant loop run
-		// away → volume spike → Inf → crash. Clamp the argument to its bounded region:
-		// at |x|=3 the value is exactly ±1.0, so the result is bounded to [-1,1].
+		// away -> volume spike -> Inf -> crash. Clamp the argument to its bounded region:
+		// at |x|=3 the value is exactly +-1.0, so the result is bounded to [-1,1].
 		x = jlimit(-3.0, 3.0, x);
 		const double x2 = x * x;
 		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
@@ -995,7 +995,7 @@ private:
 	// Smoothing is applied to the CUTOFF ALONE (g_sm glides toward target g); alpha0/FBs1 are
 	// then recomputed from g_sm + R every sample. Smoothing g, alpha0 and FBs1 as three
 	// independent one-poles was wrong: alpha0 = 1/(1+2Rg+g^2) is nonlinear in g, so a blend of
-	// two valid coefficient sets is itself INVALID — mid-glide the feedback normaliser no longer
+	// two valid coefficient sets is itself INVALID - mid-glide the feedback normaliser no longer
 	// matches g, transiently pushing the resonant loop gain above unity (BP, the resonant-peak
 	// output, blows up first). Recomputing from the single glided g keeps the filter a valid,
 	// stable configuration at every intermediate sample.
@@ -1021,7 +1021,7 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(OberheimSubType);
 // WaspFilterSubType
 // Approximation of the EDP Wasp CMOS inverter SVF.
 //   Based on Oberheim topology but with tanh saturation on both integrators,
-//   higher drive character, and LP→BP→HP→BSF morph via Gain parameter.
+//   higher drive character, and LP->BP->HP->BSF morph via Gain parameter.
 // ============================================================================
 
 class WaspFilterSubType
@@ -1132,8 +1132,8 @@ private:
 
     static inline double fastTanh(double x)
     {
-        // Padé approximant of tanh, argument-clamped to its bounded region. The raw
-        // form grows ~x/9 for large |x|; clamping to |x|=3 (where it equals ±1.0)
+        // Pade approximant of tanh, argument-clamped to its bounded region. The raw
+        // form grows ~x/9 for large |x|; clamping to |x|=3 (where it equals +-1.0)
         // keeps it bounded to [-1,1] so the ladder feedback can't run away.
         x = jlimit(-3.0, 3.0, x);
         const double x2 = x * x;
@@ -1173,7 +1173,7 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(TB303FilterSubType);
 // DiodeLadderSubType
 // Doepfer A-102 / EMS VCS3 style diode ladder filter.
 //   Four-pole bilinear TPT ladder with diode saturation nonlinearity:
-//     diodeSat(x) = x / (1 + |x|)  — softer and cheaper than tanh.
+//     diodeSat(x) = x / (1 + |x|)  - softer and cheaper than tanh.
 //   Three modes: LP (four-pole), HP and BP via binomial complement.
 // ============================================================================
 
@@ -1223,7 +1223,7 @@ private:
     double y4prev[NUM_MAX_CHANNELS] = {};
 
     // Target coefficients (recomputed on every parameter change)
-    double G  = 0.0;   // bilinear stage coefficient g/(1+g) — always in [0,1), so independently
+    double G  = 0.0;   // bilinear stage coefficient g/(1+g) - always in [0,1), so independently
                        // smoothable (unlike the SVF's alpha0, G and fb are not interdependent)
     double fb = 0.0;   // feedback amount [0, 3.8]
 
@@ -1247,23 +1247,23 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DiodeLadderSubType);
 // CombFilterSubType
 // Comb / flanger filter with all-pass fractional delay interpolation.
 //
-//   Frequency → delay time: delaySamples = sampleRate / frequency (comb/FF)
-//   Gain      → feedback amount: gainToDecibels(gain) / 18.0, clamped ±0.99
-//   Q         → one-pole LP cutoff in the Comb/InvComb feedback path:
+//   Frequency -> delay time: delaySamples = sampleRate / frequency (comb/FF)
+//   Gain      -> feedback amount: gainToDecibels(gain) / 18.0, clamped +-0.99
+//   Q         -> one-pole LP cutoff in the Comb/InvComb feedback path:
 //                 cutoff = sampleRate * 0.5 * (1 - (q-0.3)/9.6)
-//                 lp_coeff = exp(-2π * cutoff / sampleRate)
-//               Q=0.3 → cutoff≈Nyquist (light damping, bright tail)
-//               Q=9.9 → cutoff≈0 Hz   (heavy damping, dark/short tail)
+//                 lp_coeff = exp(-2pi * cutoff / sampleRate)
+//               Q=0.3 -> cutoff~Nyquist (light damping, bright tail)
+//               Q=9.9 -> cutoff~0 Hz   (heavy damping, dark/short tail)
 //
 //   Modes:
-//     Comb             — feedback comb, positive: peaks at f, 2f, 3f…
-//     Inv Comb         — feedback comb, negative: notches at f, 2f, 3f…
-//     Feedforward      — feedforward comb: y[n] = x[n] + g·x[n-D]
-//     Inv Feedforward  — feedforward comb, negative g
-//     Flanger          — feedforward comb, short flanger delay range
-//     Inv Flanger      — feedforward flanger, negative g
-//     Flanger FB       — feedback flanger, positive
-//     Inv Flanger FB   — feedback flanger, negative
+//     Comb             - feedback comb, positive: peaks at f, 2f, 3f...
+//     Inv Comb         - feedback comb, negative: notches at f, 2f, 3f...
+//     Feedforward      - feedforward comb: y[n] = x[n] + g*x[n-D]
+//     Inv Feedforward  - feedforward comb, negative g
+//     Flanger          - feedforward comb, short flanger delay range
+//     Inv Flanger      - feedforward flanger, negative g
+//     Flanger FB       - feedback flanger, positive
+//     Inv Flanger FB   - feedback flanger, negative
 //
 // Delay line is heap-allocated via std::vector to avoid ~1 MB class-layout
 // penalty per polyphonic voice.  Access: delayLine[c * maxDelayLine + pos].
@@ -1329,8 +1329,8 @@ private:
 	float lp_s[NUM_MAX_CHANNELS] = {};
 
 	// Precomputed coefficients
-	double ap_coeff    = 0.0;    // all-pass η = (1-d)/(1+d)
-	double fb_lp_coeff = 0.0;    // FlangerFB feedback LP speed α
+	double ap_coeff    = 0.0;    // all-pass eta = (1-d)/(1+d)
+	double fb_lp_coeff = 0.0;    // FlangerFB feedback LP speed alpha
 	double fb_gain     = 0.0;    // Comb/FF/Flanger: Q-controlled [0, 0.95]; FlangerFB: Gain-controlled [-0.99, 0.99]
 	float  lp_coeff    = 0.0f;   // Comb/FF/Flanger feedback filter pole (from Gain); see fb_is_hp
 	bool   fb_is_hp    = false;  // Comb/FF/Flanger: false = LP in signal path, true = HP
@@ -1351,10 +1351,10 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(CombFilterSubType);
 // FormantFilterSubType
 // Vocal formant filter: 5 parallel bandpass biquads tuned to formant frequencies
 // interpolated across 5 vowels (u, o, a, e, i) and 5 voice types.
-    //   Mode      → voice type (Bass, Tenor, CTenor, Alto, Soprano)
-//   Frequency → vowel position, log scale (20 Hz = u, 20 kHz = i)
-//   Q         → bandwidth scaling 1x–3x (Color: narrow=high Q)
-//   Gain      → formant frequency shift ±1 octave (Shift)
+    //   Mode      -> voice type (Bass, Tenor, CTenor, Alto, Soprano)
+//   Frequency -> vowel position, log scale (20 Hz = u, 20 kHz = i)
+//   Q         -> bandwidth scaling 1x-3x (Color: narrow=high Q)
+//   Gain      -> formant frequency shift +-1 octave (Shift)
 // ============================================================================
 
 class FormantFilterSubType
@@ -1425,14 +1425,14 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(FormantFilterSubType);
 // Cascaded allpass filters: Disperser, Diffuser, and Dense modes.
 //
 //   Disperser: Biquad allpass stages all tuned to the same frequency/Q.
-//     Frequency → centre frequency of group delay peak
-//     Q         → sharpness of group delay peak
-//     Gain      → number of biquad stages (1–16)
+//     Frequency -> centre frequency of group delay peak
+//     Q         -> sharpness of group delay peak
+//     Gain      -> number of biquad stages (1-16)
 //
 //   Diffuser: Schroeder allpass chain with prime-spaced delay times.
-//     Frequency → size (inverse: low freq = long delays = spacious wash)
-//     Q         → feedback density (0.3 = light, 9.9 = heavy wash)
-//     Gain      → number of stages (1–8)
+//     Frequency -> size (inverse: low freq = long delays = spacious wash)
+//     Q         -> feedback density (0.3 = light, 9.9 = heavy wash)
+//     Gain      -> number of stages (1-8)
 //
 //   Dense: Nested Schroeder allpass (inner first-order allpass per stage).
 //     Same controls as Diffuser but denser temporal scattering.
@@ -1513,8 +1513,8 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DisperserFilterSubType);
 // ZDFDiodeLadderSubType
 // Direct translation of the RNBO gen_01_perform() four-pole ZDF diode ladder.
 //   One mode: "ZDF Diode LP"
-//   No input saturation — xn = raw input sample, exactly as RNBO source.
-//   Q parameter (0.3–9.9) maps to resonance k (0–20).
+//   No input saturation - xn = raw input sample, exactly as RNBO source.
+//   Q parameter (0.3-9.9) maps to resonance k (0-20).
 //   Amplitude compensation: amp_comp = 1 + 0.5 * k.
 // ============================================================================
 
@@ -1538,7 +1538,7 @@ public:
 	void processFrame(float* frameData, int numChannels);
 
 private:
-	// Per-channel state (RNBO z0–z3)
+	// Per-channel state (RNBO z0-z3)
 	double z0[NUM_MAX_CHANNELS] = {};
 	double z1[NUM_MAX_CHANNELS] = {};
 	double z2[NUM_MAX_CHANNELS] = {};
@@ -1572,11 +1572,11 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ZDFDiodeLadderSubType);
 // ============================================================================
 // DJFilterSubType
 // DJ isolator filter: frequency morphs between LP and HP.
-//   Low frequency  → lowpass (cuts highs)
-//   Centre         → passthrough
-//   High frequency → highpass (cuts lows)
+//   Low frequency  -> lowpass (cuts highs)
+//   Centre         -> passthrough
+//   High frequency -> highpass (cuts lows)
 //   12 dB/oct (two-pole biquad) with Q controlling resonance.
-//   Gain → output gain.
+//   Gain -> output gain.
 // ============================================================================
 
 class DJFilterSubType
@@ -1629,14 +1629,14 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(DJFilterSubType);
 // ScreamBodySubType
 //   Reason Scream-4 "Body" style resonant body filter, voiced to scream.
 //   A bank of NUM_RES zero-delay-feedback (TPT) SVF band-pass resonators summed
-//   on top of the dry signal (series-peaking → fuller, no parallel-BP thinning),
+//   on top of the dry signal (series-peaking -> fuller, no parallel-BP thinning),
 //   with a tanh drive stage feeding the resonators and an internal envelope
 //   follower (Auto) that pushes the resonant frequencies with input dynamics.
 //
-//   Mode  → Body type A/B/C/D (different resonant-peak voicings)
-//   Freq  → Scale  (global multiplier on all peak frequencies = body size)
-//   Q     → Reso   (resonator Q + boost depth)
-//   Gain  → Drive  (pre-resonator saturation amount; arrives as linear gain)
+//   Mode  -> Body type A/B/C/D (different resonant-peak voicings)
+//   Freq  -> Scale  (global multiplier on all peak frequencies = body size)
+//   Q     -> Reso   (resonator Q + boost depth)
+//   Gain  -> Drive  (pre-resonator saturation amount; arrives as linear gain)
 //   (Auto is a fixed internal depth for now; promoted to a real param in the
 //    custom node stage.)
 // ============================================================================
@@ -1690,7 +1690,7 @@ private:
 	double gk[NUM_RES] = {};   // boost gain on the band-pass output (peaking)
 
 	double driveGain = 1.0;    // pre-resonator drive (linear)
-	double autoDepth = 0.25;   // internal Auto amount (env → frequency)
+	double autoDepth = 0.25;   // internal Auto amount (env -> frequency)
 	double outComp   = 1.0;    // drive/resonance makeup so it stays gain-sane
 
 	// Per-channel resonator state + envelope follower
@@ -1709,18 +1709,18 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 
 // ============================================================================
 // ApexFilterSubType
-//   The main multimode filter: Cytomic (TPT) SVF core — same DSP as svf_eq — but
+//   The main multimode filter: Cytomic (TPT) SVF core - same DSP as svf_eq - but
 //   with the mode set/ordering matched to StateVariableFilterSubType (svf) so it
 //   is a drop-in replacement in networks, PLUS a Serum-style pre-filter Drive
 //   (drives the signal INTO the filter) so it adds harmonics while PRESERVING
-//   resonance — unlike saturating the resonance feedback, which nulls resonance
+//   resonance - unlike saturating the resonance feedback, which nulls resonance
 //   and dulls the sound.
 //
 //   Modes are index-for-index identical to svf: LP, HP, BP, Notch, Allpass,
 //   LP24/36/48, HP24/36/48, BP24, Notch24, Morph. Gain is used only by Morph
 //   (as morph position, like svf); Drive is a separate node parameter.
 //
-//   Drive = 0 is bit-transparent to the clean Cytomic filter (preDrive → identity
+//   Drive = 0 is bit-transparent to the clean Cytomic filter (preDrive -> identity
 //   at g = 0, and outComp = 1).
 // ============================================================================
 
@@ -1762,7 +1762,7 @@ private:
 
 	// Pre-filter drive: drives the signal into the filter. Unity full-scale and
 	// transparent at g = 0. A bias (b) makes the curve asymmetric so it generates
-	// even harmonics (2nd/4th) for tube-like low-end weight, à la Serum; b = 0 is
+	// even harmonics (2nd/4th) for tube-like low-end weight, a la Serum; b = 0 is
 	// the symmetric tanh (odd harmonics only). Adds harmonics while leaving the
 	// filter (and its resonance) linear.
 	static inline double preDrive(double x, double g, double b)
@@ -1793,7 +1793,7 @@ private:
 	int numStages = 1;
 	double drive = 0.0;       // 0..1 user drive
 	double driveCoeff = 0.0;  // pre-drive gain g (drive * 5)
-	double driveBias = 0.0;   // asymmetry bias → even-harmonic low-end weight
+	double driveBias = 0.0;   // asymmetry bias -> even-harmonic low-end weight
 	double outComp = 1.0;     // partial makeup (lets drive add some weight/level)
 
 	Stage stages[MAX_STAGES];
