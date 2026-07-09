@@ -103,7 +103,9 @@ void FilterBank::setMode(FilterMode newMode)
 		setType(FilterHelpers::FilterSubType::RingmodFilterSubType, 0);
 		break;
 	case FilterMode::Allpass:
-		setType(FilterHelpers::FilterSubType::PhaseAllpassSubType, 0);
+		// Phaser6 = the fixed 6-stage behaviour this mode had before PhaseAllpassSubType
+		// grew selectable stage counts (variant 0 now means Phaser3 for scriptnode)
+		setType(FilterHelpers::FilterSubType::PhaseAllpassSubType, PhaseAllpassSubType::Phaser6);
 		break;
 	case FilterMode::MoogLP:
 		setType(FilterHelpers::FilterSubType::MoogFilterSubType, 0);
@@ -164,7 +166,7 @@ void FilterBank::setType(FilterHelpers::FilterSubType newType, int filterSubType
 	}
 
 	newObject->setFrequency(frequency);
-	newObject->setGain(gain);
+	newObject->setGain(mode == FilterMode::Allpass ? 1.0f : gain);
 	newObject->setQ(q);
 	newObject->setSampleRate(sampleRate);
 	
@@ -283,7 +285,11 @@ void FilterBank::setQ(double newQ)
 void FilterBank::setGain(float newGain)
 {
 	gain = newGain;
-	object->setGain(newGain);
+
+	// The stock filter's Allpass mode always ignored Gain; the shared PhaseAllpass
+	// subtype now maps gain onto a post-allpass LP/HP blend (added for the scriptnode
+	// allpass), so pass unity here to keep old presets sounding identical.
+	object->setGain(mode == FilterMode::Allpass ? 1.0f : newGain);
 }
 
 #undef RESET_MONO
