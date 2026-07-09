@@ -777,33 +777,33 @@ public:
 
 	float getGainReduction(float input);
 
-    template <typename T> void processFrame(T& data)
-    {
-        span<float, 1> peak;
+	template <typename T> void processFrame(T& data)
+	{
+		span<float, 1> peak;
 
-        for (auto& s : data)
-            peak[0] = Math.max(peak[0], Math.abs(s));
+		for (auto& s : data)
+			peak[0] = Math.max(peak[0], Math.abs(s));
 
-        rmsDetector.processFrame(peak);
-        envelopeFollower.processFrame(peak);
+		rmsDetector.processFrame(peak);
+		envelopeFollower.processFrame(peak);
 
-        auto before = peak[0];
+		auto before = peak[0];
 
-        auto g = getGainReduction(peak[0]);
+		auto g = getGainReduction(peak[0]);
 
-        if (before > 0.0f)
-        {
-            g = jlimit(0.0f, 24.0f, g / before);
-        }
-        else
-        {
-            g = 0.0f;
-        }
+		if (before > 0.0f)
+		{
+			g = jlimit(0.0f, 24.0f, g / before);
+		}
+		else
+		{
+			g = 0.0f;
+		}
 
-        gainRed.setModValue(jlimit(0.0, 1.0, (double)g));
+		gainRed.setModValue(jlimit(0.0, 1.0, (double)g));
 
-        data *= g;
-    }
+		data *= g;
+	}
 	
 	int handleModulation(double& value)
 	{
@@ -825,7 +825,7 @@ public:
 			break;
 		case Parameters::LowRatio:
 		case Parameters::HighRatio:
-             state[P].set(hmath::range((float)v, 0.0f, 1.0f));
+			 state[P].set(hmath::range((float)v, 0.0f, 1.0f));
 			break;
 		case Parameters::Knee:
 			state[P].set(hmath::range((float)v, 0.0f, 0.5f));

@@ -180,29 +180,29 @@ float ott::getGainReduction(float input)
 
 	auto depth = state[(int)Parameters::Depth].advance();
 	auto hi_r_d = 1.0f + (hi_r_mapped - 1.0f) * depth;
-    auto lo_r_d = lo_r + (1.0f - lo_r) * (1.0f - depth);
+	auto lo_r_d = lo_r + (1.0f - lo_r) * (1.0f - depth);
 
-    if (hmath::abs(input - lo_t) < (lo_w * 0.5f))
-    {
-        auto blend = (input - (lo_t - lo_w * 0.5f)) / lo_w;
-        auto v_compressed = input + (lo_t - input) * (1.0f - lo_r_d);
-        return input + (v_compressed - input) * (1.0f - blend);
-    }
-    else if (input < (lo_t - lo_w*0.5f))
-    {
-        const auto noise_floor = Decibels::decibelsToGain(-120.0f);
+	if (hmath::abs(input - lo_t) < (lo_w * 0.5f))
+	{
+		auto blend = (input - (lo_t - lo_w * 0.5f)) / lo_w;
+		auto v_compressed = input + (lo_t - input) * (1.0f - lo_r_d);
+		return input + (v_compressed - input) * (1.0f - blend);
+	}
+	else if (input < (lo_t - lo_w*0.5f))
+	{
+		const auto noise_floor = Decibels::decibelsToGain(-120.0f);
 
-        auto v = input + (lo_t - input) * (1.0f - lo_r_d);
+		auto v = input + (lo_t - input) * (1.0f - lo_r_d);
 
-        if (input < noise_floor)
-        {
-            auto alpha = input / noise_floor;
-            auto invAlpha = 1.0f - alpha;
-            return input * invAlpha + v * alpha;
-        }
-        else
-            return v;
-    }
+		if (input < noise_floor)
+		{
+			auto alpha = input / noise_floor;
+			auto invAlpha = 1.0f - alpha;
+			return input * invAlpha + v * alpha;
+		}
+		else
+			return v;
+	}
 	else if (hmath::abs(input - hi_t) < (hi_w / 2)) // apply soft knee
 	{
 		return input + (1.0f / hi_r_d - 1.0f) * hmath::sqr(input - hi_t + hi_w * 0.5f) / (2.0f * hi_w);
@@ -228,11 +228,11 @@ void ott::createParameters(ParameterDataList& data)
 		data.add(std::move(p));
 	}
 	{
-        parameter::data p("LowRatio", { 0.0, 1.0 });
-        registerCallback<(int)Parameters::LowRatio>(p);
-        p.setSkewForCentre(0.5);
-        p.setDefaultValue(1.0);
-        data.add(std::move(p));
+		parameter::data p("LowRatio", { 0.0, 1.0 });
+		registerCallback<(int)Parameters::LowRatio>(p);
+		p.setSkewForCentre(0.5);
+		p.setDefaultValue(1.0);
+		data.add(std::move(p));
 	}
 	{
 		// Create a parameter like this
@@ -298,7 +298,7 @@ void ott::calculateGraph(block values)
 }
 
 // ============================================================================
-// updown_comp — original pre-OTT behaviour (stock HISE implementation)
+// updown_comp - original pre-OTT behaviour (stock HISE implementation)
 // ============================================================================
 
 void updown_comp::RMSDetector::prepare(PrepareSpecs ps)
@@ -541,7 +541,7 @@ void updown_comp::calculateGraph(block values)
 }
 
 // ============================================================================
-// halo — updown_comp curve with the reworked detector & follower
+// halo - updown_comp curve with the reworked detector & follower
 // ============================================================================
 
 void halo::prepare(PrepareSpecs specs)
