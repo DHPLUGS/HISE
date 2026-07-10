@@ -341,8 +341,10 @@ protected:
 	bool processFlag;
 	int rampIndex;
 
-	DelayLine<4096> leftPredelay;
-	DelayLine<4096> rightPredelay;
+	// 131072 samples covers the full 1000ms predelay range up to 96kHz
+	// (the previous 4096 clamped it to ~85ms at 48kHz)
+	DelayLine<131072> leftPredelay;
+	DelayLine<131072> rightPredelay;
 
 	bool isUsingPoolData;
 
