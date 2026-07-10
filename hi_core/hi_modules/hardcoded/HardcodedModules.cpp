@@ -126,8 +126,23 @@ bool HardcodedMasterFX::setEffect(const String& newEffect, bool cond)
 
 	if(ok)
 	{
-		extraMods.updateModulationProperties(modProperties, 
+		extraMods.updateModulationProperties(modProperties,
 			BIND_MEMBER_FUNCTION_1(HardcodedSwappableEffect::getParameterInitData));
+
+		// Lazy FX-rack reload: the swap above already connected the new opaque
+		// node's core.extra_mod children (their reset() captured a read pointer
+		// into extraMods), but extraMods itself was never re-asserted for this
+		// instance the way HardcodedMasterFX::prepareToPlay() does on cold load
+		// (see the "PR #965" comment there). Re-run prepareToPlay() + reset()
+		// here so extra_mod-fed modulators (e.g. a MatrixModulator driving a
+		// network's MIX) are live immediately after setEffect(), instead of
+		// reading as silent until something else forces a reset (e.g. nudging
+		// the bound UI control).
+		extraMods.prepareToPlay(getSampleRate(), getLargestBlockSize());
+
+		SimpleReadWriteLock::ScopedReadLock sl(lock);
+		if (opaqueNode != nullptr)
+			opaqueNode->reset();
 	}
 
 	extraMods.updateModulationChainIdAndColour(this, modProperties,

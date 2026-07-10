@@ -1382,8 +1382,21 @@ FrontendMacroPanel::~FrontendMacroPanel()
 
 void FrontendMacroPanel::macroConnectionChanged(int macroIndex, Processor* p, int parameterIndex, bool wasAdded)
 {
-	updateContent();
-	repaint();
+	// A synchronously sent notification (eg. from the knob's "Remove Macro control" menu item)
+	// arrives before the connection is actually removed from the macro control data, so
+	// rebuilding the table content right away would recreate a row for the dying connection
+	// (which then sticks around with empty cells). Defer the rebuild so it sees the list
+	// after the removal - the same order that asynchronous notifications produce anyway.
+	Component::SafePointer<FrontendMacroPanel> safeThis(this);
+
+	MessageManager::callAsync([safeThis]()
+	{
+		if (safeThis.getComponent() != nullptr)
+		{
+			safeThis->updateContent();
+			safeThis->repaint();
+		}
+	});
 }
 
 hise::MacroControlBroadcaster::MacroControlData* FrontendMacroPanel::getData(MacroControlBroadcaster::MacroControlledParameterData* pd)
@@ -1657,10 +1670,10 @@ TableFloatingTileBase::InvertedButton::InvertedButton(TableFloatingTileBase &own
 	t->setConnectedEdges(Button::ConnectedOnLeft | Button::ConnectedOnRight);
 	t->addListener(this);
 	t->setTooltip("Invert the range of the macro control for this parameter.");
-	t->setColour(TextButton::buttonColourId, Colour(0x88000000));
-	t->setColour(TextButton::buttonOnColourId, Colour(0x88FFFFFF));
-	t->setColour(TextButton::textColourOnId, Colour(0xaa000000));
-	t->setColour(TextButton::textColourOffId, Colour(0x99ffffff));
+
+	// No colours are set here on purpose: HiPropertyPanelLookAndFeel only uses colours
+	// that were explicitly specified on the button (see refreshComponentForCell, which
+	// forwards customised panel colours), otherwise it draws the stock appearance.
 
 	t->setClickingTogglesState(true);
 }
@@ -2084,10 +2097,19 @@ Component* TableFloatingTileBase::refreshComponentForCell(int rowNumber, int col
 			}
 		}
 		
-		b->t->setColour(TextButton::buttonOnColourId, itemColour1);
-		b->t->setColour(TextButton::textColourOnId, textColour);
-		b->t->setColour(TextButton::buttonColourId, Colours::transparentBlack);
-		b->t->setColour(TextButton::textColourOffId, textColour);
+		// Only forward panel colours that were customised: the look and feel keeps the
+		// stock appearance for anything that was not explicitly set on the button.
+		if (itemColour1 != getDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour1))
+			b->t->setColour(TextButton::buttonOnColourId, itemColour1);
+
+		if (itemColour2 != getDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour2))
+			b->t->setColour(TextButton::buttonColourId, itemColour2);
+
+		if (textColour != getDefaultPanelColour(FloatingTileContent::PanelColourId::textColour))
+		{
+			b->t->setColour(TextButton::textColourOnId, textColour);
+			b->t->setColour(TextButton::textColourOffId, textColour);
+		}
 
 		b->setRowAndColumn(rowNumber, isInverted(rowNumber));
 

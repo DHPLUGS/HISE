@@ -1143,6 +1143,7 @@ void HiPropertyPanelLookAndFeel::setFontForAll(const Font& newFont)
 	textButtonFont = newFont;
 	labelFont = newFont;
 	popupMenuFont = newFont;
+	fontsWereSetExplicitly = true;
 }
 
 HiPropertyPanelLookAndFeel::HiPropertyPanelLookAndFeel()
@@ -1303,9 +1304,21 @@ void HiPropertyPanelLookAndFeel::drawButtonBackground(Graphics& g, Button& b, co
 {
 	auto ar = b.getLocalBounds().toFloat();
 
+	// Colours that were explicitly set on the button take precedence, otherwise the
+	// stock property panel appearance is used (this makes buttons in the frontend
+	// macro / MIDI learn tables styleable through the panel colour properties).
 	if (b.getToggleState())
 	{
-		g.setColour(Colour(SIGNAL_COLOUR).withAlpha(0.4f));
+		auto onColour = b.isColourSpecified(TextButton::buttonOnColourId)
+							? b.findColour(TextButton::buttonOnColourId)
+							: Colour(SIGNAL_COLOUR).withAlpha(0.4f);
+
+		g.setColour(onColour);
+		g.fillRoundedRectangle(ar, 2.0f);
+	}
+	else if (b.isColourSpecified(TextButton::buttonColourId))
+	{
+		g.setColour(b.findColour(TextButton::buttonColourId));
 		g.fillRoundedRectangle(ar, 2.0f);
 	}
 
@@ -1320,8 +1333,14 @@ void HiPropertyPanelLookAndFeel::drawButtonBackground(Graphics& g, Button& b, co
 
 void HiPropertyPanelLookAndFeel::drawButtonText(Graphics& g, TextButton& b, bool cond, bool cond1)
 {
-	g.setFont(GLOBAL_BOLD_FONT());
-	g.setColour(b.getToggleState() ? Colours::black : Colours::white);
+	g.setFont(fontsWereSetExplicitly ? textButtonFont : GLOBAL_BOLD_FONT());
+
+	auto colourId = b.getToggleState() ? TextButton::textColourOnId : TextButton::textColourOffId;
+
+	auto c = b.isColourSpecified(colourId) ? b.findColour(colourId)
+										   : (b.getToggleState() ? Colours::black : Colours::white);
+
+	g.setColour(c);
 	g.drawText(b.getButtonText(), b.getLocalBounds().toFloat(), Justification::centred);
 }
 

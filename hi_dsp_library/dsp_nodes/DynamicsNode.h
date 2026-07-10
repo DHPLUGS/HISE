@@ -367,7 +367,11 @@ public:
     
 	void setRatio(double v)
     {
-        auto ratio = (v != 0.0) ? 1.0 / v : 1.0;
+        // The declared range is 1..32. A value below 1 (eg. from a stale
+        // indexed preset restore) would invert into ratio_ > 1, which flips
+        // the chunkware transfer function into an expander that BOOSTS by
+        // overdB * (ratio_ - 1) dB - the lower the threshold, the louder.
+        auto ratio = 1.0 / jmax(1.0, v);
         obj.setRatio(ratio);
     }
     

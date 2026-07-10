@@ -285,6 +285,10 @@ public:
 	Font labelFont;
 	Font popupMenuFont;
 
+	// drawButtonText keeps its stock font until setFontForAll was actually called,
+	// so existing property panels are unaffected by the styleable button text.
+	bool fontsWereSetExplicitly = false;
+
 	Colour propertyBgColour = Colour(0xff3d3d3d);
 };
 

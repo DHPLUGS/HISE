@@ -68,7 +68,7 @@ bool MacroControlledObject::checkLearnMode()
 		{
 			ld.mode = s->getModeId();
 		}
-		
+
 		else if (auto cb = dynamic_cast<HiComboBox*>(this))
 		{
 			for (int i = 0; i < cb->getNumItems(); i++)
@@ -92,7 +92,7 @@ bool MacroControlledObject::checkLearnMode()
 			suffix = asSlider->getTextValueSuffix();
 
 		GET_MACROCHAIN()->addControlledParameter(currentlyActiveLearnIndex, getProcessor()->getId(), parameter, name, getValueToTextConverter(), getRange());
-			
+
 		return true;
 	}
 
@@ -176,7 +176,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 		auto isUsingCustomModel = getProcessor()->getMainController()->getUserPresetHandler().getNumCustomAutomationData() != 0;
 
 		auto showMidi = !isUsingCustomModel || (isUsingCustomModel && customId.isValid());
-		
+
 		if(showMidi)
 		{
 			if (handler->hasSelectedControllerPopupNumbers())
@@ -224,7 +224,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 		{
 			auto name = macroChain->getMacroControlData(macroIndex)->getMacroName();
 
-			m.addItem(RemoveMacroControl, "Remove " + name);
+			m.addItem(RemoveMacroControl, "REMOVE " + name);
 		}
 		else
 		{
@@ -252,7 +252,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 				mToUse = &sub;
 			else
 				m.addSectionHeader(title);
-				
+
 			for (int i = 0; i < numMacros; i++)
 			{
 				auto name = macroChain->getMacroControlData(i)->getMacroName();
@@ -316,7 +316,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 			nameToUse = customId.toString();
 
 		getProcessor()->getMainController()->getMacroManager().getMacroChain()->getMacroControlData(macroIndex)->removeParameter(nameToUse, getProcessor(), sendNotificationSync);
-		
+
 		initMacroControl(sendNotification);
 	}
 	else if (result >= MidiOffset)
@@ -324,7 +324,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 		auto number = result - MidiOffset;
 
 		auto mHandler = getProcessor()->getMainController()->getMacroManager().getMidiControlAutomationHandler();
-		
+
 		mHandler->deactivateMidiLearning();
 		mHandler->removeMidiControlledParameter(processor, parameterToUse, sendNotificationAsync);
 		mHandler->addMidiControlledParameter(processor, parameterToUse, rangeWithSkew, getValueToTextConverter(), -1);
@@ -343,7 +343,7 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 
 		initMacroControl(sendNotification);
 	}
-	
+
 }
 
 
@@ -393,7 +393,7 @@ void MacroControlledObject::macroConnectionChanged(int macroIndex, Processor* p,
 bool MacroControlledObject::canBeMidiLearned() const
 {
 #if HISE_ENABLE_MIDI_LEARN
-	
+
 	return midiLearnEnabled;
 #else
 	return false;
@@ -404,7 +404,7 @@ MacroControlledObject::~MacroControlledObject()
 {
     numberTag = nullptr;
     slaf = nullptr;
-    
+
 	if (auto p = getProcessor())
 	{
 		if(valueListener != nullptr)
@@ -427,7 +427,7 @@ bool MacroControlledObject::isConnectedToModulator() const
 	}
 
 	return false;
-	
+
 }
 
 void MacroControlledObject::setup(Processor *p, int parameter_, const String &name_)
@@ -466,7 +466,7 @@ void MacroControlledObject::setup(Processor *p, int parameter_, const String &na
 	p->getMainController()->getMainSynthChain()->addMacroConnectionListener(this);
 
     updateValue(sendNotificationSync);
-	
+
 }
 
 void MacroControlledObject::connectToCustomAutomation(const Identifier& newCustomId)
@@ -489,7 +489,7 @@ int MacroControlledObject::getAutomationIndex() const
 {
 	if (customId.isNull() || processor == nullptr)
 		return parameter;
-	
+
 	return processor->getMainController()->getUserPresetHandler().getCustomAutomationIndex(customId);
 }
 
@@ -564,7 +564,7 @@ bool SliderWithShiftTextBox::onShiftClick(const MouseEvent& e)
 		inputLabel->setText(asSlider()->getTextFromValue(asSlider()->getValue()), dontSendNotification);
 		inputLabel->selectAll();
 		inputLabel->grabKeyboardFocus();
-        
+
         return true;
 	}
 
@@ -637,7 +637,7 @@ SliderWithShiftTextBox::~SliderWithShiftTextBox()
 
 void SliderWithShiftTextBox::init()
 {
-		
+
 }
 
 void SliderWithShiftTextBox::cleanup()
@@ -695,18 +695,18 @@ void HiSlider::sliderValueChanged(Slider *s)
 		return;
 
 	auto useMacrosAsParameter = (bool)HISE_GET_PREPROCESSOR(getProcessor()->getMainController(), HISE_MACROS_ARE_PLUGIN_PARAMETERS);
-	
+
 	if(!useMacrosAsParameter)
 	{
 		const int index = GET_MACROCHAIN()->getMacroControlIndexForProcessorParameter(getProcessor(), parameter);
-    
+
 		if (index != -1 && !isReadOnly())
 		{
 			const float v = (float)getRange().convertTo0to1(s->getValue());
 			GET_MACROCHAIN()->setMacroControl(index,v * 127.0f, sendNotification);
 		}
 	}
-	
+
 	if(!checkLearnMode())
 	{
 		if (getSliderStyle() == Slider::TwoValueHorizontal)
@@ -778,7 +778,7 @@ void HiSlider::updateValue(NotificationType /*sendAttributeChange*/)
 {
 	if(getProcessor() == nullptr)
 		return;
-	
+
 	const bool enabled = !isLocked();
 
 	setEnabled(enabled);
@@ -795,7 +795,7 @@ void HiSlider::updateValue(NotificationType /*sendAttributeChange*/)
 	{
 		setValue(modeValues[mode], dontSendNotification);
 	}
-	
+
 }
 
 String HiSlider::getTextFromValue(double value)
@@ -814,7 +814,7 @@ void HiSlider::setup(Processor *p, int parameterIndex, const String &parameterNa
 	MacroControlledObject::setup(p, parameterIndex, parameterName);
 
 	p->getMainController()->skin(*this);
-	
+
 	for(int i = 0; i < numModes; i++)
 	{
 		modeValues[i] = 0.0;
@@ -846,7 +846,7 @@ double HiSlider::getSkewFactorFromMidPoint(double minimum, double maximum, doubl
 {
 	if (maximum > minimum)
 		return log(0.5) / log((midPoint - minimum) / (maximum - minimum));
-		
+
 	jassertfalse;
 	return 1.0;
 }
@@ -953,7 +953,7 @@ HiSlider::HoverPopupLookandFeel::PositionData HiSlider::HoverPopupLookandFeel::g
 	auto totalWidth = sourceList.size() * DRAG_SIZE + 110;
 	auto sb = s.getBoundsInParent();
 	auto x = Rectangle(sb.getX(), sb.getBottom() + 5, totalWidth, DRAG_SIZE);
-	
+
 	for(auto s: sourceList)
 		pd.draggers.addWithoutMerging(x.removeFromLeft(DRAG_SIZE));
 
@@ -984,7 +984,7 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragBackground(Graphics& g, 
 
 		g.setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0xff313131)));
 		g.drawText(text, labelBounds.reduced(3, 0), Justification::left);
-			
+
 
 #if 0
 
@@ -1032,7 +1032,7 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragger(Graphics& g, HiSlide
 
 	double start = 0.0;
 	double end = 1.0;
-	
+
 	switch(obj.targetMode)
 	{
 	case modulation::TargetMode::Gain:
@@ -1048,7 +1048,7 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragger(Graphics& g, HiSlide
 			start = - 1.0 * end;
 			break;
 	}
-	
+
 	dragPath.startNewSubPath(area.getTopLeft());
 	dragPath.startNewSubPath(area.getBottomRight());
 
@@ -1059,7 +1059,7 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragger(Graphics& g, HiSlide
 
 	dragPath.addArc(arcBounds.getX(), arcBounds.getY(), arcBounds.getWidth(), arcBounds.getHeight(), start, end, true);
 	track.addArc(arcBounds.getX(), arcBounds.getY(), arcBounds.getWidth(), arcBounds.getHeight(), -ARC, ARC, true);
-	
+
 	g.setColour(obj.isHover ? Colour(0x44000000) : Colour(0x22000000));
 
 	PathStrokeType stroke(3.0f, PathStrokeType::curved, PathStrokeType::rounded);
@@ -1197,36 +1197,36 @@ NormalisableRange<double> HiSlider::getRangeForMode(HiSlider::Mode m)
 
 	switch(m)
 	{
-	case Frequency:				
+	case Frequency:
 		r = NormalisableRange<double>(20.0, 20000.0, 1);
 		r.setSkewForCentre(1500.0);
 		break;
-	case Decibel:				
+	case Decibel:
 		r = NormalisableRange<double>(-100.0, 0.0, 0.1);
 		r.setSkewForCentre(-18.0);
 		break;
-	case Time:					
+	case Time:
 		r = NormalisableRange<double>(0.0, 20000.0, 1);
 		r.setSkewForCentre(1000.0);
 		break;
-	case TempoSync:				
+	case TempoSync:
 		r = NormalisableRange<double>(0, TempoSyncer::numTempos-1, 1);
 		break;
-	case Pan:					
+	case Pan:
 		r = NormalisableRange<double>(-100.0, 100.0, 1);
 		break;
-	case NormalizedPercentage:	
-		r = NormalisableRange<double>(0.0, 1.0, 0.01);									
+	case NormalizedPercentage:
+		r = NormalisableRange<double>(0.0, 1.0, 0.01);
 		break;
-	case Linear:				
-		r = NormalisableRange<double>(0.0, 1.0, 0.01); 
+	case Linear:
+		r = NormalisableRange<double>(0.0, 1.0, 0.01);
 		break;
-	case Discrete:				
+	case Discrete:
 		r = NormalisableRange<double>();
 		r.interval = 1;
 		break;
-	case numModes: 
-	default:					jassertfalse; 
+	case numModes:
+	default:					jassertfalse;
 		r = NormalisableRange<double>();
 	}
 
@@ -1325,11 +1325,11 @@ struct HiSlider::HoverPopup: public Component,
 							 public PooledUIUpdater::SimpleTimer,
 							 public juce::ValueTree::Listener
 {
-	HoverPopup(HiSlider& slider, 
-	           const ValueTree& matrixData_, 
-		       const String& targetId_, 
-		       const Array<int>& sourceIndexes_, 
-		       const StringArray& sourceNames_, 
+	HoverPopup(HiSlider& slider,
+	           const ValueTree& matrixData_,
+		       const String& targetId_,
+		       const Array<int>& sourceIndexes_,
+		       const StringArray& sourceNames_,
 		       const HoverPopupLookandFeel::PositionData& pd,
 			   bool exclusiveMode_):
 	  SimpleTimer(slider.getProcessor()->getMainController()->getGlobalUIUpdater(), false),
@@ -1404,7 +1404,7 @@ struct HiSlider::HoverPopup: public Component,
 			pOffset = parentToUse->getLocalPoint(parent->getParentComponent(), Point<float>());
 			b = b.translated(pOffset.getX(), pOffset.getY());
 		}
-		
+
 		setBounds(b.expanded(pd.margin));
 
 		globalHitbox = getScreenBounds().getUnion(slider.getScreenBounds());
@@ -1782,7 +1782,7 @@ struct HiSlider::HoverPopup: public Component,
 		sourceNames.remove(indexInList);
 		sourceIndexes.remove(indexInList);
 
-		
+
 
 		RectangleList<int> newList;
 
@@ -1862,7 +1862,7 @@ struct HiSlider::HoverPopup: public Component,
 
 			auto f = [this]()
 			{
-				
+
 				if(isPositiveAndBelow(currentHoverIndex, labelConverters.size()))
 				{
 					auto newValue = labelConverters[currentHoverIndex]->getValue(editor->getText());
@@ -1951,7 +1951,7 @@ struct HiSlider::HoverPopup: public Component,
 				newValue = hmath::floor(newValue);
 				newValue *= interval;
 			}
-			
+
 
 			intensityValues[currentHoverIndex] = newValue;
 
@@ -2066,7 +2066,7 @@ void HiSlider::ModUpdater::setUpdateFunction(const ModulationDisplayValue::Query
 
 			if (exclusiveSourceMode)
 			{
-				container->currentMatrixSourceBroadcaster.addListener(*this, ModUpdater::onExclusiveSourceSelection);	
+				container->currentMatrixSourceBroadcaster.addListener(*this, ModUpdater::onExclusiveSourceSelection);
 			}
 			else
 			{
@@ -2299,7 +2299,7 @@ void HiSlider::setMode(Mode m)
 }
 
 void HiSlider::setMode(Mode m, NormalisableRange<double> nr)
-{ 
+{
 	if(mode != m)
 	{
 		mode = m;
@@ -2312,7 +2312,7 @@ void HiSlider::setMode(Mode m, NormalisableRange<double> nr)
 	}
 	else
 	{
-		setNormalisableRange(nr);	
+		setNormalisableRange(nr);
 	}
 
 	if (nr.interval == 0.0)
@@ -2324,7 +2324,7 @@ void HiSlider::setMode(Mode m, NormalisableRange<double> nr)
 		else
 			this->setNumDecimalPlacesToDisplay(3);
 	}
-    
+
     updateValue(sendNotificationSync);
 }
 
@@ -2380,11 +2380,11 @@ void HiToggleButton::mouseDown(const MouseEvent &e)
     if(e.mods.isLeftButtonDown())
     {
         checkLearnMode();
-        
+
         PresetHandler::setChanged(getProcessor());
-        
+
         startTouch(e.getMouseDownPosition());
-        
+
         MomentaryToggleButton::mouseDown(e);
 
 		if (popupData.isObject())
@@ -2442,7 +2442,7 @@ HiComboBox::HiComboBox(const String& name):
 	addListener(this);
 
 	setWantsKeyboardFocus(false);
-        
+
 	setColour(HiseColourScheme::ComponentFillTopColourId, Colour(0x66333333));
 	setColour(HiseColourScheme::ComponentFillBottomColourId, Colour(0xfb111111));
 	setColour(HiseColourScheme::ComponentOutlineColourId, Colours::white.withAlpha(0.3f));
@@ -2461,8 +2461,8 @@ void HiComboBox::resized()
 }
 
 NormalisableRange<double> HiComboBox::getRange() const
-{ 
-	NormalisableRange<double> r(1.0, (double)getNumItems()); 
+{
+	NormalisableRange<double> r(1.0, (double)getNumItems());
 
 	r.interval = 1.0;
 
@@ -2516,7 +2516,7 @@ HiToggleButton::HiToggleButton(const String& name):
 	addChildComponent(numberTag);
 	addListener(this);
 	setWantsKeyboardFocus(false);
-        
+
 	setColour(HiseColourScheme::ComponentFillTopColourId, Colour(0x66333333));
 	setColour(HiseColourScheme::ComponentFillBottomColourId, Colour(0xfb111111));
 	setColour(HiseColourScheme::ComponentOutlineColourId, Colours::white.withAlpha(0.3f));
@@ -2545,8 +2545,8 @@ void HiToggleButton::resized()
 }
 
 NormalisableRange<double> HiToggleButton::getRange() const
-{ 
-	NormalisableRange<double> r(0.0, 1.0); 
+{
+	NormalisableRange<double> r(0.0, 1.0);
 	r.interval = 1.0;
 
 	return r;
@@ -2573,7 +2573,7 @@ void HiComboBox::mouseDown(const MouseEvent &e)
         checkLearnMode();
         PresetHandler::setChanged(getProcessor());
         startTouch(e.getMouseDownPosition());
-        
+
         ComboBox::mouseDown(e);
     }
     else
@@ -2618,7 +2618,7 @@ void HiComboBox::touchAndHold(Point<int> /*downPosition*/)
 {
 	enableMidiLearnWithPopup();
 }
-    
+
 void HiComboBox::updateValue(NotificationType /*sendAttributeChange*/)
 {
 	const bool enabled = !isLocked();
@@ -2633,7 +2633,7 @@ void HiComboBox::updateValue(NotificationType /*sendAttributeChange*/)
 void HiComboBox::comboBoxChanged(ComboBox *c)
 {
 	const int index = c->getSelectedId();
-    
+
 	if(index == 0) return;
 
 	const int thisMacroIndex = getProcessor()->getMainController()->getMacroManager().getMacroChain()->getMacroControlIndexForProcessorParameter(getProcessor(), parameter);
@@ -2678,14 +2678,14 @@ void HiToggleButton::updateValue(NotificationType /*sendAttributeChange*/)
 void HiToggleButton::buttonClicked(Button *b)
 {
 	jassert(b == this);
-    
+
 	if (getProcessor() == nullptr)
 		return;
 
 	const int index = GET_MACROCHAIN()->getMacroControlIndexForProcessorParameter(getProcessor(), parameter);
 
 
-    
+
 	if (index != -1 && !isReadOnly())
 	{
 		const float v = b->getToggleState() ? 127.0f : 0.0f;
@@ -2697,7 +2697,7 @@ void HiToggleButton::buttonClicked(Button *b)
 	if(!checkLearnMode())
 	{
 		const float newValue = b->getToggleState() ? 1.0f : 0.0f;
-		
+
 		setAttributeWithUndo(newValue);
 	}
 }
@@ -2737,7 +2737,7 @@ void HiToggleButton::buttonClicked(Button *b)
 		{
 			numberTag->setNumber(newMacroIndex+1);
 			numberTag->setVisible(true);
-            
+
             if(auto asComponent = dynamic_cast<Component*>(this))
             {
 #define SET_COLOUR(x) numberTag->setColour(x, asComponent->findColour(x));
@@ -2747,7 +2747,7 @@ void HiToggleButton::buttonClicked(Button *b)
                 SET_COLOUR(HiseColourScheme::ComponentTextColourId);
 #undef SET_COLOUR
             }
-            
+
 			macroIndex = newMacroIndex;
 		}
 	}
@@ -2836,7 +2836,7 @@ void HiToggleButton::buttonClicked(Button *b)
 			if(jmp->isFront())
 			{
 				auto ap = dynamic_cast<AudioProcessor*>(p->getMainController());
-				
+
 				for(auto pp: ap->getParameters())
 				{
 					if(auto typed = dynamic_cast<HisePluginParameterBase*>(pp))
@@ -2856,7 +2856,7 @@ void HiToggleButton::buttonClicked(Button *b)
 		}
 
 		sendPluginParameterUpdate |= connectedPluginParameter == nullptr & wasMacro;
-		
+
 		if(connectedPluginParameter != nullptr)
 		{
 			connectedPluginParameter->setSendToHost(useMacrosAsParameter || getMacroIndex() == -1);
@@ -2871,7 +2871,7 @@ void HiToggleButton::buttonClicked(Button *b)
 
 	void MacroControlledObject::checkMouseClickProfiler(bool isDown)
 	{
-		
+
 	}
 
 	Processor* MacroControlledObject::getProcessor()
@@ -3002,7 +3002,7 @@ void TouchAndHoldComponent::UpdateTimer::timerCallback()
 juce::Path Learnable::Factory::createPath(const String& url) const
 {
 	Path p;
-	
+
 	LOAD_PATH_IF_URL("destination", LearnableIcons::destination);
 	LOAD_PATH_IF_URL("source", LearnableIcons::source);
 

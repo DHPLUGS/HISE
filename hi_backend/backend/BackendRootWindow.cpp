@@ -1359,8 +1359,19 @@ void BackendPanelHelpers::ScriptingWorkspace::setGlobalProcessor(BackendRootWind
     
 	auto shouldShowInterface = dynamic_cast<JavascriptMidiProcessor*>(jsp) != nullptr;
 
-	auto sn = FloatingTileHelpers::findTileWithId<VerticalTile>(workspace, "ScriptingWorkspaceScriptnode")->getParentShell();
-	auto id = FloatingTileHelpers::findTileWithId<VerticalTile>(workspace, "ScriptingWorkspaceInterfaceDesigner")->getParentShell();
+	auto snTile = FloatingTileHelpers::findTileWithId<VerticalTile>(workspace, "ScriptingWorkspaceScriptnode");
+	auto idTile = FloatingTileHelpers::findTileWithId<VerticalTile>(workspace, "ScriptingWorkspaceInterfaceDesigner");
+
+	// A saved workspace layout may no longer contain these tiles (eg. after a
+	// corrupted editorData.json), so don't let a missing tile crash startup.
+	if (snTile == nullptr || idTile == nullptr)
+	{
+		jassertfalse;
+		return;
+	}
+
+	auto sn = snTile->getParentShell();
+	auto id = idTile->getParentShell();
 
 	sn->getLayoutData().setVisible(!shouldShowInterface);
 	id->getLayoutData().setVisible(shouldShowInterface);

@@ -52,7 +52,7 @@ void ToggleButtonList::rebuildList(const StringArray &names)
 		ToggleButton* button = new ToggleButton(names[i]);
 		addAndMakeVisible(button);
 		button->setColour(ToggleButton::ColourIds::textColourId, Colours::white);
-		
+
 		button->setSize(250, 26);
 		button->addListener(this);
 		buttons.add(button);
@@ -117,14 +117,14 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 	ADD(SampleLocation);
 	ADD(DebugMode);
 	ADD(ScaleFactorList);
-	
+
 	setColour(ColourIds::textColour, Colours::white);
 
     for(int i = 0; i < (int)Properties::numProperties; i++)
     {
         properties[i] = true;
     }
-    
+
 #if HISE_USE_OPENGL_FOR_PLUGIN
     properties[(int)Properties::UseOpenGL] = true;
 #else
@@ -139,19 +139,19 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
     addAndMakeVisible(sampleRateSelector = new ComboBox("Sample Rate"));
     addAndMakeVisible(bufferSelector = new ComboBox("Buffer Sizes"));
     addAndMakeVisible(sampleRateSelector = new ComboBox("Sample Rate"));
-        
+
     deviceSelector->addListener(this);
     soundCardSelector->addListener(this);
     outputSelector->addListener(this);
     bufferSelector->addListener(this);
     sampleRateSelector->addListener(this);
-        
+
     deviceSelector->setLookAndFeel(&plaf);
     soundCardSelector->setLookAndFeel(&plaf);
     outputSelector->setLookAndFeel(&plaf);
     bufferSelector->setLookAndFeel(&plaf);
     sampleRateSelector->setLookAndFeel(&plaf);
-    
+
 	addAndMakeVisible(bpmSelector = new ComboBox("Global BPM"));
 	bpmSelector->addListener(this);
 	bpmSelector->setLookAndFeel(&plaf);
@@ -177,7 +177,7 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 	scaleFactorSelector->setLookAndFeel(&plaf);
 	diskModeSelector->setLookAndFeel(&plaf);
 	clearMidiLearn->setLookAndFeel(&blaf);
-	
+
 	for (int i = 0; i < getNumChildComponents(); i++)
 		HiseColourScheme::setDefaultColours(*getChildComponent(i));
 
@@ -237,7 +237,7 @@ CustomSettingsWindow::~CustomSettingsWindow()
 	clearMidiLearn->removeListener(this);
 	relocateButton->removeListener(this);
 	diskModeSelector->removeListener(this);
-	
+
 	voiceAmountMultiplier->removeListener(this);
 
 	scaleFactorSelector->removeListener(this);
@@ -257,8 +257,8 @@ CustomSettingsWindow::~CustomSettingsWindow()
 void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDevices)
 {
 	AudioProcessorDriver* driver = dynamic_cast<AudioProcessorDriver*>(mc);
-    
-	
+
+
 
     if(HiseDeviceSimulator::isStandalone())
     {
@@ -269,12 +269,12 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 		}
 
         const OwnedArray<AudioIODeviceType> *devices = &driver->deviceManager->getAvailableDeviceTypes();
-        
+
         bufferSelector->clear(dontSendNotification);
         sampleRateSelector->clear(dontSendNotification);
         outputSelector->clear(dontSendNotification);
-		
-        
+
+
 		bpmSelector->clear(dontSendNotification);
 		bpmSelector->addItem("Sync to Host", 1);
 
@@ -283,32 +283,32 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 			bpmSelector->addItem(String(i) + " BPM", i);
 		}
 
-        
+
         if (rebuildDeviceTypes)
         {
             deviceSelector->clear(dontSendNotification);
-            
+
             for (int i = 0; i < devices->size(); i++)
             {
                 deviceSelector->addItem(devices->getUnchecked(i)->getTypeName(), i + 1);
             };
         }
-        
+
         AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
-        
+
         if (currentDevice != nullptr)
         {
             const int thisDevice = devices->indexOf(driver->deviceManager->getCurrentDeviceTypeObject());
-            
+
             AudioIODeviceType *currentDeviceType = devices->getUnchecked(thisDevice);
-            
+
             if (rebuildDeviceTypes && thisDevice != -1)
             {
                 deviceSelector->setSelectedItemIndex(thisDevice, dontSendNotification);
             }
-            
+
 			auto bufferSizes = HiseSettings::ConversionHelpers::getBufferSizesForDevice(currentDevice);
-            
+
 			for (int i = 0; i < bufferSizes.size(); i++)
 			{
 				bufferSelector->addItem(String(bufferSizes[i]) + String(" Samples"), i + 1);
@@ -317,43 +317,43 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
             outputSelector->addItemList(HiseSettings::ConversionHelpers::getChannelPairs(currentDevice), 1);
             const int thisOutputName = (currentDevice->getActiveOutputChannels().getHighestBit() - 1) / 2;
             outputSelector->setSelectedItemIndex(thisOutputName, dontSendNotification);
-            
+
             if (rebuildDevices)
             {
                 soundCardSelector->clear(dontSendNotification);
-                
+
                 StringArray soundCardNames = currentDeviceType->getDeviceNames(false);
                 soundCardSelector->addItemList(soundCardNames, 1);
                 const int soundcardIndex = soundCardNames.indexOf(currentDevice->getName());
                 soundCardSelector->setSelectedItemIndex(soundcardIndex, dontSendNotification);
             }
-            
-            
+
+
             const int thisBufferSize = currentDevice->getCurrentBufferSizeSamples();
-            
+
             bufferSelector->setSelectedItemIndex(bufferSizes.indexOf(thisBufferSize), dontSendNotification);
-            
+
 			auto samplerates = HiseSettings::ConversionHelpers::getSampleRates(currentDevice);
 
             for (int i = 0; i < samplerates.size(); i++)
             {
                 sampleRateSelector->addItem(String(samplerates[i], 0), i + 1);
             }
-            
+
             const double thisSampleRate = currentDevice->getCurrentSampleRate();
-            
+
             sampleRateSelector->setSelectedItemIndex(samplerates.indexOf(thisSampleRate), dontSendNotification);
         }
         else
         {
             String message = "The Audio driver " + deviceSelector->getText() + " could not be opened.";
-            
+
 #if !HISE_IOS
 			PresetHandler::showMessageWindow("Audio Driver Initialisation Error", message, PresetHandler::IconType::Error);
 #endif
-            
+
             driver->deviceManager->initialiseWithDefaultDevices(0, 2);
-            
+
             if(!loopProtection)
             {
                 loopProtection=true;
@@ -361,9 +361,9 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
             }
         }
     }
-    
+
 	rebuildScaleFactorList();
-    
+
 	diskModeSelector->clear(dontSendNotification);
 	diskModeSelector->addItem("Fast - SSD", 1);
 	diskModeSelector->addItem("Slow - HDD", 2);
@@ -373,7 +373,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 	voiceAmountMultiplier->addItem(String(NUM_POLYPHONIC_VOICES/2) + " voices", 2);
 	voiceAmountMultiplier->addItem(String(NUM_POLYPHONIC_VOICES/4) + " voices", 4);
 	voiceAmountMultiplier->addItem(String(NUM_POLYPHONIC_VOICES/8) + " voices", 8);
-	
+
 	voiceAmountMultiplier->setSelectedId(driver->voiceAmountMultiplier, dontSendNotification);
 
 	openGLSelector->addItemList({ "Yes", "No" }, 1);
@@ -434,7 +434,7 @@ void CustomSettingsWindow::buttonClicked(Button* b)
 			File newLocation = fc.getResult();
 #else
         FileChooser fc("Select one of the .ch1 files at the new location", oldLocation, "*.ch1", true);
-            
+
         if(fc.browseForFileToOpen())
         {
             File newLocation = fc.getResult().getParentDirectory();
@@ -447,7 +447,7 @@ void CustomSettingsWindow::buttonClicked(Button* b)
 				auto& handler = mc->getSampleManager().getProjectHandler();
 
 				handler.checkAllSampleReferences();
-				
+
 				if (handler.areSampleReferencesCorrect())
 				{
 					PresetHandler::showMessageWindow("Sample Folder relocated", "You need to close and reopen the plugin to complete this step", PresetHandler::IconType::Info);
@@ -539,7 +539,7 @@ void CustomSettingsWindow::comboBoxChanged(ComboBox* comboBoxThatHasChanged)
 		driver->voiceAmountMultiplier = newVoiceAmount;
 
 		mc->rebuildVoiceLimits();
-		
+
 	}
 	else if (comboBoxThatHasChanged == scaleFactorSelector)
 	{
@@ -599,8 +599,8 @@ void CustomSettingsWindow::paint(Graphics& g)
 				drawLabel(Properties::BufferSize, "Buffer Size");
 				drawLabel(Properties::SampleRate, "Sample Rate");
 				drawLabel(Properties::GlobalBPM, "Global BPM");
-				drawLabel(Properties::ScaleFactor, "UI Zoom Factor");
-				drawLabel(Properties::UseOpenGL, "Use OpenGL");
+				drawLabel(Properties::ScaleFactor, "UI ZOOM");
+				drawLabel(Properties::UseOpenGL, "OPENGL");
 				drawLabel(Properties::StreamingMode, "Streaming Mode");
 				drawLabel(Properties::VoiceAmountMultiplier, "Max Voices");
 			}
@@ -610,16 +610,16 @@ void CustomSettingsWindow::paint(Graphics& g)
 	}
 
     g.setColour(findColour((int)ColourIds::textColour));
-    
+
 	g.setFont(font);
 
 	int y = 10;
 
 	drawLabel = [&](Properties id, const char* text)
 	{
-		if (isOn(id)) 
-		{ 
-			g.drawText(text, 0, y, getWidth() / 2 - 30, 30, Justification::centredRight); 
+		if (isOn(id))
+		{
+			g.drawText(text, 0, y, getWidth() / 2 - 30, 30, Justification::centredRight);
 			y += 40;
 		}
 	};
@@ -662,7 +662,7 @@ void CustomSettingsWindow::paint(Graphics& g)
 void CustomSettingsWindow::resized()
 {
     int y = 10;
-    
+
 	POSITION_COMBOBOX(Properties::Driver, deviceSelector);
 	POSITION_COMBOBOX(Properties::Device, soundCardSelector);
 	POSITION_COMBOBOX(Properties::Output, outputSelector);
@@ -679,7 +679,7 @@ void CustomSettingsWindow::resized()
 
 	if (isOn(Properties::SampleLocation))
 		y += 40;
-	
+
 	POSITION_BUTTON(Properties::DebugMode, debugButton);
 }
 
@@ -768,12 +768,12 @@ void CombinedSettingsWindow::toggleButtonWasClicked(ToggleButtonList* /*list*/, 
 
 void CombinedSettingsWindow::buttonClicked(Button* )
 {
-    
+
     dynamic_cast<AudioProcessorDriver*>(mc)->saveDeviceSettingsAsXml();
     ScopedPointer<XmlElement> deviceData = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->createStateXml().release();
     dynamic_cast<AudioProcessorDriver*>(mc)->initialiseAudioDriver(deviceData);
 
-    
+
 	findParentComponentOfClass<ModalBaseWindow>()->clearModalComponent();
 }
 
