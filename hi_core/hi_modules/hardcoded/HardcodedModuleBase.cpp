@@ -560,7 +560,7 @@ void HardcodedSwappableEffect::preallocateUnloadedParameters(Array<Identifier> u
 	{
 		unloadedParameters = unloadedParameters_;
 		numParameters = unloadedParameters.size();
-		lastParameters.setSize(numParameters, false);
+		lastParameters.setSize(numParameters * sizeof(float), false);
 		asProcessor().updateParameterSlots(getParameterOffset() + numParameters);
 	}
 }
@@ -989,7 +989,7 @@ void HardcodedSwappableEffect::restoreHardcodedData(const ValueTree& v)
 
 		if(numParameters > 0)
 		{
-			lastParameters.setSize(numParameters);
+			lastParameters.setSize(numParameters * sizeof(float));
 
 			Array<Identifier> up;
 
@@ -1004,7 +1004,7 @@ void HardcodedSwappableEffect::restoreHardcodedData(const ValueTree& v)
 			{
 				if(auto ptr = getParameterPtr(i))
 				{
-					auto value = (float)v[up.getLast()];
+					auto value = (float)v[up[i]];
 					*ptr = value;
 				}
 			}
