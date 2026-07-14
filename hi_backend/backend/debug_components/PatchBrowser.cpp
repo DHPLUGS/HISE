@@ -979,7 +979,13 @@ idUpdater(p->getMainController()->getRootDispatcher(), *this, BIND_MEMBER_FUNCTI
 
 	static Path soloPath;
 
-	soloPath.loadPathFromData(BackendBinaryData::PopupSymbols::soloShape, SIZE_OF_PATH(BackendBinaryData::PopupSymbols::soloShape));
+	// Path::loadPathFromData appends to the path, so a static must only be filled once:
+	// reloading it for every ModuleDragTarget grows the shared path by one copy per module
+	// and setShape() then copies that path into each button, which is quadratic in the
+	// number of modules.
+	if (soloPath.isEmpty())
+		soloPath.loadPathFromData(BackendBinaryData::PopupSymbols::soloShape, SIZE_OF_PATH(BackendBinaryData::PopupSymbols::soloShape));
+
 	soloButton->setShape(soloPath, false, true, false);
 	soloButton->addListener(this);
 
@@ -987,7 +993,9 @@ idUpdater(p->getMainController()->getRootDispatcher(), *this, BIND_MEMBER_FUNCTI
 
 	static Path hidePath;
 
-	hidePath.loadPathFromData(BackendBinaryData::ToolbarIcons::viewPanel, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::viewPanel));
+	if (hidePath.isEmpty())
+		hidePath.loadPathFromData(BackendBinaryData::ToolbarIcons::viewPanel, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::viewPanel));
+
 	hideButton->setShape(hidePath, false, true, false);
 	hideButton->addListener(this);
  
