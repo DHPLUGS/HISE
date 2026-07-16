@@ -138,9 +138,82 @@ public:
 };
 
 // Detects whether a filter subtype implements setDrive(double). Only the drive-
-// capable subtypes (apex/diode/tb303) do; the rest ignore the Drive parameter.
+// capable subtypes do; the rest ignore the Drive parameter.
 template <class T, class = void> struct FilterHasSetDrive : std::false_type {};
 template <class T> struct FilterHasSetDrive<T, std::void_t<decltype(std::declval<T>().setDrive(0.0))>> : std::true_type {};
+
+// Serum-style pre-filter drive shared by the drive-capable subtypes (designed on
+// ApexFilterSubType, see the rationale there): an asymmetric tanh drives the signal
+// INTO the filter, adding harmonics while PRESERVING resonance (saturating the
+// resonance feedback instead nulls resonance and dulls the sound). The bias makes
+// the curve asymmetric so it generates even harmonics (2nd/4th) for tube-like
+// low-end weight. Makeup is MEASURED, not guessed: set() runs a reference sine
+// through the curve and cancels its AC gain exactly (the old static 1/(1+0.8d)
+// was loudest around drive = 0.5), then adds a monotonic 0..+2dB loudness tilt
+// so drive gains a little weight and never gets quieter. Drive = 0 is
+// bit-transparent (drive() -> identity, makeup = 1).
+struct PreFilterDrive
+{
+	void set(double newDrive)
+	{
+		const double d = jlimit(0.0, 1.0, newDrive);
+		gain = d * 5.0;             // pre-drive gain g            (tunable)
+		bias = d * 0.25;            // asymmetry -> low-end weight (tunable)
+
+		if (gain > 0.0)
+		{
+			biasOffset = std::tanh(gain * bias);
+			norm = 1.0 / std::tanh(gain);
+
+			// Auto-gain: AC-RMS of a reference sine (amp 0.5 ~ typical program
+			// level) through the curve, DC excluded - the asymmetry produces a
+			// DC component that carries no loudness (and is blocked downstream),
+			// so matching on it would over-attenuate high drive. Control-rate
+			// only (runs per parameter change, never per sample).
+			constexpr int numPoints = 32;
+			constexpr double refAmp = 0.5;
+			double sum = 0.0, sumSq = 0.0;
+			for (int i = 0; i < numPoints; ++i)
+			{
+				const double y = drive(refAmp * std::sin((2.0 * double_Pi * i) / numPoints));
+				sum += y; sumSq += y * y;
+			}
+			const double mean  = sum / numPoints;
+			const double acRms = std::sqrt(jmax(1.0e-12, sumSq / numPoints - mean * mean));
+			makeup = (refAmp / 1.41421356237) / acRms;   // input sine RMS / output AC-RMS
+
+			// Loudness tilt on top of the flat baseline: 0dB at drive 0 rising
+			// linearly (in dB) to +2dB at full drive, so drive always gets a
+			// little louder, never quieter. (tunable)
+			constexpr double tiltDb = 2.0;
+			makeup *= std::pow(10.0, (tiltDb * d) / 20.0);
+		}
+		else
+		{
+			biasOffset = 0.0;
+			norm = 1.0;
+			makeup = 1.0;
+		}
+	}
+
+	// Apply to the signal going INTO the filter. Unity full-scale, identity at gain = 0.
+	inline double drive(double x) const
+	{
+		if (gain <= 0.0)
+			return x;
+
+		return (std::tanh(gain * (x + bias)) - biasOffset) * norm;
+	}
+
+	// Apply to the filter output (measured auto-gain).
+	inline double compensate(double x) const { return x * makeup; }
+
+	double gain = 0.0;         // pre-drive gain g (drive * 5)
+	double bias = 0.0;         // asymmetry bias
+	double biasOffset = 0.0;   // tanh(g*b), precomputed
+	double norm = 1.0;         // 1/tanh(g), precomputed
+	double makeup = 1.0;       // measured AC-RMS output makeup
+};
 
 /** A base class for filters with multiple channels.
 *
@@ -811,6 +884,9 @@ public:
 	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
 	void processFrame(float* frameData, int numChannels);
 
+	// Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+	void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
 
 	static inline double fastTanh(double x)
@@ -824,6 +900,8 @@ private:
 		const double x2 = x * x;
 		return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 	}
+
+	PreFilterDrive driveStage;
 
 	Mode mode = LP_FourPole;
 
@@ -887,9 +965,14 @@ public:
 	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
 	void processFrame(float* frameData, int numChannels);
 
+	// Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+	void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
 
 	Mode mode = LP;
+
+	PreFilterDrive driveStage;
 
 	// Per-channel integrator states
 	double s1[NUM_MAX_CHANNELS] = {};
@@ -961,6 +1044,9 @@ public:
 	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
 	void processFrame(float* frameData, int numChannels);
 
+	// Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+	void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
 
 	static inline double fastTanh(double x)
@@ -978,6 +1064,8 @@ private:
 	}
 
 	Mode mode = LP;
+
+	PreFilterDrive driveStage;
 
 	// Per-channel integrator states
 	double s1[NUM_MAX_CHANNELS] = {};
@@ -1128,6 +1216,9 @@ public:
     void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
     void processFrame(float* frameData, int numChannels);
 
+    // Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+    void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
 
     static inline double fastTanh(double x)
@@ -1139,6 +1230,8 @@ private:
         const double x2 = x * x;
         return x * (27.0 + x2) / (27.0 + 9.0 * x2);
     }
+
+    PreFilterDrive driveStage;
 
     Mode mode = LP;
 
@@ -1537,7 +1630,12 @@ public:
 	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
 	void processFrame(float* frameData, int numChannels);
 
+	// Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+	void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
+	PreFilterDrive driveStage;
+
 	// Per-channel state (RNBO z0-z3)
 	double z0[NUM_MAX_CHANNELS] = {};
 	double z1[NUM_MAX_CHANNELS] = {};
@@ -1602,7 +1700,12 @@ public:
 	void processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples);
 	void processFrame(float* frameData, int numChannels);
 
+	// Serum-style pre-filter drive (shared circuit, see PreFilterDrive).
+	void setDrive(double newDrive) { driveStage.set(newDrive); }
+
 private:
+
+	PreFilterDrive driveStage;
 
 	// Biquad coefficients (Direct Form I)
 	float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
@@ -1720,8 +1823,9 @@ FORWARD_DECLARE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 //   LP24/36/48, HP24/36/48, BP24, Notch24, Morph. Gain is used only by Morph
 //   (as morph position, like svf); Drive is a separate node parameter.
 //
-//   Drive = 0 is bit-transparent to the clean Cytomic filter (preDrive -> identity
-//   at g = 0, and outComp = 1).
+//   Drive = 0 is bit-transparent to the clean Cytomic filter (PreFilterDrive is
+//   identity at drive = 0). The drive circuit lives in the shared PreFilterDrive
+//   struct, also used by the moog_ladder/korg35/oberheim/tb303/zdf_diode/dj subtypes.
 // ============================================================================
 
 class ApexFilterSubType
@@ -1760,17 +1864,6 @@ public:
 
 private:
 
-	// Pre-filter drive: drives the signal into the filter. Unity full-scale and
-	// transparent at g = 0. A bias (b) makes the curve asymmetric so it generates
-	// even harmonics (2nd/4th) for tube-like low-end weight, a la Serum; b = 0 is
-	// the symmetric tanh (odd harmonics only). Adds harmonics while leaving the
-	// filter (and its resonance) linear.
-	static inline double preDrive(double x, double g, double b)
-	{
-		if (g <= 0.0) return x;
-		return (std::tanh(g * (x + b)) - std::tanh(g * b)) / std::tanh(g);
-	}
-
 	// One Cytomic SVF stage: coefficients (a0..a2, mix m0..m2) + per-channel state.
 	struct Stage
 	{
@@ -1791,10 +1884,7 @@ private:
 
 	FilterType type = LP;
 	int numStages = 1;
-	double drive = 0.0;       // 0..1 user drive
-	double driveCoeff = 0.0;  // pre-drive gain g (drive * 5)
-	double driveBias = 0.0;   // asymmetry bias -> even-harmonic low-end weight
-	double outComp = 1.0;     // partial makeup (lets drive add some weight/level)
+	PreFilterDrive driveStage;   // Serum-style pre-filter drive (shared circuit)
 
 	Stage stages[MAX_STAGES];
 

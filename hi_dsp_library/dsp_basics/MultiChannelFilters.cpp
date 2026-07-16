@@ -568,6 +568,7 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 {
 	const double G_t  = G;
 	const double fb_t = fb;
+	const PreFilterDrive pd = driveStage;
 
 	for (int c = 0; c < buffer.getNumChannels(); c++)
 	{
@@ -580,7 +581,7 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 			const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
 			const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
 
-			const double input = (double)d[i];
+			const double input = pd.drive((double)d[i]);
 
 			// Feedback with tanh nonlinearity on the feedback signal
 			const double u = input - fb_i * fastTanh(y4prev[c]);
@@ -620,7 +621,7 @@ void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 				default:          out = y3;       break;
 			}
 
-			d[i] = (float)(out * norm);
+			d[i] = (float)pd.compensate(out * norm);
 		}
 	}
 
@@ -633,7 +634,7 @@ void MoogLadderSubType::processFrame(float* frameData, int numChannels)
 {
 	for (int c = 0; c < numChannels; c++)
 	{
-		const double input = (double)frameData[c];
+		const double input = driveStage.drive((double)frameData[c]);
 
 		const double u = input - fb * fastTanh(y4prev[c]);
 
@@ -671,7 +672,7 @@ void MoogLadderSubType::processFrame(float* frameData, int numChannels)
 			default:          out = y3;       break;
 		}
 
-		frameData[c] = (float)(out * norm);
+		frameData[c] = (float)driveStage.compensate(out * norm);
 	}
 }
 
@@ -835,6 +836,7 @@ void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, i
 	const double a0_t     = alpha0;
 	const double B3_t     = B3;
 	const double B2_t     = B2;
+	const PreFilterDrive pd = driveStage;
 
 	const int numChannels = buffer.getNumChannels();
 	const double inv = (numSamples > 1) ? 1.0 / (double)(numSamples - 1) : 1.0;
@@ -851,7 +853,7 @@ void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, i
 
 		for (int c = 0; c < numChannels; ++c)
 		{
-			const double x = buffer.getSample(c, startSample + n);
+			const double x = pd.drive(buffer.getSample(c, startSample + n));
 
 			if (mode == LP)
 			{
@@ -872,7 +874,7 @@ void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, i
 				const double v2 = G_i * (K_i * lp3 - s2[c]);
 				s2[c] += 2.0 * v2;
 
-				buffer.setSample(c, startSample + n, (float)lp3);
+				buffer.setSample(c, startSample + n, (float)pd.compensate(lp3));
 			}
 			else // HP
 			{
@@ -895,7 +897,7 @@ void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, i
 				const double v3 = G_i * (hp2 - s3[c]);
 				s3[c] += 2.0 * v3;
 
-				buffer.setSample(c, startSample + n, (float)sig);
+				buffer.setSample(c, startSample + n, (float)pd.compensate(sig));
 			}
 		}
 	}
@@ -912,7 +914,7 @@ void Korg35SubType::processFrame(float* frameData, int numChannels)
 {
 	for (int c = 0; c < numChannels; ++c)
 	{
-		const double x = frameData[c];
+		const double x = driveStage.drive(frameData[c]);
 
 		if (mode == LP)
 		{
@@ -929,7 +931,7 @@ void Korg35SubType::processFrame(float* frameData, int numChannels)
 			const double v2 = G * (K * lp3 - s2[c]);
 			s2[c] += 2.0 * v2;
 
-			frameData[c] = (float)lp3;
+			frameData[c] = (float)driveStage.compensate(lp3);
 		}
 		else // HP
 		{
@@ -948,7 +950,7 @@ void Korg35SubType::processFrame(float* frameData, int numChannels)
 			const double v3 = G * (hp2 - s3[c]);
 			s3[c] += 2.0 * v3;
 
-			frameData[c] = (float)sig;
+			frameData[c] = (float)driveStage.compensate(sig);
 		}
 	}
 }
@@ -1124,6 +1126,7 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
 {
     const int numChannels = buffer.getNumChannels();
     const double a = 1.0 - coeffSmooth;   // one-pole glide rate toward the target cutoff
+    const PreFilterDrive pd = driveStage;
 
     for (int n = 0; n < numSamples; ++n)
     {
@@ -1138,6 +1141,7 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
         {
             double x = buffer.getSample(c, startSample + n);
             if (!std::isfinite(x)) x = 0.0;   // an upstream NaN/Inf would otherwise latch the leak-free integrators forever
+            x = pd.drive(x);
             const double hpf = (x - s2[c] - fb_i * s1[c]) * a0_i;
             const double v1  = g_i * hpf + s1[c];
             const double bpf = fastTanh(v1);
@@ -1169,6 +1173,8 @@ void OberheimSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
                 }
             }
 
+            out = pd.compensate(out);
+
             // Last line of defense: never write a non-finite sample (the analyser/goniometer
             // builds an EdgeTable from it and hard-crashes). Heal the state on the spot.
             if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }
@@ -1199,6 +1205,7 @@ void OberheimSubType::processFrame(float* frameData, int numChannels)
     {
         double x = frameData[c];
         if (!std::isfinite(x)) { x = 0.0; s1[c] = s2[c] = 0.0; }   // sanitize input + self-heal state
+        x = driveStage.drive(x);
         const double hpf = (x - s2[c] - FBs1_f * s1[c]) * a0_f;
         const double v1  = g_f * hpf + s1[c];
         const double bpf = fastTanh(v1);
@@ -1229,6 +1236,8 @@ void OberheimSubType::processFrame(float* frameData, int numChannels)
                 default:  out = lpf;       break;
             }
         }
+
+        out = driveStage.compensate(out);
 
         if (!std::isfinite(out)) { out = 0.0; s1[c] = s2[c] = 0.0; }   // never emit non-finite (crashes the goniometer)
 
@@ -1614,6 +1623,7 @@ void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
 {
     const double G_t  = G;
     const double fb_t = fb;
+    const PreFilterDrive pd = driveStage;
 
     for (int c = 0; c < buffer.getNumChannels(); c++)
     {
@@ -1626,7 +1636,7 @@ void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
             const double G_i  = G_prev  + (G_t  - G_prev)  * interp;
             const double fb_i = fb_prev + (fb_t - fb_prev) * interp;
 
-            const double input = (double)d[i];
+            const double input = pd.drive((double)d[i]);
 
             // Input HPF: fixed 35 Hz one-pole TPT highpass
             const double v_hp  = G_hp * (input - hp_s[c]);
@@ -1673,7 +1683,7 @@ void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSamp
             hp_s[c]     *= leak;
             hpf_prev[c] *= leak;
 
-            d[i] = (float)y3;
+            d[i] = (float)pd.compensate(y3);
         }
     }
 
@@ -1686,7 +1696,7 @@ void TB303FilterSubType::processFrame(float* frameData, int numChannels)
 {
     for (int c = 0; c < numChannels; c++)
     {
-        const double input = (double)frameData[c];
+        const double input = driveStage.drive((double)frameData[c]);
 
         // Input HPF: fixed 35 Hz one-pole TPT highpass
         const double v_hp  = G_hp * (input - hp_s[c]);
@@ -1733,7 +1743,7 @@ void TB303FilterSubType::processFrame(float* frameData, int numChannels)
         hp_s[c]     *= leak;
         hpf_prev[c] *= leak;
 
-        frameData[c] = (float)y3;
+        frameData[c] = (float)driveStage.compensate(y3);
     }
 }
 
@@ -3145,6 +3155,7 @@ void ZDFDiodeLadderSubType::processSamples(AudioSampleBuffer& buffer,
                                             int startSample, int numSamples)
 {
     const int numChannels = buffer.getNumChannels();
+    const PreFilterDrive pd = driveStage;
 
     for (int c = 0; c < numChannels; c++)
     {
@@ -3157,7 +3168,7 @@ void ZDFDiodeLadderSubType::processSamples(AudioSampleBuffer& buffer,
             const double k_i        = k_prev        + (k        - k_prev)        * interp;
             const double amp_comp_i = amp_comp_prev + (amp_comp - amp_comp_prev) * interp;
 
-            const double xn = (double)d[i];
+            const double xn = pd.drive((double)d[i]);
 
             const double sv = (z0[c]*wc3
                              + z1[c]*(wc2 + 2.0*wc3)
@@ -3197,7 +3208,7 @@ void ZDFDiodeLadderSubType::processSamples(AudioSampleBuffer& buffer,
 
             const double lp = amp_comp_i * y4out;
             const double hp = xn - y4out;
-            d[i] = (float)(mode == 1 ? hp : lp);
+            d[i] = (float)pd.compensate(mode == 1 ? hp : lp);
         }
     }
 
@@ -3212,7 +3223,7 @@ void ZDFDiodeLadderSubType::processFrame(float* frameData, int numChannels)
 
     for (int c = 0; c < numChannels; c++)
     {
-        const double xn = (double)frameData[c];
+        const double xn = driveStage.drive((double)frameData[c]);
 
         const double sv = (z0[c]*wc3
                          + z1[c]*(wc2 + 2.0*wc3)
@@ -3252,7 +3263,7 @@ void ZDFDiodeLadderSubType::processFrame(float* frameData, int numChannels)
 
         const double lp = amp_comp_i * y4out;
         const double hp = xn - y4out;
-        frameData[c] = (float)(mode == 1 ? hp : lp);
+        frameData[c] = (float)driveStage.compensate(mode == 1 ? hp : lp);
     }
 }
 
@@ -3390,6 +3401,7 @@ void DJFilterSubType::updateCoefficients(double sampleRate, double frequency, do
 void DJFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
 	const int numChannels = buffer.getNumChannels();
+	const PreFilterDrive pd = driveStage;
 
 	for (int c = 0; c < numChannels; c++)
 	{
@@ -3397,7 +3409,7 @@ void DJFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
 
 		for (int i = 0; i < numSamples; i++)
 		{
-			const float in = d[i];
+			const float in = (float)pd.drive((double)d[i]);
 			const float out = b0 * in + b1 * x1[c] + b2 * x2[c]
 			                - a1 * y1[c] - a2 * y2[c];
 
@@ -3406,7 +3418,7 @@ void DJFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample,
 			y2[c] = y1[c];
 			y1[c] = out;
 
-			d[i] = out * outputGain;
+			d[i] = (float)pd.compensate(out * outputGain);
 		}
 	}
 }
@@ -3415,7 +3427,7 @@ void DJFilterSubType::processFrame(float* frameData, int numChannels)
 {
 	for (int c = 0; c < numChannels; c++)
 	{
-		const float in = frameData[c];
+		const float in = (float)driveStage.drive((double)frameData[c]);
 		const float out = b0 * in + b1 * x1[c] + b2 * x2[c]
 		                - a1 * y1[c] - a2 * y2[c];
 
@@ -3424,7 +3436,7 @@ void DJFilterSubType::processFrame(float* frameData, int numChannels)
 		y2[c] = y1[c];
 		y1[c] = out;
 
-		frameData[c] = out * outputGain;
+		frameData[c] = (float)driveStage.compensate(out * outputGain);
 	}
 }
 
@@ -5894,7 +5906,7 @@ DEFINE_MULTI_CHANNEL_FILTER(ScreamBodySubType);
 //   and a Serum-style pre-filter Drive that pushes the signal into the (linear)
 //   filter, so it adds harmonics while preserving resonance. Reuses the file-
 //   static Cytomic helpers (evalCytomicStage, getEqSectionQ). Drive = 0 is
-//   bit-transparent (preDrive -> identity, makeup = 1).
+//   bit-transparent (the shared PreFilterDrive is identity at drive = 0).
 // ============================================================================
 
 static const double apexQ24[2] = { 0.5412, 1.3066 };
@@ -5990,10 +6002,7 @@ void ApexFilterSubType::setType(int t)
 
 void ApexFilterSubType::setDrive(double newDrive)
 {
-	drive = jlimit(0.0, 1.0, newDrive);
-	driveCoeff = drive * 5.0;                // pre-drive gain g          (tunable)
-	driveBias  = drive * 0.25;               // asymmetry -> low-end weight (tunable)
-	outComp    = 1.0 / (1.0 + 0.8 * drive);  // partial makeup: drive adds some weight
+	driveStage.set(newDrive);
 }
 
 void ApexFilterSubType::reset(int /*numChannels*/)
@@ -6065,9 +6074,7 @@ void ApexFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 void ApexFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
 	const int numChannels = buffer.getNumChannels();
-	const double d  = driveCoeff;
-	const double b  = driveBias;
-	const double mk = outComp;
+	const PreFilterDrive pd = driveStage;
 
 	for (int c = 0; c < numChannels; ++c)
 	{
@@ -6076,28 +6083,26 @@ void ApexFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 		{
 			double v = (double)data[i];
 			if (!std::isfinite(v)) v = 0.0;
-			v = preDrive(v, d, b);              // Serum-style pre-filter drive (asymmetric)
+			v = pd.drive(v);                    // Serum-style pre-filter drive (asymmetric)
 			for (int s = 0; s < numStages; ++s)
 				v = stages[s].tick(v, c);
-			data[i] = (float)(v * mk);
+			data[i] = (float)pd.compensate(v);
 		}
 	}
 }
 
 void ApexFilterSubType::processFrame(float* frameData, int numChannels)
 {
-	const double d  = driveCoeff;
-	const double b  = driveBias;
-	const double mk = outComp;
+	const PreFilterDrive pd = driveStage;
 
 	for (int c = 0; c < numChannels; ++c)
 	{
 		double v = (double)frameData[c];
 		if (!std::isfinite(v)) v = 0.0;
-		v = preDrive(v, d, b);
+		v = pd.drive(v);
 		for (int s = 0; s < numStages; ++s)
 			v = stages[s].tick(v, c);
-		frameData[c] = (float)(v * mk);
+		frameData[c] = (float)pd.compensate(v);
 	}
 }
 
