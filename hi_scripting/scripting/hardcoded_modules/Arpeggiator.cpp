@@ -172,7 +172,7 @@ void Arpeggiator::mpeModeChanged(bool isEnabled)
 void Arpeggiator::onInit()
 {
 	Content.setWidth(800);
-	Content.setHeight(550);
+	Content.setHeight(590);
 	
 	userHeldKeysArray.ensureStorageAllocated(128);
 	userHeldKeysArraySorted.ensureStorageAllocated(128);
@@ -237,7 +237,7 @@ void Arpeggiator::onInit()
 	shuffleSlider = Content.addKnob("Shuffle", 150, 445);
 	shuffleSlider->set("mode", "NormalizedPercentage");
 
-	currentStepSlider = Content.addKnob("CurrentValue", 160, 400);
+	currentStepSlider = Content.addKnob("CurrentValue", 160, 448);
 
 	currentStepSlider->set("width", 512);
 	currentStepSlider->set("height", 16);
@@ -256,7 +256,7 @@ void Arpeggiator::onInit()
 	auto bg = Content.addPanel("packBg", 150, 5);
 
 	bg->set("width", 532);
-	bg->set("height", 422);
+	bg->set("height", 462);
 
 	semiToneSliderPack = Content.addSliderPack("SemiToneSliderPack", 160, 30);
 	semiToneSliderPack->registerComplexDataObjectAtParent(0);
@@ -287,8 +287,19 @@ void Arpeggiator::onInit()
 	lengthSliderPack->set("max", 100);
 	lengthSliderPack->set("sliderAmount", 4);
 	lengthSliderPack->set("stepSize", "1");
-	
-	inputMidiChannel = Content.addComboBox("ChannelSelector", 300, 460);
+
+	activeSliderPack = Content.addSliderPack("ActiveSliderPack", 160, 410);
+	activeSliderPack->getSliderPackData()->setDefaultValue(1.0);
+	activeSliderPack->registerComplexDataObjectAtParent(3);
+
+	activeSliderPack->set("width", 512);
+	activeSliderPack->set("height", 30);
+	activeSliderPack->set("min", 0);
+	activeSliderPack->set("max", 1);
+	activeSliderPack->set("sliderAmount", 4);
+	activeSliderPack->set("stepSize", "1");
+
+	inputMidiChannel = Content.addComboBox("ChannelSelector", 300, 500);
 	inputMidiChannel->set("items", "");
 	
 	inputMidiChannel->addItem("All Channels");
@@ -309,7 +320,7 @@ void Arpeggiator::onInit()
 	inputMidiChannel->addItem("Channel 15");
 	inputMidiChannel->addItem("Channel 16");
 
-	outputMidiChannel = Content.addComboBox("OutputChannelSelector", 300, 460 + 55);
+	outputMidiChannel = Content.addComboBox("OutputChannelSelector", 300, 500 + 55);
 	
 	outputMidiChannel->set("items", "");
 	outputMidiChannel->addItem("Use input channel");
@@ -330,7 +341,7 @@ void Arpeggiator::onInit()
 	outputMidiChannel->addItem("Channel 15");
 	outputMidiChannel->addItem("Channel 16");
 
-	mpeStartChannel = Content.addComboBox("MPEStartChannel", 450, 460);
+	mpeStartChannel = Content.addComboBox("MPEStartChannel", 450, 500);
 	
 	mpeStartChannel->set("items", "");
 	mpeStartChannel->addItem("Inactive");
@@ -350,7 +361,7 @@ void Arpeggiator::onInit()
 	mpeStartChannel->addItem("Channel 15");
 	mpeStartChannel->addItem("Channel 16");
 
-	mpeEndChannel = Content.addComboBox("MPEEndChannel", 450, 460 + 55);
+	mpeEndChannel = Content.addComboBox("MPEEndChannel", 450, 500 + 55);
 	mpeEndChannel->set("text", "MPE End Channel");
 	mpeEndChannel->set("items", "");
 	mpeEndChannel->addItem("Inactive");
@@ -378,6 +389,7 @@ void Arpeggiator::onInit()
 	createLabel("NoteLabel", "Note Numbers", semiToneSliderPack);
 	createLabel("VeloLabel", "Velocity", velocitySliderPack);
 	createLabel("LengthLabel", "Note Length", lengthSliderPack);
+	createLabel("ActiveLabel", "Step Enable", activeSliderPack);
 	createLabel("MIDILabel1", "Input Channel", inputMidiChannel);
 	createLabel("MIDILabel2", "Output Channel", outputMidiChannel);
 	createLabel("MIDILabel3", "MPE Start Channel", mpeStartChannel);
@@ -399,10 +411,12 @@ void Arpeggiator::onInit()
 	velocitySliderPack->setAllValues(127);
 	lengthSliderPack->setAllValues(75);
 	semiToneSliderPack->setAllValues(0);
+	activeSliderPack->setAllValues(1);
 
 	resetButton->set("tooltip", "Stops the current sequence if pressed");
 
 	enableTieNotes->set("tooltip", "Ties steps with 100% length to the next note");
+	activeSliderPack->set("tooltip", "Mutes steps that are set to 0 without changing their length");
 	sustainHold->set("tooltip", "Holds the sequence if the sustain pedal is pressed");
 	inputMidiChannel->set("tooltip", "The MIDI channel that is fed into the arpeggiator.");
 	outputMidiChannel->set("tooltip", "The MIDI channel that is used for the arpeggiated notes");
@@ -436,7 +450,7 @@ void Arpeggiator::onNoteOn()
 
 	addUserHeldKey(newNote);
 
-	if (is_playing && currentDirection == Direction::Chord && (Engine.getUptime() - chordStartUptime < 0.02))
+	if (is_playing && currentDirection == Direction::Chord && (Engine.getUptime() - chordStartUptime < 0.02) && !curr_step_is_skip())
 	{
 		// Here we land if the chord mode has just been started but the
 		// arp is already playing, so we need to manually play the note.
@@ -491,6 +505,7 @@ void Arpeggiator::onControl(ScriptingApi::Content::ScriptComponent *c, var value
 		lengthSliderPack->set("sliderAmount", newNumber);
 		velocitySliderPack->set("sliderAmount", newNumber);
 		semiToneSliderPack->set("sliderAmount", newNumber);
+		activeSliderPack->set("sliderAmount", newNumber);
 		currentStepSlider->set("max", newNumber);
 	}
 	else if (c == bypassButton)
@@ -684,6 +699,9 @@ void Arpeggiator::playNote()
 	currentNote += (int8)semiToneSliderPack->getSliderValueAt(currentStep);
 	currentVelocity = (int)velocitySliderPack->getSliderValueAt(currentStep);
 	currentNoteLengthInSamples = (int)(Engine.getSamplesForMilliSeconds(timeInterval * 1000.0) * (double)lengthSliderPack->getSliderValueAt(currentStep) / 100.0);
+
+	// value is read via curr_step_is_skip() without flashing; this only syncs the display index
+	activeSliderPack->getSliderValueAt(currentStep);
 
 	/* --- PLAY NOTE LOGIC --- */
 

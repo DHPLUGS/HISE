@@ -290,7 +290,8 @@ private:
 
 	bool curr_step_is_skip()
 	{
-		return getSliderValueWithoutDisplay(lengthSliderPack, currentStep) == 0.0f;
+		return getSliderValueWithoutDisplay(lengthSliderPack, currentStep) == 0.0f ||
+			   getSliderValueWithoutDisplay(activeSliderPack, currentStep, 1.0f) < 0.5f;
 	};
 
 	void createLabel(const String& lName, const String& lContent, ScriptComponent* attachedComponent)
@@ -314,10 +315,11 @@ private:
 	{
 		int nextStep = incAndWrapValueFromZeroToMax(currentStep, stepSkipSlider->getValue(), lengthSliderPack->getNumSliders());
 
-		return getSliderValueWithoutDisplay(lengthSliderPack, nextStep) == 0.0f;
+		return getSliderValueWithoutDisplay(lengthSliderPack, nextStep) == 0.0f ||
+			   getSliderValueWithoutDisplay(activeSliderPack, nextStep, 1.0f) < 0.5f;
 	};
 
-	static float getSliderValueWithoutDisplay(ScriptingApi::Content::ScriptSliderPack* sp, int index)
+	static float getSliderValueWithoutDisplay(ScriptingApi::Content::ScriptSliderPack* sp, int index, float defaultValue = 0.0f)
 	{
 		auto bf = static_cast<SliderPackData*>(sp->getCachedDataObject())->getDataArray().getBuffer();
 
@@ -326,13 +328,14 @@ private:
 		else
 		{
 			//jassertfalse;
-			return 0.0f;
+			return defaultValue;
 		}
 	}
 
 	ScriptSliderPack semiToneSliderPack;
 	ScriptSliderPack velocitySliderPack;
 	ScriptSliderPack lengthSliderPack;
+	ScriptSliderPack activeSliderPack;
 	ScriptButton bypassButton;
 	ScriptSlider numStepSlider;
 	ScriptButton sortKeysButton;

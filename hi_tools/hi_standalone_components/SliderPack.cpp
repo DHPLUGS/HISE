@@ -725,10 +725,6 @@ void SliderPack::mouseDown(const MouseEvent &e)
 
 		int sliderIndex = getSliderIndexForMouseEvent(e);
 
-		
-		if(!callbackOnMouseUp)
-			getData()->setDisplayedIndex(sliderIndex);
-
 		Slider *s = sliders[sliderIndex];
 
 		if (s == nullptr)
