@@ -592,6 +592,9 @@ var MidiKeyboardPanel::toDynamicObject() const
 	storePropertyInObject(obj, SpecialPanelIds::MPEStartChannel, mpeZone.getStart());
 	storePropertyInObject(obj, SpecialPanelIds::MPEEndChannel, mpeZone.getEnd());
 
+	if (auto ck = dynamic_cast<CustomKeyboard*>(keyboard.get()))
+		storePropertyInObject(obj, SpecialPanelIds::ShowArtificialNotes, ck->isShowingArtificialNotes());
+
 	return obj;
 }
 
@@ -634,6 +637,9 @@ void MidiKeyboardPanel::restoreInternal(const var& object)
 	keyboard->setEnableToggleMode(getPropertyWithDefault(object, SpecialPanelIds::ToggleMode));
 	keyboard->setMidiChannelBase(getPropertyWithDefault(object, SpecialPanelIds::MidiChannel));
 	keyboard->setUseVectorGraphics(getPropertyWithDefault(object, SpecialPanelIds::UseVectorGraphics), getPropertyWithDefault(object, SpecialPanelIds::UseFlatStyle));
+
+	if (auto ck = dynamic_cast<CustomKeyboard*>(keyboard.get()))
+		ck->setShowArtificialNotes(getPropertyWithDefault(object, SpecialPanelIds::ShowArtificialNotes));
 
 	auto startChannel = (int)getPropertyWithDefault(object, SpecialPanelIds::MPEStartChannel);
 	auto endChannel = (int)getPropertyWithDefault(object, SpecialPanelIds::MPEEndChannel);
@@ -690,7 +696,8 @@ Identifier MidiKeyboardPanel::getDefaultablePropertyId(int index) const
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::MPEEndChannel, "MPEEndChannel");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::UseVectorGraphics, "UseVectorGraphics");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::UseFlatStyle, "UseFlatStyle");
-	
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowArtificialNotes, "ShowArtificialNotes");
+
 	jassertfalse;
 	return{};
 }
@@ -714,6 +721,7 @@ var MidiKeyboardPanel::getDefaultProperty(int index) const
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::MPEEndChannel, 16);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::UseVectorGraphics, true);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::UseFlatStyle, false);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowArtificialNotes, false);
 
 	jassertfalse;
 	return{};

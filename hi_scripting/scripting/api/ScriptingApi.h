@@ -435,6 +435,9 @@ public:
 		/** Sets a key of the global keyboard to the specified colour (using the form 0x00FF00 for eg. of the key to the specified colour. */
 		void setKeyColour(int keyNumber, int colourAsHex);
 
+		/** If enabled, artificial notes (from arpeggiators or scripts) will be sent to on-screen keyboards that have their ShowArtificialNotes property enabled. */
+		void showArtificialNotesOnKeyboard(bool shouldShow);
+
 		/** Extends the compilation timeout. Use this if you have a long task that would get cancelled otherwise. This is doing nothing in compiled plugins. */
 		void extendTimeOut(int additionalMilliseconds);
 

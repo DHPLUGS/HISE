@@ -115,6 +115,22 @@ CustomKeyboard::~CustomKeyboard()
 {
 	setLookAndFeel(nullptr);
 	state->removeChangeListener(this);
+	mc->getArtificialKeyboardState().removeChangeListener(this);
+}
+
+void CustomKeyboard::setShowArtificialNotes(bool shouldShow)
+{
+	if (showArtificialNotes != shouldShow)
+	{
+		showArtificialNotes = shouldShow;
+
+		if (shouldShow)
+			mc->getArtificialKeyboardState().addChangeListener(this);
+		else
+			mc->getArtificialKeyboardState().removeChangeListener(this);
+
+		repaint();
+	}
 }
 
 void CustomKeyboard::buttonClicked(Button* b)
@@ -293,6 +309,9 @@ void CustomKeyboard::setCustomClickCallback(const CustomClickCallback& f)
 
 void CustomKeyboard::drawWhiteNote(int midiNoteNumber, Graphics &g, Rectangle<float> area, bool isDown, bool isOver, Colour lineColour, Colour textColour)
 {
+	if (showArtificialNotes)
+		isDown |= mc->getArtificialKeyboardState().isNoteOnForChannels(0xffff, midiNoteNumber);
+
 	auto areaInt = area.toNearestInt();
 
 	int x = areaInt.getX();
@@ -336,6 +355,9 @@ void CustomKeyboard::drawWhiteNote(int midiNoteNumber, Graphics &g, Rectangle<fl
 
 void CustomKeyboard::drawBlackNote(int midiNoteNumber, Graphics &g, Rectangle<float> area, bool isDown, bool isOver, Colour noteFillColour)
 {
+	if (showArtificialNotes)
+		isDown |= mc->getArtificialKeyboardState().isNoteOnForChannels(0xffff, midiNoteNumber);
+
 	auto areaInt = area.toNearestInt();
 
 	int x = areaInt.getX();

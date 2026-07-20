@@ -247,6 +247,7 @@ public:
 		MPEEndChannel,
 		UseVectorGraphics,
 		UseFlatStyle,
+		ShowArtificialNotes, ///< set this to true to display artificial notes (arpeggiator / script generated) as pressed keys.
 		numProperyIds
 	};
 

@@ -903,6 +903,44 @@ void MidiProcessorChain::renderNextHiseEventBuffer(HiseEventBuffer &buffer, int 
 	buffer.moveEventsAbove(artificialEvents, numSamples);
 	artificialEvents.subtractFromTimeStamps(numSamples);
 
+	// the buffer now contains the artificial events for this block, so this is the
+	// only place where they can be forwarded to the artificial keyboard state.
+	// Restricted to the master chain so child synth chains don't feed duplicates.
+	auto mc = getMainController();
+
+	if (mc->shouldFeedArtificialNotesToKeyboard() && getOwnerSynth() == mc->getMainSynthChain())
+	{
+		auto& aks = mc->getArtificialKeyboardState();
+		bool anyFed = false;
+
+		HiseEventBuffer::Iterator kIt(buffer);
+
+		while (HiseEvent* e = kIt.getNextEventPointer(true, false))
+		{
+			if (!e->isArtificial())
+				continue;
+
+			if (e->isNoteOn())
+			{
+				aks.noteOn(e->getChannel(), e->getNoteNumber(), e->getFloatVelocity());
+				anyFed = true;
+			}
+			else if (e->isNoteOff())
+			{
+				aks.noteOff(e->getChannel(), e->getNoteNumber(), e->getFloatVelocity());
+				anyFed = true;
+			}
+			else if (e->isAllNotesOff())
+			{
+				aks.allNotesOff(0);
+				anyFed = true;
+			}
+		}
+
+		if (anyFed)
+			aks.sendChangeMessage();
+	}
+
 	logEvents(buffer, false);
 }
 

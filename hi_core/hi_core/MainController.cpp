@@ -1060,6 +1060,17 @@ CustomKeyboardState & MainController::getKeyboardState()
 	return keyboardState;
 }
 
+void MainController::setFeedArtificialNotesToKeyboard(bool shouldFeed)
+{
+	if (feedArtificialNotesToKeyboard != shouldFeed)
+	{
+		feedArtificialNotesToKeyboard = shouldFeed;
+
+		artificialKeyboardState.allNotesOff(0);
+		artificialKeyboardState.sendChangeMessage();
+	}
+}
+
 void MainController::setLowestKeyToDisplay(int lowestKeyToDisplay)
 {
 	keyboardState.setLowestKeyToDisplay(lowestKeyToDisplay);

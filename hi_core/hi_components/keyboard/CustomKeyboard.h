@@ -162,13 +162,19 @@ public:
 	}
 	
 	/** Set a custom click callback. Pass in a lambda with the signature
-		
+
 		bool f(const MouseEvent& e, bool isMouseDown)
 
 		that returns true if the event was consumed or if it should perform
 		the default functionality.
 	*/
 	void setCustomClickCallback(const CustomClickCallback& f);
+
+	/** If enabled, the keyboard will also draw the notes of the artificial keyboard
+	    state (arpeggiator / script generated notes) as pressed keys. */
+	void setShowArtificialNotes(bool shouldShow);
+
+	bool isShowingArtificialNotes() const noexcept { return showArtificialNotes; }
 
 protected:
 
@@ -187,9 +193,10 @@ private:
 	ScopedPointer<LookAndFeel> ownedLaf;
 
 	CustomKeyboardState *state;
- 
+
 	bool useCustomGraphics = false;
 	bool useVectorGraphics = false;
+	bool showArtificialNotes = false;
 
     bool narrowKeys;
     

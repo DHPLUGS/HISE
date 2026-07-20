@@ -1777,6 +1777,14 @@ public:
 
 	CustomKeyboardState &getKeyboardState();
 
+	/** A second keyboard state that only contains artificial notes (arpeggiator / script generated).
+	    Keyboards opt into displaying it with the ShowArtificialNotes property, so the
+	    main keyboard state stays untouched. */
+	CustomKeyboardState &getArtificialKeyboardState() { return artificialKeyboardState; }
+
+	void setFeedArtificialNotesToKeyboard(bool shouldFeed);
+	bool shouldFeedArtificialNotesToKeyboard() const noexcept { return feedArtificialNotesToKeyboard; }
+
 	bool shouldEmbedAllResources() const { return embedAllResources; }
 
 	void setLowestKeyToDisplay(int lowestKeyToDisplay);
@@ -2290,6 +2298,9 @@ private:
 	void storePlayheadIntoDynamicObject(AudioPlayHead::CurrentPositionInfo &lastPosInfo);
 
 	CustomKeyboardState keyboardState;
+
+	CustomKeyboardState artificialKeyboardState;
+	bool feedArtificialNotesToKeyboard = false;
 
 	AudioSampleBuffer multiChannelBuffer;
 

@@ -1187,6 +1187,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, getMacroName);
   API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
 	API_VOID_METHOD_WRAPPER_2(Engine, setKeyColour);
+	API_VOID_METHOD_WRAPPER_1(Engine, showArtificialNotesOnKeyboard);
 	API_VOID_METHOD_WRAPPER_3(Engine, showMessageBox);
 	API_VOID_METHOD_WRAPPER_2(Engine, showErrorMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, showMessage);
@@ -1347,6 +1348,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getWavetableList);
 	ADD_API_METHOD_1(setFrontendMacros);
 	ADD_API_METHOD_2(setKeyColour);
+	ADD_API_METHOD_1(showArtificialNotesOnKeyboard);
 	ADD_API_METHOD_2(showErrorMessage);
 	ADD_API_METHOD_1(showMessage);
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
@@ -2572,6 +2574,8 @@ var ScriptingApi::Engine::createBackgroundTask(String name)
 }
 
 void ScriptingApi::Engine::setKeyColour(int keyNumber, int colourAsHex) { getProcessor()->getMainController()->setKeyboardCoulour(keyNumber, Colour(colourAsHex));}
+
+void ScriptingApi::Engine::showArtificialNotesOnKeyboard(bool shouldShow) { getProcessor()->getMainController()->setFeedArtificialNotesToKeyboard(shouldShow); }
 
 void ScriptingApi::Engine::extendTimeOut(int additionalMilliseconds)
 {
