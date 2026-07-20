@@ -4653,7 +4653,12 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, i
 		obj->setProperty("valueRangeStyleMaxNormalized", range.convertTo0to1(maxv));
 
 		obj->setProperty("clicked", slider.isMouseButtonDown());
-		obj->setProperty("hover", slider.isMouseOver());
+
+		// pack children don't intercept mouse events, so ask the pack which slider is hovered
+		if (parentPack != nullptr)
+			obj->setProperty("hover", parentPack->getHoverStateForSlider(&slider) != 0);
+		else
+			obj->setProperty("hover", slider.isMouseOver());
 
 		setColourOrBlack(obj, "bgColour",    slider, HiseColourScheme::ComponentOutlineColourId);
 		setColourOrBlack(obj, "itemColour1", slider, HiseColourScheme::ComponentFillTopColourId);
