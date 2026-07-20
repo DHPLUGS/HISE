@@ -288,17 +288,6 @@ void Arpeggiator::onInit()
 	lengthSliderPack->set("sliderAmount", 4);
 	lengthSliderPack->set("stepSize", "1");
 
-	activeSliderPack = Content.addSliderPack("ActiveSliderPack", 160, 410);
-	activeSliderPack->getSliderPackData()->setDefaultValue(1.0);
-	activeSliderPack->registerComplexDataObjectAtParent(3);
-
-	activeSliderPack->set("width", 512);
-	activeSliderPack->set("height", 30);
-	activeSliderPack->set("min", 0);
-	activeSliderPack->set("max", 1);
-	activeSliderPack->set("sliderAmount", 4);
-	activeSliderPack->set("stepSize", "1");
-
 	inputMidiChannel = Content.addComboBox("ChannelSelector", 300, 500);
 	inputMidiChannel->set("items", "");
 	
@@ -382,9 +371,23 @@ void Arpeggiator::onInit()
 	mpeEndChannel->addItem("Channel 16");
 
 	sustainHold = Content.addButton("Hold", 85, 70);
-	
+
 	enableTieNotes->set("width", 85);
 	sustainHold->set("width", 60);
+
+	// created AFTER sustainHold on purpose: attribute indices follow component
+	// creation order, so inserting this earlier would shift the channel/MPE/hold
+	// attributes and break numeric setAttribute calls and the parameter metadata
+	activeSliderPack = Content.addSliderPack("ActiveSliderPack", 160, 410);
+	activeSliderPack->getSliderPackData()->setDefaultValue(1.0);
+	activeSliderPack->registerComplexDataObjectAtParent(3);
+
+	activeSliderPack->set("width", 512);
+	activeSliderPack->set("height", 30);
+	activeSliderPack->set("min", 0);
+	activeSliderPack->set("max", 1);
+	activeSliderPack->set("sliderAmount", 4);
+	activeSliderPack->set("stepSize", "1");
 
 	createLabel("NoteLabel", "Note Numbers", semiToneSliderPack);
 	createLabel("VeloLabel", "Velocity", velocitySliderPack);
