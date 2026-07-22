@@ -630,8 +630,8 @@ void CustomSettingsWindow::paint(Graphics& g)
 	drawLabel(Properties::BufferSize, "Buffer Size");
 	drawLabel(Properties::SampleRate, "Sample Rate");
 	drawLabel(Properties::GlobalBPM, "Global BPM");
-	drawLabel(Properties::ScaleFactor, "UI Zoom Factor");
-	drawLabel(Properties::UseOpenGL, "Use OpenGL");
+	drawLabel(Properties::ScaleFactor, "UI ZOOM");
+	drawLabel(Properties::UseOpenGL, "OPENGL");
 	drawLabel(Properties::StreamingMode, "Streaming Mode");
 	drawLabel(Properties::VoiceAmountMultiplier, "Max Voices");
 
