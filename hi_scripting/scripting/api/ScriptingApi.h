@@ -1823,6 +1823,9 @@ private:
 
 		/** Returns a unique machine ID that can be used to identify the computer. */
 		String getSystemId();
+
+		/** Returns all machine ID candidates for this computer (legacy ID first, then hardware UUID / SMBIOS hash, then MAC addresses) for tolerant k-of-N license matching. */
+		var getSystemIds();
 		
 		/**  Convert a file size in bytes to a neat string description. */
 		String descriptionOfSizeInBytes(int64 bytes);
