@@ -69,6 +69,13 @@ FilterGraph::FilterGraph (int numFiltersInit, int drawType_):
 
 FilterGraph::~FilterGraph()
 {
+	// Deregister from the data updater before we go away. setComplexDataUIBase()
+	// registers this as an event listener on filterData's updater; without the
+	// matching removal here, a FilterDataObject that outlives this graph (e.g. an
+	// effect's filter node being torn down on removal) fires an event into freed
+	// memory, crashing in onComplexDataEvent() -> refreshAsync() -> refreshFilterPath().
+	if (filterData != nullptr)
+		filterData->getUpdater().removeEventListener(this);
 }
 
 void FilterGraph::refreshFilterPath()

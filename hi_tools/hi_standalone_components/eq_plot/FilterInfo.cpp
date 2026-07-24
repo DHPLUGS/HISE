@@ -345,20 +345,38 @@ bool FilterDataObject::Broadcaster::deregisterAtObject(ComplexDataUIBase* obj)
 {
 	if (auto f = dynamic_cast<FilterDataObject*>(obj))
 	{
-		SimpleReadWriteLock::ScopedWriteLock sl(f->getDataLock());
+		bool removed = false;
 
-		for (int i = 0; i < f->internalData.size(); i++)
 		{
-			if (f->internalData[i].broadcaster == this)
+			SimpleReadWriteLock::ScopedWriteLock sl(f->getDataLock());
+
+			for (int i = 0; i < f->internalData.size(); i++)
 			{
-				f->internalData.removeElement(i);
-				return true;
+				if (f->internalData[i].broadcaster == this)
+				{
+					f->internalData.removeElement(i);
+					removed = true;
+					break;
+				}
 			}
 		}
 
-		return false;
+		if (removed)
+		{
+			// Notify listeners so any cached FilterGraph rebuilds WITHOUT this
+			// broadcaster. registerAtObject() sends this on insert; without the
+			// matching notification on removal a FilterGraph keeps a copied
+			// CoefficientData still holding this (now-destroyed) node's obj +
+			// customFunction and calls into freed memory on its next refresh
+			// (crash in refreshFilterPath). Sent after releasing the write lock,
+			// synchronously, so the graph drops the stale coefficients before the
+			// node's memory is reused.
+			f->getUpdater().sendDisplayChangeMessage((float)jmax(0, f->internalData.size() - 1), sendNotificationSync, true);
+		}
+
+		return removed;
 	}
-	
+
 	return false;
 }
 
