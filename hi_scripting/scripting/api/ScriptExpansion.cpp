@@ -81,11 +81,11 @@ ScriptUserPresetHandler::ScriptUserPresetHandler(ProcessorWithScriptingContent* 
     ADD_API_METHOD_0(isInternalPresetLoad);
 	ADD_API_METHOD_0(isCurrentlyLoadingPreset);
 	ADD_TYPED_API_METHOD_1(setPostCallback, VarTypeChecker::Function);
-	ADD_CALLBACK_DIAGNOSTIC(postCallback, setPostCallback, 0);
+	ADD_CALLBACK_DIAGNOSTIC_RAW(setPostCallback, WeakCallbackHolder::checkCallbackNumArgs<1, 0>); // holder is built with 1 arg below; plain macro reads 0 from the default-constructed holder
 	ADD_TYPED_API_METHOD_1(setPostSaveCallback, VarTypeChecker::Function);
-	ADD_CALLBACK_DIAGNOSTIC(postSaveCallback, setPostSaveCallback, 0);
+	ADD_CALLBACK_DIAGNOSTIC_RAW(setPostSaveCallback, WeakCallbackHolder::checkCallbackNumArgs<1, 0>);
 	ADD_TYPED_API_METHOD_1(setPreCallback, VarTypeChecker::Function);
-	ADD_CALLBACK_DIAGNOSTIC(preCallback, setPreCallback, 0);
+	ADD_CALLBACK_DIAGNOSTIC_RAW(setPreCallback, WeakCallbackHolder::checkCallbackNumArgs<1, 0>);
 	ADD_API_METHOD_2(setEnableUserPresetPreprocessing);
 	ADD_API_METHOD_1(setCustomAutomation);
 	ADD_API_METHOD_3(setUseCustomUserPresetModel);

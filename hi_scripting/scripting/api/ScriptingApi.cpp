@@ -7404,6 +7404,7 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_METHOD_WRAPPER_1(FileSystem, getFolder);
 	API_METHOD_WRAPPER_3(FileSystem, findFiles);
 	API_METHOD_WRAPPER_0(FileSystem, getSystemId);
+	API_METHOD_WRAPPER_0(FileSystem, getSystemIds);
 	API_METHOD_WRAPPER_1(FileSystem, descriptionOfSizeInBytes);
 	API_METHOD_WRAPPER_1(FileSystem, fromAbsolutePath);
 	API_METHOD_WRAPPER_2(FileSystem, fromReferenceString);
@@ -7442,6 +7443,7 @@ ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
 	ADD_API_METHOD_1(getFolder);
 	ADD_API_METHOD_3(findFiles);
 	ADD_API_METHOD_0(getSystemId);
+	ADD_API_METHOD_0(getSystemIds);
 	ADD_API_METHOD_1(descriptionOfSizeInBytes);
 	ADD_API_METHOD_4(browse);
 	ADD_API_METHOD_2(browseForDirectory);
@@ -7571,6 +7573,29 @@ void ScriptingApi::FileSystem::browseForMultipleFiles(var startFolder, String wi
 String ScriptingApi::FileSystem::getSystemId()
 {
 	return OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()[0];
+}
+
+var ScriptingApi::FileSystem::getSystemIds()
+{
+	Array<var> ids;
+
+	// Legacy ID first, so ids[0] == getSystemId() and existing licenses keep matching
+	for (const auto& legacyId : OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs())
+		ids.addIfNotAlreadyThere(var(legacyId));
+
+	// Hardware-derived ID: IOPlatformUUID (macOS) / hash of the SMBIOS table (Windows).
+	// Survives OS reinstalls; can change on BIOS updates or logic-board swaps.
+	auto uniqueDeviceId = SystemStats::getUniqueDeviceID();
+
+	if (uniqueDeviceId.isNotEmpty())
+		ids.addIfNotAlreadyThere(var(OnlineUnlockStatus::MachineIDUtilities::getEncodedIDString(uniqueDeviceId)));
+
+	// One ID per network interface (same encoding JUCE's legacy MAC IDs used;
+	// inlined because addMACAddressesToList() is deprecated)
+	for (const auto& address : MACAddress::getAllAddresses())
+		ids.addIfNotAlreadyThere(var(OnlineUnlockStatus::MachineIDUtilities::getEncodedIDString(address.toString())));
+
+	return var(ids);
 }
 
 var ScriptingApi::FileSystem::findFileSystemRoots()
