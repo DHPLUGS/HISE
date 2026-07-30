@@ -289,11 +289,11 @@ juce::String PresetBrowser::ModalWindow::getCommand() const
 		break;
 	case PresetBrowser::ModalWindow::Action::Rename:
 	case PresetBrowser::ModalWindow::Action::Add:
-		return "Enter the name";
+		return "ENTER THE NAME";
 	case PresetBrowser::ModalWindow::Action::Delete:
-		return "Are you sure you want to delete the file " + le.newFile.getFileNameWithoutExtension() + "?";
+		return "DELETE FILE -     " + le.newFile.getFileNameWithoutExtension() + "?";
 	case PresetBrowser::ModalWindow::Action::Replace:
-		return "Are you sure you want to replace the file " + le.newFile.getFileNameWithoutExtension() + "?";
+		return "REPLACE FILE -     " + le.newFile.getFileNameWithoutExtension() + "?";
 	case PresetBrowser::ModalWindow::Action::numActions:
 		break;
 	default:
