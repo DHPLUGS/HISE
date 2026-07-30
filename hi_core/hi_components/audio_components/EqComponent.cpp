@@ -1227,23 +1227,25 @@ void FilterDragOverlay::FilterDragComponent::mouseDoubleClick(const MouseEvent& 
 	if (parent.resetOnDoubleClick)
 	{
 		parent.setEqAttribute(CurveEq::BandParameter::Gain, index, 0.0f);
-		parent.setEqAttribute(CurveEq::BandParameter::Enabled, index, 0.0f);
-        parent.checkEnabledBands();
+		// DHPLUGS: double-click only resets gain, never disables the band
+		//parent.setEqAttribute(CurveEq::BandParameter::Enabled, index, 0.0f);
+        //parent.checkEnabledBands();
 	}
 	else
 	{
 		if (parent.allowFilterResizing)
 			return;
 
-		auto bp = parent.filterStats->getParameterForDragAction(DragAction::DoubleClick);
+		// DHPLUGS: double-click must not toggle the band's Enabled state
+		//auto bp = parent.filterStats->getParameterForDragAction(DragAction::DoubleClick);
 
-		if(bp == CurveEq::BandParameter::Enabled)
-		{
-			auto enableIndex = parent.filterStats->getAttributeIndex(index, CurveEq::BandParameter::Enabled);
-			auto v = 1.0f - parent.eq->getAttribute(enableIndex);
-			parent.setEqAttribute(CurveEq::BandParameter::Enabled, index, v);
-	        parent.checkEnabledBands();
-		}
+		//if(bp == CurveEq::BandParameter::Enabled)
+		//{
+		//	auto enableIndex = parent.filterStats->getAttributeIndex(index, CurveEq::BandParameter::Enabled);
+		//	auto v = 1.0f - parent.eq->getAttribute(enableIndex);
+		//	parent.setEqAttribute(CurveEq::BandParameter::Enabled, index, v);
+	    //    parent.checkEnabledBands();
+		//}
 	}
 }
 
