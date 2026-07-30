@@ -464,15 +464,19 @@ void WaveSynthVoice::startNote(int midiNoteNumber, float /*velocity*/, Synthesis
 
 	uptimeDelta = 1.0;
 
-	leftGenerator.setFrequency(cyclesPerSecond * octaveTransposeFactor1);
+	// The transpose factor is deliberately NOT baked into the generator frequency:
+	// calculateBlock() multiplies it into the freq modulation value each block so
+	// tuning changes (Oct/Semi/Cent) apply to sounding voices immediately.
+	leftGenerator.setFrequency(cyclesPerSecond);
 
 	if(enableSecondOsc)
-		rightGenerator.setFrequency(cyclesPerSecond * octaveTransposeFactor2);
+		rightGenerator.setFrequency(cyclesPerSecond);
 
-	leftGenerator.setStartOffset((double)getCurrentHiseEvent().getStartOffset());
-        
+	// divide by the factor so the phase offset matches the transposed frequency
+	leftGenerator.setStartOffset((double)getCurrentHiseEvent().getStartOffset() / octaveTransposeFactor1);
+
 	if(enableSecondOsc)
-		rightGenerator.setStartOffset((double)getCurrentHiseEvent().getStartOffset());
+		rightGenerator.setStartOffset((double)getCurrentHiseEvent().getStartOffset() / octaveTransposeFactor2);
 
 #else
 
@@ -506,8 +510,8 @@ void WaveSynthVoice::calculateBlock(int startSample, int numSamples)
 	{
 		if (enableSecondOsc)
 		{
-			leftGenerator.setFreqModulationValue((float)uptimeDelta);
-			rightGenerator.setFreqModulationValue((float)uptimeDelta * wavesynth->getConstantPitch2ModValue());
+			leftGenerator.setFreqModulationValue((float)(uptimeDelta * octaveTransposeFactor1));
+			rightGenerator.setFreqModulationValue((float)(uptimeDelta * octaveTransposeFactor2) * wavesynth->getConstantPitch2ModValue());
 
 			while (--numSamples >= 0)
 			{
@@ -527,7 +531,7 @@ void WaveSynthVoice::calculateBlock(int startSample, int numSamples)
 		}
 		else
 		{
-			leftGenerator.setFreqModulationValue((float)uptimeDelta);
+			leftGenerator.setFreqModulationValue((float)(uptimeDelta * octaveTransposeFactor1));
 
 			while (--numSamples >= 0)
 			{
@@ -545,7 +549,7 @@ void WaveSynthVoice::calculateBlock(int startSample, int numSamples)
 		{
 			while (--numSamples >= 0)
 			{
-				auto leftDelta = (float)uptimeDelta;
+				auto leftDelta = (float)(uptimeDelta * octaveTransposeFactor1);
                                 
 				if (voicePitchValues != nullptr)
 					leftDelta *= *voicePitchValues;
@@ -553,7 +557,7 @@ void WaveSynthVoice::calculateBlock(int startSample, int numSamples)
 				leftGenerator.setFreqModulationValue(leftDelta);
                                 
 
-				auto rightDelta = (float)uptimeDelta;
+				auto rightDelta = (float)(uptimeDelta * octaveTransposeFactor2);
                                 
 				if (voicePitchValues != nullptr)
 					rightDelta *= *voicePitchValues;
@@ -586,7 +590,7 @@ void WaveSynthVoice::calculateBlock(int startSample, int numSamples)
 		{
 			while (--numSamples >= 0)
 			{
-				auto leftDelta = (float)uptimeDelta;
+				auto leftDelta = (float)(uptimeDelta * octaveTransposeFactor1);
 
 				if (voicePitchValues != nullptr)
 					leftDelta *= *voicePitchValues;
