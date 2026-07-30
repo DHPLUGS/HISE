@@ -2180,6 +2180,10 @@ void TempoSyncer::initTempoData()
 	};
 
 #if HISE_USE_EXTENDED_TEMPO_VALUES
+#if HISE_USE_16_BAR_TEMPO
+	setTempo(SixteenBar, "16/1", 4.0f * 16.0f);
+	setTempo(TwelveBar, "12/1", 4.0f * 12.0f);
+#endif
 	setTempo(EightBar, "8/1", 4.0f * 8.0f);
 	setTempo(SixBar, "6/1", 4.0f * 6.0f);
 	setTempo(FourBar, "4/1", 4.0f * 4.0f);

@@ -2174,7 +2174,15 @@ public:
 	enum Tempo
 	{
 #if HISE_USE_EXTENDED_TEMPO_VALUES
+#if HISE_USE_16_BAR_TEMPO
+		// LFO-EQ preset compatibility: its legacy HISE build had these two prepended,
+		// so all its stored tempo indices assume SixteenBar == 0.
+		SixteenBar = 0, ///< sixteen bars (16/1)
+		TwelveBar, ///< twelve bars (12/1)
+		EightBar,
+#else
 		EightBar = 0,
+#endif
 		SixBar,
 		FourBar,
 		ThreeBar,
