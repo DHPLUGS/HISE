@@ -207,6 +207,7 @@ public:
 		{
 			RefreshRate = (int)PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds,
 			NumPoints,
+			UseDots,
 			numSpecialPanelIds
 		};
 
@@ -241,6 +242,7 @@ public:
 
 			RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::RefreshRate, "RefreshRate");
 			RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::NumPoints, "NumPoints");
+			RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::UseDots, "UseDots");
 
 			jassertfalse;
 			return {};
@@ -253,6 +255,7 @@ public:
 
 			RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::RefreshRate, var(0.0));
 			RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::NumPoints, var(0));
+			RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::UseDots, var(false));
 
 			jassertfalse;
 			return {};
@@ -283,6 +286,7 @@ public:
 
 		double refreshRate = 0.0;
 		int numPoints = 0;
+		bool useDots = false;
 	};
 
 protected:
