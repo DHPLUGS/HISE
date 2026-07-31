@@ -913,6 +913,7 @@ private:
 
 	Shape shapes[6];
 	int shapeIndex = 0;
+	uint32 lastShapeTime = 0;
 };
 
 

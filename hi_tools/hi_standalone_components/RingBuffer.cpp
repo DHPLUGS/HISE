@@ -2286,12 +2286,35 @@ void GoniometerBase::paintSpacialDots(Graphics& g)
 			laf->drawAnalyserGrid(g, *this, grid);
 
 			int forcedNumPoints = 0;
+			double refreshRate = 0.0;
 
 			if (auto po = rb->getPropertyObject())
+			{
 				forcedNumPoints = (int)po->getPropertyInternal("NumPoints", 0);
+				refreshRate = (double)po->getPropertyInternal("RefreshRate", 0.0);
+			}
 
-			shapeIndex = (shapeIndex + 1) % 6;
-			shapes[shapeIndex] = Shape(rb->getReadBuffer(), area, forcedNumPoints);
+			// A RefreshRate property > 0 (in Hz) throttles how often a new trace frame
+			// is captured; repaints in between just redraw the existing trail, which
+			// also makes the afterglow linger accordingly. 0 = capture on every repaint.
+			bool captureNewFrame = true;
+
+			if (refreshRate > 0.0)
+			{
+				const auto now = Time::getMillisecondCounter();
+				const auto interval = (uint32)(1000.0 / jlimit(1.0, 120.0, refreshRate));
+
+				if (now - lastShapeTime < interval)
+					captureNewFrame = false;
+				else
+					lastShapeTime = now;
+			}
+
+			if (captureNewFrame)
+			{
+				shapeIndex = (shapeIndex + 1) % 6;
+				shapes[shapeIndex] = Shape(rb->getReadBuffer(), area, forcedNumPoints);
+			}
 
 			// Draw oldest frame first so the newest trace ends up on top,
 			// with index 0 being the newest (most opaque) frame.
