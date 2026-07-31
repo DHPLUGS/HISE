@@ -659,6 +659,16 @@ struct ScriptUnlocker : public juce::OnlineUnlockStatus,
 	URL getServerAuthenticationURL() override;
 	String readReplyFromWebserver(const String& email, const String& password) override;
 
+	/** Returns the same union of machine identifiers that FileSystem.getSystemIds()
+	    exposes to script, instead of JUCE's default single legacy ID.
+
+	    The keyfile's `mach` attribute is a list and machineNumberAllowed() unlocks on
+	    any overlap, so widening the local side gives k-of-N tolerance in C++ to match
+	    the script-side scheme: an OS update or reinstall that changes one identifier
+	    no longer locks out a paying customer. ids[0] stays the legacy ID so keyfiles
+	    issued against it keep matching. */
+	StringArray getLocalMachineIDs() override;
+
 	void checkMuseHub();
 
 #if HISE_INCLUDE_MUSEHUB

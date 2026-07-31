@@ -3298,6 +3298,33 @@ String ScriptUnlocker::readReplyFromWebserver(const String& email, const String&
 	return {};
 }
 
+StringArray ScriptUnlocker::getLocalMachineIDs()
+{
+	// Keep in sync with ScriptingApi::FileSystem::getSystemIds() — the keyfile's
+	// machine list is built from that script API, so both sides must enumerate
+	// the same identifiers or a legitimate machine can fail to match.
+	StringArray ids;
+
+	// Legacy ID first: ids[0] == getSystemId(), so keyfiles issued against the
+	// single legacy ID keep unlocking.
+	for (const auto& legacyId : MachineIDUtilities::getLocalMachineIDs())
+		ids.addIfNotAlreadyThere(legacyId);
+
+	// Hardware-derived ID: IOPlatformUUID (macOS) / hash of the SMBIOS table
+	// (Windows). Survives OS reinstalls; can change on BIOS or logic-board swaps.
+	auto uniqueDeviceId = SystemStats::getUniqueDeviceID();
+
+	if (uniqueDeviceId.isNotEmpty())
+		ids.addIfNotAlreadyThere(MachineIDUtilities::getEncodedIDString(uniqueDeviceId));
+
+	// One ID per network interface (same encoding the legacy MAC IDs used;
+	// inlined because addMACAddressesToList() is deprecated).
+	for (const auto& address : MACAddress::getAllAddresses())
+		ids.addIfNotAlreadyThere(MachineIDUtilities::getEncodedIDString(address.toString()));
+
+	return ids;
+}
+
 void ScriptUnlocker::checkMuseHub()
 {
 #if USE_BACKEND
