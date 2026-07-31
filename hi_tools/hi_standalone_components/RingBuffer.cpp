@@ -2287,11 +2287,13 @@ void GoniometerBase::paintSpacialDots(Graphics& g)
 
 			int forcedNumPoints = 0;
 			double refreshRate = 0.0;
+			bool useDots = false;
 
 			if (auto po = rb->getPropertyObject())
 			{
 				forcedNumPoints = (int)po->getPropertyInternal("NumPoints", 0);
 				refreshRate = (double)po->getPropertyInternal("RefreshRate", 0.0);
+				useDots = (bool)po->getPropertyInternal("UseDots", false);
 			}
 
 			// A RefreshRate property > 0 (in Hz) throttles how often a new trace frame
@@ -2320,8 +2322,12 @@ void GoniometerBase::paintSpacialDots(Graphics& g)
 			// with index 0 being the newest (most opaque) frame.
 			for (int i = 5; i >= 0; i--)
 			{
-				auto& p = shapes[(shapeIndex - i + 6) % 6].linePath;
-				laf->drawGonioMeterPath(g, *this, p, i);
+				auto& s = shapes[(shapeIndex - i + 6) % 6];
+
+				if (useDots)
+					laf->drawGonioMeterDots(g, *this, s.points, i);
+				else
+					laf->drawGonioMeterPath(g, *this, s.linePath, i);
 			}
 
 		}

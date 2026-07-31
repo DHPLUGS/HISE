@@ -174,6 +174,7 @@ var AudioAnalyserComponent::Panel::toDynamicObject() const
 
 	storePropertyInObject(obj, SpecialPanelIds::RefreshRate, refreshRate, 0.0);
 	storePropertyInObject(obj, SpecialPanelIds::NumPoints, numPoints, 0);
+	storePropertyInObject(obj, SpecialPanelIds::UseDots, useDots, false);
 
 	return obj;
 }
@@ -184,6 +185,7 @@ void AudioAnalyserComponent::Panel::fromDynamicObject(const var& object)
 
 	refreshRate = (double)getPropertyWithDefault(object, SpecialPanelIds::RefreshRate);
 	numPoints = (int)getPropertyWithDefault(object, SpecialPanelIds::NumPoints);
+	useDots = (bool)getPropertyWithDefault(object, SpecialPanelIds::UseDots);
 
 	applyDisplayProperties();
 }
@@ -211,6 +213,7 @@ void AudioAnalyserComponent::Panel::applyDisplayProperties()
 		{
 			po->setPropertyInternal("RefreshRate", refreshRate);
 			po->setPropertyInternal("NumPoints", numPoints);
+			po->setPropertyInternal("UseDots", useDots);
 		}
 	}
 }
