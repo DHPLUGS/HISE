@@ -3521,6 +3521,24 @@ var BeatportManager::validate()
 	
 #endif
 
+	// A Beatport Access user never receives a keyfile, so without this the C++
+	// copy-protection gate would silence a legitimately licensed customer. The
+	// unlock is driven from the SDK's own verdict here in C++ rather than exposed
+	// as a script API, so a patched script cannot claim it without the SDK.
+#if USE_SCRIPT_COPY_PROTECTION && JUCE_ALLOW_EXTERNAL_UNLOCK
+	if ((bool)obj.getProperty("Success", false))
+	{
+		if (auto ul = getScriptProcessor()->getMainController_()->getLicenseUnlocker())
+		{
+			ul->unlockExternal();
+
+#if USE_FRONTEND
+			dynamic_cast<FrontendProcessor*>(getScriptProcessor()->getMainController_())->loadSamplesAfterRegistration(true);
+#endif
+		}
+	}
+#endif
+
 	auto now = Time::getMillisecondCounter();
 
 	dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine()->extendTimeout((int)(now - t));
