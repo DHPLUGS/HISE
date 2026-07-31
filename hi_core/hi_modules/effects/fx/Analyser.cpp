@@ -168,6 +168,53 @@ void AudioAnalyserComponent::Panel::fillIndexList(StringArray& indexList)
 	indexList.add("Spectral Analyser");
 }
 
+var AudioAnalyserComponent::Panel::toDynamicObject() const
+{
+	var obj = PanelWithProcessorConnection::toDynamicObject();
+
+	storePropertyInObject(obj, SpecialPanelIds::RefreshRate, refreshRate, 0.0);
+	storePropertyInObject(obj, SpecialPanelIds::NumPoints, numPoints, 0);
+
+	return obj;
+}
+
+void AudioAnalyserComponent::Panel::fromDynamicObject(const var& object)
+{
+	PanelWithProcessorConnection::fromDynamicObject(object);
+
+	refreshRate = (double)getPropertyWithDefault(object, SpecialPanelIds::RefreshRate);
+	numPoints = (int)getPropertyWithDefault(object, SpecialPanelIds::NumPoints);
+
+	applyDisplayProperties();
+}
+
+void AudioAnalyserComponent::Panel::applyDisplayProperties()
+{
+	SimpleRingBuffer* rb = nullptr;
+
+	if (auto analyser = dynamic_cast<AnalyserEffect*>(getConnectedProcessor()))
+	{
+		// The analyser modules share one display buffer for all view types
+		rb = analyser->getDisplayBufferUnchecked(0);
+	}
+	else if (auto ed = dynamic_cast<ProcessorWithExternalData*>(getConnectedProcessor()))
+	{
+		auto index = getCurrentIndex();
+
+		if (isPositiveAndBelow(index, ed->getNumDataObjects(ExternalData::DataType::DisplayBuffer)))
+			rb = ed->getDisplayBuffer(index);
+	}
+
+	if (rb != nullptr)
+	{
+		if (auto po = rb->getPropertyObject())
+		{
+			po->setPropertyInternal("RefreshRate", refreshRate);
+			po->setPropertyInternal("NumPoints", numPoints);
+		}
+	}
+}
+
 
 
 }

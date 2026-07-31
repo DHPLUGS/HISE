@@ -203,6 +203,13 @@ public:
 	{
 	public:
 
+		enum SpecialPanelIds
+		{
+			RefreshRate = (int)PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds,
+			NumPoints,
+			numSpecialPanelIds
+		};
+
 		Panel(FloatingTile* parent) :
 			PanelWithProcessorConnection(parent)
 		{
@@ -218,7 +225,46 @@ public:
 			return AnalyserEffect::getClassType();
 		}
 
+		var toDynamicObject() const override;
+
+		void fromDynamicObject(const var& object) override;
+
+		int getNumDefaultableProperties() const override
+		{
+			return SpecialPanelIds::numSpecialPanelIds;
+		}
+
+		Identifier getDefaultablePropertyId(int index) const override
+		{
+			if (index < (int)PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds)
+				return PanelWithProcessorConnection::getDefaultablePropertyId(index);
+
+			RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::RefreshRate, "RefreshRate");
+			RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::NumPoints, "NumPoints");
+
+			jassertfalse;
+			return {};
+		}
+
+		var getDefaultProperty(int index) const override
+		{
+			if (index < (int)PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds)
+				return PanelWithProcessorConnection::getDefaultProperty(index);
+
+			RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::RefreshRate, var(0.0));
+			RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::NumPoints, var(0));
+
+			jassertfalse;
+			return {};
+		}
+
 		Component* createContentComponent(int index) override;
+
+		void contentChanged() override
+		{
+			PanelWithProcessorConnection::contentChanged();
+			applyDisplayProperties();
+		}
 
 		void fillModuleList(StringArray& moduleList) override
 		{
@@ -228,6 +274,15 @@ public:
 		bool hasSubIndex() const override { return true; }
 
 		void fillIndexList(StringArray& indexList) override;
+
+	private:
+
+		// Forwards the panel properties into the connected analyser's ring buffer,
+		// where GoniometerBase::paintSpacialDots picks them up
+		void applyDisplayProperties();
+
+		double refreshRate = 0.0;
+		int numPoints = 0;
 	};
 
 protected:
