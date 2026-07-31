@@ -1370,6 +1370,17 @@ void RingBufferComponentBase::LookAndFeelMethods::drawGonioMeterDots(Graphics& g
 
 }
 
+void RingBufferComponentBase::LookAndFeelMethods::drawGonioMeterPath(Graphics& g, RingBufferComponentBase& ac, const Path& p, int index)
+{
+	auto c = ac.getColourForAnalyserBase(RingBufferComponentBase::fillColour);
+
+	// Low per-frame alphas so overlapping frames read as a density gradient in the
+	// centre (brighter = more energy) instead of saturating into a solid block.
+	const float alphas[6] = { 0.5f, 0.28f, 0.18f, 0.12f, 0.07f, 0.04f };
+	g.setColour(c.withAlpha(alphas[index]));
+	g.strokePath(p, PathStrokeType(index == 0 ? 1.0f : 0.8f, PathStrokeType::curved, PathStrokeType::rounded));
+}
+
 void RingBufferComponentBase::LookAndFeelMethods::drawAnalyserGrid(Graphics& g, RingBufferComponentBase& ac, const Path& p)
 {
 	g.setColour(ac.getColourForAnalyserBase(RingBufferComponentBase::lineColour));
@@ -2171,20 +2182,50 @@ void OscilloscopeBase::drawOscilloscope(Graphics &g, const AudioSampleBuffer &b)
 	laf->drawOscilloscopePath(g, *this, path);
 }
 
-GoniometerBase::Shape::Shape(const AudioSampleBuffer& buffer, Rectangle<int> area)
+GoniometerBase::Shape::Shape(const AudioSampleBuffer& buffer, Rectangle<int> area, int forcedNumPoints)
 {
-	const int stepSize = buffer.getNumSamples() / 128;
+	// Scale the trace resolution with the display size: at small tile sizes fewer
+	// segments keep the dense centre readable instead of merging into a solid block.
+	// A NumPoints ring buffer property > 0 overrides the automatic behaviour.
+	const int maxPoints = forcedNumPoints > 0 ? jlimit(2, 512, forcedNumPoints)
+											  : jlimit(32, 128, jmin(area.getWidth(), area.getHeight()));
+	const int numPoints = jmin(maxPoints, buffer.getNumSamples());
+	const int stepSize = jmax(1, buffer.getNumSamples() / jmax(1, numPoints));
 
-	for (int i = 0; i < 128; i++)
+	Array<juce::Point<float>> samplePoints;
+	samplePoints.ensureStorageAllocated(numPoints);
+
+	for (int i = 0; i < numPoints; i++)
 	{
-		auto p = createPointFromSample(buffer.getSample(0, i * stepSize), buffer.getSample(1, i*stepSize), (float)area.getWidth());
+		auto p = createPointFromSample(buffer.getSample(0, i * stepSize), buffer.getSample(1, i*stepSize));
 
-		points.addWithoutMerging({ p.x + area.getX(), p.y + area.getY(), 2.0f, 2.0f });
+		// The normalised point is scaled per axis so the trace fills non-square tiles
+		p.setXY(p.x * (float)area.getWidth() + (float)area.getX(),
+				p.y * (float)area.getHeight() + (float)area.getY());
+
+		samplePoints.add(p);
+		points.addWithoutMerging({ p.x, p.y, 2.0f, 2.0f });
+	}
+
+	// Build a midpoint-smoothed trace through the sample points. Each sample acts as the
+	// control point of a quadratic segment ending between itself and its successor, which
+	// avoids the jagged look of straight segments at small display sizes.
+	if (samplePoints.size() > 1)
+	{
+		linePath.startNewSubPath(samplePoints[0]);
+
+		for (int i = 1; i < samplePoints.size() - 1; i++)
+		{
+			auto mid = (samplePoints[i] + samplePoints[i + 1]) / 2.0f;
+			linePath.quadraticTo(samplePoints[i], mid);
+		}
+
+		linePath.lineTo(samplePoints[samplePoints.size() - 1]);
 	}
 }
 
 
-juce::Point<float> GoniometerBase::Shape::createPointFromSample(float left, float right, float size)
+juce::Point<float> GoniometerBase::Shape::createPointFromSample(float left, float right)
 {
 	// A single non-finite sample (NaN/Inf from an upstream node blowing up) would otherwise
 	// produce NaN dot coordinates, and juce::EdgeTable hard-crashes building integer bounds
@@ -2204,8 +2245,9 @@ juce::Point<float> GoniometerBase::Shape::createPointFromSample(float left, floa
 	float lValue = lScaled / -2.0f + 0.5f;
 	float rValue = rScaled / 2.0f + 0.5f;
 
-	float x = ((lValue + rValue) / 2.0f * size);
-	float y = ((lValue + 1.0f - rValue) / 2.0f * size);
+	// Normalised [0...1] position; the caller scales it to the target area per axis
+	float x = (lValue + rValue) / 2.0f;
+	float y = (lValue + 1.0f - rValue) / 2.0f;
 
 	return { x, y };
 }
@@ -2224,9 +2266,7 @@ void GoniometerBase::paintSpacialDots(Graphics& g)
 		{
 			auto asComponent = dynamic_cast<Component*>(this);
 
-			auto size = jmin<int>(asComponent->getWidth(), asComponent->getHeight());
-
-			Rectangle<int> area = { (asComponent->getWidth() - size) / 2, (asComponent->getHeight() - size) / 2, size, size };
+			auto area = asComponent->getLocalBounds();
 
 			auto laf = getSpecialLookAndFeel<LookAndFeelMethods>(dynamic_cast<Component*>(this));
 
@@ -2245,13 +2285,20 @@ void GoniometerBase::paintSpacialDots(Graphics& g)
 
 			laf->drawAnalyserGrid(g, *this, grid);
 
-			shapeIndex = (shapeIndex + 1) % 6;
-			shapes[shapeIndex] = Shape(rb->getReadBuffer(), area);
+			int forcedNumPoints = 0;
 
-			for (int i = 0; i < 6; i++)
+			if (auto po = rb->getPropertyObject())
+				forcedNumPoints = (int)po->getPropertyInternal("NumPoints", 0);
+
+			shapeIndex = (shapeIndex + 1) % 6;
+			shapes[shapeIndex] = Shape(rb->getReadBuffer(), area, forcedNumPoints);
+
+			// Draw oldest frame first so the newest trace ends up on top,
+			// with index 0 being the newest (most opaque) frame.
+			for (int i = 5; i >= 0; i--)
 			{
-				auto& p = shapes[(shapeIndex + i) % 6].points;
-				laf->drawGonioMeterDots(g, *this, p, i);
+				auto& p = shapes[(shapeIndex - i + 6) % 6].linePath;
+				laf->drawGonioMeterPath(g, *this, p, i);
 			}
 
 		}

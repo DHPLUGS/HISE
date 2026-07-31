@@ -80,6 +80,7 @@ struct complex_ui_laf : public ScriptnodeComboBoxLookAndFeel,
 	void drawOscilloscopeBackground(Graphics& g, RingBufferComponentBase& ac, Rectangle<float> area) override;
 	void drawOscilloscopePath(Graphics& g, RingBufferComponentBase& ac, const Path& p) override;
 	void drawGonioMeterDots(Graphics& g, RingBufferComponentBase& ac, const RectangleList<float>& dots, int index) override;
+	void drawGonioMeterPath(Graphics& g, RingBufferComponentBase& ac, const Path& p, int index) override;
 	void drawAnalyserGrid(Graphics& g, RingBufferComponentBase& ac, const Path& p) override;
 
 	void drawAhdsrBackground(Graphics& g, AhdsrGraph& graph) override;

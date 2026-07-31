@@ -306,6 +306,7 @@ struct RingBufferComponentBase : public ComplexDataUIBase::EditorBase,
 		virtual void drawOscilloscopeBackground(Graphics& g, RingBufferComponentBase& ac, Rectangle<float> areaToFill);
 		virtual void drawOscilloscopePath(Graphics& g, RingBufferComponentBase& ac, const Path& p);
 		virtual void drawGonioMeterDots(Graphics& g, RingBufferComponentBase& ac, const RectangleList<float>& dots, int index);
+		virtual void drawGonioMeterPath(Graphics& g, RingBufferComponentBase& ac, const Path& p, int index);
 		virtual void drawAnalyserGrid(Graphics& g, RingBufferComponentBase& ac, const Path& p);
 	};
 
@@ -900,11 +901,12 @@ private:
 	{
 		Shape() {};
 
-		Shape(const AudioSampleBuffer& buffer, Rectangle<int> size);
+		Shape(const AudioSampleBuffer& buffer, Rectangle<int> size, int forcedNumPoints);
 
 		RectangleList<float> points;
+		Path linePath;
 
-		static Point<float> createPointFromSample(float left, float right, float size);
+		static Point<float> createPointFromSample(float left, float right);
 
 		void draw(Graphics& g, Colour c);
 	};

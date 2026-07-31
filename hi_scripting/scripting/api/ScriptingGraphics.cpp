@@ -2723,6 +2723,7 @@ Array<Identifier> ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames()
 		"drawAnalyserBackground",
 		"drawAnalyserPath",
 		"drawAnalyserGrid",
+		"drawGonioMeterPath",
         "drawMatrixPeakMeter",
 		"drawMatrixRow",
 		"getModulatorDragData",
@@ -4389,6 +4390,33 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawOscilloscopePath(Graphics& 
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawGonioMeterDots(Graphics& g_, RingBufferComponentBase& ac, const RectangleList<float>& dots, int index)
 {
 	RingBufferComponentBase::LookAndFeelMethods::drawGonioMeterDots(g_, ac, dots, index);
+}
+
+void ScriptingObjects::ScriptedLookAndFeel::Laf::drawGonioMeterPath(Graphics& g_, RingBufferComponentBase& ac, const Path& p, int index)
+{
+	if (functionDefined("drawGonioMeterPath"))
+	{
+		auto obj = new DynamicObject();
+		auto c = dynamic_cast<Component*>(&ac);
+		writeId(obj, c);
+		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, c->getLocalBounds().toFloat()));
+
+		auto sp = new ScriptingObjects::PathObject(get()->getScriptProcessor());
+
+		var keeper(sp);
+		sp->getPath() = p;
+		obj->setProperty("path", keeper);
+		obj->setProperty("index", index);
+
+		setColourOrBlack(obj, "bgColour", *c, RingBufferComponentBase::ColourId::bgColour);
+		setColourOrBlack(obj, "itemColour1", *c, RingBufferComponentBase::ColourId::fillColour);
+		setColourOrBlack(obj, "itemColour2", *c, RingBufferComponentBase::ColourId::lineColour);
+
+		if (get()->callWithGraphics(g_, "drawGonioMeterPath", var(obj), c))
+			return;
+	}
+
+	RingBufferComponentBase::LookAndFeelMethods::drawGonioMeterPath(g_, ac, p, index);
 }
 
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAnalyserGrid(Graphics& g_, RingBufferComponentBase& ac, const Path& p)

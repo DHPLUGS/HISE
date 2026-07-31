@@ -469,6 +469,16 @@ void complex_ui_laf::drawGonioMeterDots(Graphics& g, RingBufferComponentBase& ac
 	g.fillRectList(dots);
 }
 
+void complex_ui_laf::drawGonioMeterPath(Graphics& g, RingBufferComponentBase& ac, const Path& p, int index)
+{
+	auto c = getNodeColour(dynamic_cast<Component*>(&ac));
+
+	const float alphas[6] = { 0.6f, 0.3f, 0.15f, 0.09f, 0.05f, 0.02f };
+
+	g.setColour(c.withAlpha(alphas[index]));
+	g.strokePath(p, PathStrokeType(index == 0 ? 1.0f : 0.8f, PathStrokeType::curved, PathStrokeType::rounded));
+}
+
 void complex_ui_laf::drawAnalyserGrid(Graphics& g, RingBufferComponentBase& ac, const Path& p)
 {
 	auto sf = UnblurryGraphics::getScaleFactorForComponent(dynamic_cast<Component*>(&ac));
