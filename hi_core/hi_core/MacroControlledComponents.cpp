@@ -1411,13 +1411,26 @@ struct HiSlider::HoverPopup: public Component,
 
 		if(useDecoupledLabel && !labelAreaInPP.isEmpty())
 		{
-			if(auto topLevel = TopLevelWindowWithOptionalOpenGL::findRoot(&slider))
+			// Parent the label at the highest component that is still inside the UI zoom
+			// transform: at the top-level window the bounds get zoom-scaled (getLocalArea)
+			// but the graphics context doesn't, so fixed-size LAF fonts ignore the zoom factor.
+			Component* labelAncestor = parentToUse;
+
+			while(auto next = labelAncestor->getParentComponent())
 			{
-				decoupledLabelComponent = new ModulationLabel(slider, labelAreaInPP);
-				decoupledLabelComponent->setAlwaysOnTop(true);
-				topLevel->addAndMakeVisible(decoupledLabelComponent.get());
-				decoupledLabelComponent->update(HoverPopupLookandFeel::DrawData());
+				if(dynamic_cast<TopLevelWindowWithOptionalOpenGL*>(next) != nullptr)
+					break;
+
+				if(!next->getTransform().isIdentity())
+					break;
+
+				labelAncestor = next;
 			}
+
+			decoupledLabelComponent = new ModulationLabel(slider, labelAreaInPP);
+			decoupledLabelComponent->setAlwaysOnTop(true);
+			labelAncestor->addAndMakeVisible(decoupledLabelComponent.get());
+			decoupledLabelComponent->update(HoverPopupLookandFeel::DrawData());
 		}
 
 		auto offset = getBoundsInParent().getTopLeft().toFloat() - pOffset;
