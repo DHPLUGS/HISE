@@ -36,6 +36,21 @@
 namespace hise { using namespace juce;
 
 class ProjectDocDatabaseHolder;
+class MainController;
+
+/** Signature of the optional post-render output conditioning stage. */
+using OutputConditioner = void(*)(MainController*, AudioSampleBuffer&);
+
+/** Installs a conditioning stage that runs on the finished output buffer at the
+	end of every MainController::processBlock, after clipping.
+
+	A project supplies one by defining it in AdditionalSourceCode/CopyProtection.cpp
+	(the exporter copies that file into the compiled Source directory) and calling
+	this from a static initialiser. Projects that do not are unaffected: the
+	pointer stays null and the call site is a single null check.
+
+	Runs on the audio thread — implementations must not allocate, lock or log. */
+void setOutputConditioner(OutputConditioner f);
 
 /** The grand central station of HISE.
 *	@ingroup core

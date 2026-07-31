@@ -36,6 +36,16 @@
 */
 namespace hise { using namespace juce;
 
+// Optional post-render output conditioning stage — see setOutputConditioner()
+// in MainController.h. Null unless a project installs one, in which case the
+// audio-thread cost is a single relaxed atomic load per block.
+static std::atomic<OutputConditioner> currentOutputConditioner { nullptr };
+
+void setOutputConditioner(OutputConditioner f)
+{
+	currentOutputConditioner.store(f, std::memory_order_relaxed);
+}
+
 #if HI_RUN_UNIT_TESTS
 bool MainController::unitTestMode = false;
 #endif
@@ -1669,6 +1679,9 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 	
 
 #endif
+
+	if (auto oc = currentOutputConditioner.load(std::memory_order_relaxed))
+		oc(this, buffer);
 
 #if ENABLE_CPU_MEASUREMENT
 	stopCpuBenchmark();
