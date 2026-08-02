@@ -2795,11 +2795,14 @@ void FileHandlerBase::checkSubDirectories()
 	for (auto dir : subDirList)
 	{
 		File f = checkSubDirectory(dir);
-		jassert(f.exists() && f.isDirectory());
 
 		File subDirectory = getRootFolder().getChildFile(getIdentifier(dir));
 		File linkFile = getLinkFile(subDirectory);
 		const bool redirected = linkFile.existsAsFile();
+
+		// A redirection that points to a dead path is a valid (if broken) state now that
+		// checkSubDirectory() doesn't show a modal repair dialog anymore, so don't assert on it.
+		jassert(redirected || (f.exists() && f.isDirectory()));
 
 		subDirectories.add({ dir, redirected, f });
 	}
@@ -2937,19 +2940,41 @@ juce::File FileHandlerBase::checkSubDirectory(SubDirectories dir)
 		{
 			if (!File(absolutePath).exists())
 			{
-				if (PresetHandler::showYesNoWindow("Missing Sample Folder", "The sample relocation folder does not exist. Press OK to choose a new location or Cancel to ignore this.", PresetHandler::IconType::Warning))
+				auto folderName = getIdentifier(dir).upToFirstOccurrenceOf("/", false, false);
+
+#if USE_BACKEND
+				// In the HISE IDE the redirection can be repaired right away, so keep the dialog
+				// here, but name the folder and the dead target instead of always saying "sample".
+				String m;
+
+				m << "The " << folderName << " redirection of " << getRootFolder().getFileName() << " points to\n\n";
+				m << absolutePath << "\n\nwhich does not exist. Press OK to choose a new location or Cancel to ignore this.";
+
+				if (PresetHandler::showYesNoWindow("Missing " + folderName + " Folder", m, PresetHandler::IconType::Warning))
 				{
-					FileChooser fc("Redirect sample folder to the following location");
+					FileChooser fc("Redirect " + folderName + " folder to the following location");
 
 					if (fc.browseForDirectory())
 					{
 						File f = fc.getResult();
 
-						createLinkFile(SubDirectories::Samples, f);
+						// Use the subdirectory that actually failed - writing this into the sample
+						// folder would leave the broken redirection in place.
+						createLinkFile(dir, f);
 
 						return f;
 					}
 				}
+#else
+				// An exported plugin must never block the startup with a modal window (this is called
+				// while the expansions are initialised), so just report it and let the UI deal with it.
+				String m;
+
+				m << "The " << folderName << " folder of " << getRootFolder().getFileName() << " is redirected to ";
+				m << absolutePath << " which does not exist.";
+
+				getMainController()->getExpansionHandler().setErrorMessage(m, false);
+#endif
 			}
 
 			return File(absolutePath);
