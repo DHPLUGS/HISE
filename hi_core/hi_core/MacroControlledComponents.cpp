@@ -1385,7 +1385,11 @@ struct HiSlider::HoverPopup: public Component,
 		if (parentToUse == nullptr)
 			parentToUse = parent->getParentComponent();
 
-		auto idx = pd.alwaysOnTop ? -1 : parentToUse->getIndexOfChildComponent(parent);
+		// +1 puts the popup one slot in front of the slider. Inserting at the slider's own
+		// index leaves the slider in front, which hides the dragger completely. 6de7c97b5
+		// had the +1; it was lost in the alwaysOnTop refactor and went unnoticed because
+		// the default path takes the -1 branch.
+		auto idx = pd.alwaysOnTop ? -1 : parentToUse->getIndexOfChildComponent(parent) + 1;
 		parentToUse->addAndMakeVisible(this, idx);
 
 		parentToUseRef = parentToUse;
