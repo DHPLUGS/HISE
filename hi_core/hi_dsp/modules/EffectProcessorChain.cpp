@@ -89,6 +89,11 @@ void EffectProcessorChain::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 	for (auto fx : masterEffects)
 		fx->setKillBuffer(killBuffer);
+
+	// runs after the tree is fully built / restored, so this catches voice effects
+	// that were inserted before the mono flag was set.
+	for (auto vep : voiceEffects)
+		vep->setForceMonoMode(renderPolyFxAsMono);
 }
 
 void EffectProcessorChain::handleHiseEvent(const HiseEvent& m)
@@ -263,6 +268,11 @@ EffectProcessorChain::EffectChainHandler::~EffectChainHandler()
 void EffectProcessorChain::setForceMonophonicProcessingOfPolyphonicEffects(bool shouldProcessPolyFX)
 {
 	renderPolyFxAsMono = shouldProcessPolyFX;
+
+	// the flag is pushed to voice effects at insertion time, so re-sync the ones
+	// that are already in the chain.
+	for (auto vep : voiceEffects)
+		vep->setForceMonoMode(renderPolyFxAsMono);
 }
 
 void EffectProcessorChain::renderMasterEffects(AudioSampleBuffer &b)
@@ -373,6 +383,7 @@ void EffectProcessorChainFactoryType::fillTypeNameList()
 	ADD_NAME_TO_TYPELIST(GainEffect);
 	ADD_NAME_TO_TYPELIST(ConvolutionEffect);
 	ADD_NAME_TO_TYPELIST(DelayEffect);
+	ADD_NAME_TO_TYPELIST(MdaLimiterEffect);
 	ADD_NAME_TO_TYPELIST(ChorusEffect);
     ADD_NAME_TO_TYPELIST(PhaseFX);
 	ADD_NAME_TO_TYPELIST(RouteEffect);
@@ -409,6 +420,7 @@ Processor* EffectProcessorChainFactoryType::createProcessor	(int typeIndex, cons
 	case simpleReverb:					return new SimpleReverbEffect(m, id);
 	case simpleGain:					return new GainEffect(m, id);
 	case delay:							return new DelayEffect(m, id);
+	case limiter:						return new MdaLimiterEffect(m, id);
 	case chorus:						return new ChorusEffect(m, id);
     case phaser:                        return new PhaseFX(m, id);
 	case routeFX:						return new RouteEffect(m, id);

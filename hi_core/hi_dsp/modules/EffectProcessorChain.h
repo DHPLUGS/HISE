@@ -368,6 +368,7 @@ public:
 		simpleGain,
 		convolution,
 		delay,
+		limiter,
 		chorus,
         phaser,
 		routeFX,

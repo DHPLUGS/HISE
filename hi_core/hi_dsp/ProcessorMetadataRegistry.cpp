@@ -243,6 +243,7 @@ void ProcessorMetadataRegistry::registerAllMetadata()
 	add(GainEffect::createMetadata());
 	add(ConvolutionEffect::createMetadata());
 	add(DelayEffect::createMetadata());
+	add(MdaLimiterEffect::createMetadata());
 	add(ChorusEffect::createMetadata());
 	add(PhaseFX::createMetadata());
 	add(RouteEffect::createMetadata());

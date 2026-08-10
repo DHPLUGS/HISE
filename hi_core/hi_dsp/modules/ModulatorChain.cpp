@@ -1218,6 +1218,12 @@ float ModulatorChain::ModChainWithBuffer::getOneModulationValue(int startSample)
 {
 	if(numActiveVoices == 0)
 	{
+		// free running monophonic mods (eg. global LFOs on a filter inside a container
+		// or a FX plugin) are rendered every block, so use their value instead of
+		// freezing the chain at the inactive value.
+		if(c->hasMonophonicTimeModulationMods() && modBuffer.monoValues != nullptr)
+			return modBuffer.monoValues[startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR];
+
 		ModIterator<Modulator> iter(c);
 
 		float m = 1.0f;
