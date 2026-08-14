@@ -10812,7 +10812,13 @@ void ScriptingObjects::ScriptBuilder::clear()
 			sp->getScriptingContent()->setIsRebuilding(true);
 		});
 
-		Thread::getCurrentThread()->wait(500);
+		// getCurrentThread() is null on the message thread (e.g. project load
+		// at startup), so fall back to a plain sleep there.
+		if (auto* currentThread = Thread::getCurrentThread())
+			currentThread->wait(500);
+		else
+			Thread::sleep(500);
+
 		dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine()->extendTimeout(500);
 	}
 #endif

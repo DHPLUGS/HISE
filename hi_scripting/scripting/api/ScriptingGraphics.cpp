@@ -683,7 +683,12 @@ int ScriptingObjects::ScriptShader::blockWhileWaiting()
 			if (delta > 2000)
 				break;
 
-			Thread::getCurrentThread()->wait(200);
+			// getCurrentThread() is null on the message thread (e.g. project
+			// load at startup), so fall back to a plain sleep there.
+			if (auto* currentThread = Thread::getCurrentThread())
+				currentThread->wait(200);
+			else
+				Thread::sleep(200);
 		}
 
 		return delta;
