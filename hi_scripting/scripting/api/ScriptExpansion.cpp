@@ -3505,8 +3505,12 @@ var BeatportManager::validate()
 	obj = pimpl->validate();
 #else
 
-	// simulate waiting...
-	Thread::getCurrentThread()->wait(1500);
+	// simulate waiting... getCurrentThread() is null on the message thread
+	// (e.g. project load at startup), so fall back to a plain sleep there.
+	if (auto* currentThread = Thread::getCurrentThread())
+		currentThread->wait(1500);
+	else
+		Thread::sleep(1500);
 
 	auto responseFile = getBeatportProjectFolder(getScriptProcessor()->getMainController_()).getChildFile("validate_response.json");
 
@@ -3553,7 +3557,13 @@ bool BeatportManager::isBeatportAccess()
 #else
 	auto t = Time::getMillisecondCounter();
 
-	Thread::getCurrentThread()->wait(500);
+	// getCurrentThread() is null on the message thread (e.g. project load at
+	// startup), so fall back to a plain sleep there.
+	if (auto* currentThread = Thread::getCurrentThread())
+		currentThread->wait(500);
+	else
+		Thread::sleep(500);
+
 	auto responseFile = getBeatportProjectFolder(getScriptProcessor()->getMainController_()).getChildFile("validate_response.json");
 
 	auto now = Time::getMillisecondCounter();

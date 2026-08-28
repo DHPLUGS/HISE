@@ -977,7 +977,9 @@ idUpdater(p->getMainController()->getRootDispatcher(), *this, BIND_MEMBER_FUNCTI
 
 	soloButton = new ShapeButton("Solo Processor", Colours::white.withAlpha(0.2f), Colours::white.withAlpha(0.5f), Colours::white);
 
-	static Path soloPath;
+	// must not be static: loadPathFromData() appends instead of clearing, so a
+	// static path grows on every construction until the copy in setShape() OOMs
+	Path soloPath;
 
 	// Path::loadPathFromData appends to the path, so a static must only be filled once:
 	// reloading it for every ModuleDragTarget grows the shared path by one copy per module
@@ -991,7 +993,7 @@ idUpdater(p->getMainController()->getRootDispatcher(), *this, BIND_MEMBER_FUNCTI
 
 	hideButton = new ShapeButton("Hide Processor", Colours::white.withAlpha(0.2f), Colours::white.withAlpha(0.5f), Colours::white);
 
-	static Path hidePath;
+	Path hidePath;
 
 	if (hidePath.isEmpty())
 		hidePath.loadPathFromData(BackendBinaryData::ToolbarIcons::viewPanel, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::viewPanel));
