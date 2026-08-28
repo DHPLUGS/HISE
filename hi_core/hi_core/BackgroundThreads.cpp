@@ -1082,7 +1082,10 @@ File getDefaultSampleDestination()
 #if JUCE_WINDOWS
 	const File sourceD = File::getSpecialLocation(File::globalApplicationsDirectory).getChildFile(path);
 #else
-	const File sourceD = File::getSpecialLocation(File::userMusicDirectory).getChildFile(path);
+	// DHP: /Users/Shared instead of ~/Music — ~/Music is TCC-protected, so
+	// both the installer and the DAW streaming samples from it raise macOS
+	// permission prompts. Matches the DHP sample-installer default.
+	const File sourceD = File("/Users/Shared").getChildFile(path);
 #endif
 
 	if (!sourceD.isDirectory())

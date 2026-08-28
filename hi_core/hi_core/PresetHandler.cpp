@@ -1333,7 +1333,10 @@ File FrontendHandler::getSampleLocationForCompiledPlugin()
 #if JUCE_WINDOWS
 		File sensibleDefaultLocation = File::getSpecialLocation(File::userDocumentsDirectory);
 #else
-		File sensibleDefaultLocation = File::getSpecialLocation(File::userMusicDirectory);
+		// DHP: /Users/Shared instead of ~/Music — ~/Music is TCC-protected, so
+		// both the installer and the DAW streaming samples from it raise macOS
+		// permission prompts. Matches the DHP sample-installer default.
+		File sensibleDefaultLocation("/Users/Shared");
 #endif
 
 		auto newSampleLoc = sensibleDefaultLocation.getChildFile(getCompanyName()).getChildFile(getProjectName()).getChildFile("Samples");
