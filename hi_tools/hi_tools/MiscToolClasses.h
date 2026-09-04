@@ -3032,52 +3032,94 @@ struct ModulationDisplayValue
 
 private:
 
+	/** The property names as pre-interned Identifiers.
+
+		Every `set["literal"]` / `set.set("literal", ...)` builds a juce::Identifier from a
+		char pointer, which hashes the text and walks the global string pool under a lock.
+		store() and fromNamedValueSet() together did that 25 times per component, and they run
+		on every scripted LAF paint call - profiling APEX put the pool lookups at ~9% of the
+		message thread. Interning them once here makes the lookups a pointer comparison.
+	*/
+	struct Ids
+	{
+		Ids():
+			valueNormalized("valueNormalized"),
+			scaledValue("scaledValue"),
+			addValue("addValue"),
+			modulationActive("modulationActive"),
+			modMinValue("modMinValue"),
+			modMaxValue("modMaxValue"),
+			modSelectedMinValue("modSelectedMinValue"),
+			modSelectedMaxValue("modSelectedMaxValue"),
+			modAccumulatedMinValue("modAccumulatedMinValue"),
+			modAccumulatedMaxValue("modAccumulatedMaxValue"),
+			modAccumulatedLiveValue("modAccumulatedLiveValue"),
+			lastModValue("lastModValue")
+		{};
+
+		const Identifier valueNormalized, scaledValue, addValue, modulationActive,
+						 modMinValue, modMaxValue,
+						 modSelectedMinValue, modSelectedMaxValue,
+						 modAccumulatedMinValue, modAccumulatedMaxValue,
+						 modAccumulatedLiveValue, lastModValue;
+	};
+
+	static const Ids& ids()
+	{
+		static const Ids i;
+		return i;
+	}
+
 	static ModulationDisplayValue fromNamedValueSet(const NamedValueSet& set)
 	{
-		ModulationDisplayValue v;
-		v.scaledValue = set["scaledValue"];
-		v.normalisedValue = set["valueNormalized"];
-		v.addValue = set["addValue"];
-		v.modulationActive = set["modulationActive"];
-		v.lastModValue = set["lastModValue"];
+		const auto& id = ids();
 
-		auto minv = (float)set["modMinValue"];
-		auto maxv = (float)set["modMaxValue"];
+		ModulationDisplayValue v;
+		v.scaledValue = set[id.scaledValue];
+		v.normalisedValue = set[id.valueNormalized];
+		v.addValue = set[id.addValue];
+		v.modulationActive = set[id.modulationActive];
+		v.lastModValue = set[id.lastModValue];
+
+		auto minv = (float)set[id.modMinValue];
+		auto maxv = (float)set[id.modMaxValue];
 
 		minv = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(minv));
 		maxv = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(maxv));
 		v.modulationRange = { minv, maxv };
 
-		auto selMinV = (float)set["modSelectedMinValue"];
-		auto selMaxV = (float)set["modSelectedMaxValue"];
+		auto selMinV = (float)set[id.modSelectedMinValue];
+		auto selMaxV = (float)set[id.modSelectedMaxValue];
 		selMinV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(selMinV));
 		selMaxV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(selMaxV));
 		v.selectedSourceRange = { selMinV, selMaxV };
 
-		auto accMinV = (float)set["modAccumulatedMinValue"];
-		auto accMaxV = (float)set["modAccumulatedMaxValue"];
+		auto accMinV = (float)set[id.modAccumulatedMinValue];
+		auto accMaxV = (float)set[id.modAccumulatedMaxValue];
 		accMinV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(accMinV));
 		accMaxV = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(accMaxV));
 		v.accumulatedSourceRange = { accMinV, accMaxV };
-		v.accumulatedLiveValue = set["modAccumulatedLiveValue"];
+		v.accumulatedLiveValue = set[id.modAccumulatedLiveValue];
 
 		return v;
 	}
 
 	void store(NamedValueSet& set) const
 	{
-		set.set("valueNormalized", normalisedValue);
-		set.set("scaledValue", scaledValue);
-		set.set("addValue", addValue);
-		set.set("modulationActive", modulationActive);
-		set.set("modMinValue", modulationRange.getStart());
-		set.set("modMaxValue", modulationRange.getEnd());
-		set.set("modSelectedMinValue", selectedSourceRange.getStart());
-		set.set("modSelectedMaxValue", selectedSourceRange.getEnd());
-		set.set("modAccumulatedMinValue", accumulatedSourceRange.getStart());
-		set.set("modAccumulatedMaxValue", accumulatedSourceRange.getEnd());
-		set.set("modAccumulatedLiveValue", accumulatedLiveValue);
-		set.set("lastModValue", lastModValue);
+		const auto& id = ids();
+
+		set.set(id.valueNormalized, normalisedValue);
+		set.set(id.scaledValue, scaledValue);
+		set.set(id.addValue, addValue);
+		set.set(id.modulationActive, modulationActive);
+		set.set(id.modMinValue, modulationRange.getStart());
+		set.set(id.modMaxValue, modulationRange.getEnd());
+		set.set(id.modSelectedMinValue, selectedSourceRange.getStart());
+		set.set(id.modSelectedMaxValue, selectedSourceRange.getEnd());
+		set.set(id.modAccumulatedMinValue, accumulatedSourceRange.getStart());
+		set.set(id.modAccumulatedMaxValue, accumulatedSourceRange.getEnd());
+		set.set(id.modAccumulatedLiveValue, accumulatedLiveValue);
+		set.set(id.lastModValue, lastModValue);
 	}
 };
 

@@ -4557,6 +4557,77 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPopupMenuSectionHeader (Gra
     GlobalHiseLookAndFeel::drawPopupMenuSectionHeader(g_, area, sectionName);
 }
 
+/** The LAF property names, interned once.
+
+	`obj->setProperty("literal", ...)` builds a juce::Identifier from a char pointer on every
+	call, which hashes the text and walks the global string pool under a lock. The slider,
+	button and combobox bridges below run for every such component on every repaint, so at
+	APEX's component count the pool lookups measured ~9% of the message thread. Holding the
+	Identifiers here reduces the lookup to a pointer comparison. See also
+	ModulationDisplayValue::ids() in MiscToolClasses.h, which does the same for the 25 mod
+	display properties that ride along with each slider.
+*/
+struct LafIds
+{
+	LafIds():
+			active("active"),
+			area("area"),
+			bgColour("bgColour"),
+			clicked("clicked"),
+			down("down"),
+			enabled("enabled"),
+			hover("hover"),
+			itemColour1("itemColour1"),
+			itemColour2("itemColour2"),
+			max("max"),
+			min("min"),
+			over("over"),
+			skew("skew"),
+			style("style"),
+			suffix("suffix"),
+			text("text"),
+			textColour("textColour"),
+			value("value"),
+			valueAsText("valueAsText"),
+			valueRangeStyleMax("valueRangeStyleMax"),
+			valueRangeStyleMaxNormalized("valueRangeStyleMaxNormalized"),
+			valueRangeStyleMin("valueRangeStyleMin"),
+			valueRangeStyleMinNormalized("valueRangeStyleMinNormalized"),
+			valueSuffixString("valueSuffixString")
+	{};
+
+	const Identifier active;
+	const Identifier area;
+	const Identifier bgColour;
+	const Identifier clicked;
+	const Identifier down;
+	const Identifier enabled;
+	const Identifier hover;
+	const Identifier itemColour1;
+	const Identifier itemColour2;
+	const Identifier max;
+	const Identifier min;
+	const Identifier over;
+	const Identifier skew;
+	const Identifier style;
+	const Identifier suffix;
+	const Identifier text;
+	const Identifier textColour;
+	const Identifier value;
+	const Identifier valueAsText;
+	const Identifier valueRangeStyleMax;
+	const Identifier valueRangeStyleMaxNormalized;
+	const Identifier valueRangeStyleMin;
+	const Identifier valueRangeStyleMinNormalized;
+	const Identifier valueSuffixString;
+};
+
+static const LafIds& lafIds()
+{
+	static const LafIds i;
+	return i;
+}
+
 void setColourOrBlack(DynamicObject* obj, const Identifier& id, Component& c, int colourId)
 {
 	if (c.isColourSpecified(colourId))
@@ -4570,19 +4641,20 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawToggleButton(Graphics &g_, 
 	if (functionDefined("drawToggleButton"))
 	{
 		auto obj = new DynamicObject();
+		const auto& id = lafIds();
 
 		writeId(obj, &b);
-		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, b.getLocalBounds().toFloat()));
-		obj->setProperty("enabled", b.isEnabled());
-		obj->setProperty("text", b.getButtonText());
-		obj->setProperty("over", isMouseOverButton);
-		obj->setProperty("down", b.isMouseButtonDown(true));
-		obj->setProperty("value", b.getToggleState());
+		obj->setProperty(id.area, ApiHelpers::getVarRectangle(useRectangleClass, b.getLocalBounds().toFloat()));
+		obj->setProperty(id.enabled, b.isEnabled());
+		obj->setProperty(id.text, b.getButtonText());
+		obj->setProperty(id.over, isMouseOverButton);
+		obj->setProperty(id.down, b.isMouseButtonDown(true));
+		obj->setProperty(id.value, b.getToggleState());
 
-		setColourOrBlack(obj, "bgColour", b, HiseColourScheme::ComponentOutlineColourId);
-		setColourOrBlack(obj, "itemColour1", b, HiseColourScheme::ComponentFillTopColourId);
-		setColourOrBlack(obj, "itemColour2", b, HiseColourScheme::ComponentFillBottomColourId);
-		setColourOrBlack(obj, "textColour", b, HiseColourScheme::ComponentTextColourId);
+		setColourOrBlack(obj, id.bgColour, b, HiseColourScheme::ComponentOutlineColourId);
+		setColourOrBlack(obj, id.itemColour1, b, HiseColourScheme::ComponentFillTopColourId);
+		setColourOrBlack(obj, id.itemColour2, b, HiseColourScheme::ComponentFillBottomColourId);
+		setColourOrBlack(obj, id.textColour, b, HiseColourScheme::ComponentTextColourId);
 
 		addParentFloatingTile(b, obj);
 
@@ -4599,35 +4671,40 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawRotarySlider(Graphics &g_, 
 	if (functionDefined("drawRotarySlider"))
 	{
 		auto obj = new DynamicObject();
+		const auto& id = lafIds();
 
 		s.setTextBoxStyle(Slider::NoTextBox, false, -1, -1);
 
 		writeId(obj, &s);
-		obj->setProperty("enabled", s.isEnabled());
-		obj->setProperty("text", s.getName());
-		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, s.getLocalBounds().toFloat()));
+		obj->setProperty(id.enabled, s.isEnabled());
+		obj->setProperty(id.text, s.getName());
+		obj->setProperty(id.area, ApiHelpers::getVarRectangle(useRectangleClass, s.getLocalBounds().toFloat()));
 
-		obj->setProperty("valueAsText", s.getTextFromValue(s.getValue()));
-		obj->setProperty("value", s.getValue());
+		// getTextFromValue() formats a String on every repaint, and valueSuffixString below
+		// asked for the exact same conversion - so do it once and share it.
+		const auto valueText = s.getTextFromValue(s.getValue());
+
+		obj->setProperty(id.valueAsText, valueText);
+		obj->setProperty(id.value, s.getValue());
 
 		NormalisableRange<double> range = NormalisableRange<double>(s.getMinimum(), s.getMaximum(), s.getInterval(), s.getSkewFactor());
 		auto normValue = range.convertTo0to1(s.getValue());
 		auto mv = ModulationDisplayValue::fromComponent(s, normValue);
 		mv.storeToJSON(obj);
 
-		obj->setProperty("valueSuffixString", s.getTextFromValue(s.getValue()));
-		obj->setProperty("suffix", s.getTextValueSuffix());
-		obj->setProperty("skew", s.getSkewFactor());
-		obj->setProperty("min", s.getMinimum());
-		obj->setProperty("max", s.getMaximum());
+		obj->setProperty(id.valueSuffixString, valueText);
+		obj->setProperty(id.suffix, s.getTextValueSuffix());
+		obj->setProperty(id.skew, s.getSkewFactor());
+		obj->setProperty(id.min, s.getMinimum());
+		obj->setProperty(id.max, s.getMaximum());
 
-		obj->setProperty("clicked", s.isMouseButtonDown());
-		obj->setProperty("hover", s.isMouseOver());
+		obj->setProperty(id.clicked, s.isMouseButtonDown());
+		obj->setProperty(id.hover, s.isMouseOver());
 
-		setColourOrBlack(obj, "bgColour", s, HiseColourScheme::ComponentOutlineColourId);
-		setColourOrBlack(obj, "itemColour1", s, HiseColourScheme::ComponentFillTopColourId);
-		setColourOrBlack(obj, "itemColour2", s, HiseColourScheme::ComponentFillBottomColourId);
-		setColourOrBlack(obj, "textColour", s, HiseColourScheme::ComponentTextColourId);
+		setColourOrBlack(obj, id.bgColour, s, HiseColourScheme::ComponentOutlineColourId);
+		setColourOrBlack(obj, id.itemColour1, s, HiseColourScheme::ComponentFillTopColourId);
+		setColourOrBlack(obj, id.itemColour2, s, HiseColourScheme::ComponentFillBottomColourId);
+		setColourOrBlack(obj, id.textColour, s, HiseColourScheme::ComponentTextColourId);
 
 		addParentFloatingTile(s, obj);
 
@@ -4644,10 +4721,11 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, i
 	if (functionDefined("drawLinearSlider"))
 	{
 		DynamicObject* obj = new DynamicObject();
+		const auto& id = lafIds();
 
 		writeId(obj, &slider);
-		obj->setProperty("enabled", slider.isEnabled());
-		obj->setProperty("text", slider.getName());
+		obj->setProperty(id.enabled, slider.isEnabled());
+		obj->setProperty(id.text, slider.getName());
 
 		auto parentPack = slider.findParentComponentOfClass<SliderPack>();
 
@@ -4656,18 +4734,21 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, i
 		auto mv = ModulationDisplayValue::fromComponent(slider, normValue);
 		mv.storeToJSON(obj);
 
-		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, slider.getLocalBounds().toFloat()));
-		obj->setProperty("valueAsText", slider.getTextFromValue(slider.getValue()));
-		obj->setProperty("valueSuffixString", slider.getTextFromValue(slider.getValue()));
-		obj->setProperty("suffix", slider.getTextValueSuffix());
-		obj->setProperty("skew", slider.getSkewFactor());
+		obj->setProperty(id.area, ApiHelpers::getVarRectangle(useRectangleClass, slider.getLocalBounds().toFloat()));
+		// One conversion shared by both properties - see drawRotarySlider above.
+		const auto valueText = slider.getTextFromValue(slider.getValue());
 
-		obj->setProperty("style", style);	// Horizontal:2, Vertical:3, Range:9
+		obj->setProperty(id.valueAsText, valueText);
+		obj->setProperty(id.valueSuffixString, valueText);
+		obj->setProperty(id.suffix, slider.getTextValueSuffix());
+		obj->setProperty(id.skew, slider.getSkewFactor());
+
+		obj->setProperty(id.style, style);	// Horizontal:2, Vertical:3, Range:9
 
 		// Vertical & Horizontal style slider
-		obj->setProperty("min", slider.getMinimum());
-		obj->setProperty("max", slider.getMaximum());
-		obj->setProperty("value", slider.getValue());
+		obj->setProperty(id.min, slider.getMinimum());
+		obj->setProperty(id.max, slider.getMaximum());
+		obj->setProperty(id.value, slider.getValue());
 
 		// Range style slider
 		double minv = 0.0;
@@ -4679,33 +4760,33 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, i
 			maxv = slider.getMaxValue();
 		}
 
-		obj->setProperty("valueRangeStyleMin", minv);
-		obj->setProperty("valueRangeStyleMax", maxv);
+		obj->setProperty(id.valueRangeStyleMin, minv);
+		obj->setProperty(id.valueRangeStyleMax, maxv);
 
-		obj->setProperty("valueRangeStyleMinNormalized", range.convertTo0to1(minv));
-		obj->setProperty("valueRangeStyleMaxNormalized", range.convertTo0to1(maxv));
+		obj->setProperty(id.valueRangeStyleMinNormalized, range.convertTo0to1(minv));
+		obj->setProperty(id.valueRangeStyleMaxNormalized, range.convertTo0to1(maxv));
 
-		obj->setProperty("clicked", slider.isMouseButtonDown());
+		obj->setProperty(id.clicked, slider.isMouseButtonDown());
 
 		// pack children don't intercept mouse events, so ask the pack which slider is hovered
 		if (parentPack != nullptr)
-			obj->setProperty("hover", parentPack->getHoverStateForSlider(&slider) != 0);
+			obj->setProperty(id.hover, parentPack->getHoverStateForSlider(&slider) != 0);
 		else
-			obj->setProperty("hover", slider.isMouseOver());
+			obj->setProperty(id.hover, slider.isMouseOver());
 
-		setColourOrBlack(obj, "bgColour",    slider, HiseColourScheme::ComponentOutlineColourId);
-		setColourOrBlack(obj, "itemColour1", slider, HiseColourScheme::ComponentFillTopColourId);
-		setColourOrBlack(obj, "itemColour2", slider, HiseColourScheme::ComponentFillBottomColourId);
-		setColourOrBlack(obj, "textColour",  slider, HiseColourScheme::ComponentTextColourId);
+		setColourOrBlack(obj, id.bgColour,    slider, HiseColourScheme::ComponentOutlineColourId);
+		setColourOrBlack(obj, id.itemColour1, slider, HiseColourScheme::ComponentFillTopColourId);
+		setColourOrBlack(obj, id.itemColour2, slider, HiseColourScheme::ComponentFillBottomColourId);
+		setColourOrBlack(obj, id.textColour,  slider, HiseColourScheme::ComponentTextColourId);
 
 		if (parentPack != nullptr)
 		{
-			obj->setProperty("text", parentPack->getName());
+			obj->setProperty(id.text, parentPack->getName());
 
-			setColourOrBlack(obj, "bgColour", *parentPack, Slider::ColourIds::backgroundColourId);
-			setColourOrBlack(obj, "itemColour1", *parentPack, Slider::thumbColourId);
-			setColourOrBlack(obj, "itemColour2", *parentPack, Slider::textBoxOutlineColourId);
-			setColourOrBlack(obj, "textColour", *parentPack, Slider::trackColourId);
+			setColourOrBlack(obj, id.bgColour, *parentPack, Slider::ColourIds::backgroundColourId);
+			setColourOrBlack(obj, id.itemColour1, *parentPack, Slider::thumbColourId);
+			setColourOrBlack(obj, id.itemColour2, *parentPack, Slider::textBoxOutlineColourId);
+			setColourOrBlack(obj, id.textColour, *parentPack, Slider::trackColourId);
 		}
 
 		addParentFloatingTile(slider, obj);
@@ -4736,8 +4817,9 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int 
 	if (functionDefined("drawComboBox"))
 	{
 		auto obj = new DynamicObject();
+		const auto& id = lafIds();
 		writeId(obj, &cb);
-		obj->setProperty("area", ApiHelpers::getVarRectangle(useRectangleClass, cb.getLocalBounds().toFloat()));
+		obj->setProperty(id.area, ApiHelpers::getVarRectangle(useRectangleClass, cb.getLocalBounds().toFloat()));
 
 		auto text = cb.getText();
 
@@ -4749,16 +4831,16 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int 
 				text = cb.getTextWhenNothingSelected();
 		}
 
-		obj->setProperty("text", text);
-		obj->setProperty("active", cb.getSelectedId() != 0);
-		obj->setProperty("enabled", cb.isEnabled() && cb.getNumItems() > 0);
-		obj->setProperty("hover", cb.isMouseOver(true) || cb.isMouseButtonDown(true) || cb.isPopupActive());
-		obj->setProperty("down", cb.isMouseButtonDown(true));
+		obj->setProperty(id.text, text);
+		obj->setProperty(id.active, cb.getSelectedId() != 0);
+		obj->setProperty(id.enabled, cb.isEnabled() && cb.getNumItems() > 0);
+		obj->setProperty(id.hover, cb.isMouseOver(true) || cb.isMouseButtonDown(true) || cb.isPopupActive());
+		obj->setProperty(id.down, cb.isMouseButtonDown(true));
 
-		setColourOrBlack(obj, "bgColour",    cb, HiseColourScheme::ComponentOutlineColourId);
-		setColourOrBlack(obj, "itemColour1", cb, HiseColourScheme::ComponentFillTopColourId);
-		setColourOrBlack(obj, "itemColour2", cb, HiseColourScheme::ComponentFillBottomColourId);
-		setColourOrBlack(obj, "textColour",  cb, HiseColourScheme::ComponentTextColourId);
+		setColourOrBlack(obj, id.bgColour,    cb, HiseColourScheme::ComponentOutlineColourId);
+		setColourOrBlack(obj, id.itemColour1, cb, HiseColourScheme::ComponentFillTopColourId);
+		setColourOrBlack(obj, id.itemColour2, cb, HiseColourScheme::ComponentFillBottomColourId);
+		setColourOrBlack(obj, id.textColour,  cb, HiseColourScheme::ComponentTextColourId);
 
 		addParentFloatingTile(cb, obj);
 
