@@ -78,6 +78,19 @@ FilterGraph::~FilterGraph()
 		filterData->getUpdater().removeEventListener(this);
 }
 
+/** Clamps a filter magnitude to something log10 can survive.
+
+	Returns a floor rather than zero/NaN so the curve is drawn at the bottom of the graph
+	instead of vanishing: 1e-6 is -120dB, well below any usable gain range.
+*/
+static float sanitiseMagnitude(float m)
+{
+	if (!std::isfinite(m) || m < 1.0e-6f)
+		return 1.0e-6f;
+
+	return m;
+}
+
 void FilterGraph::refreshFilterPath()
 {
 	if(getLocalBounds().isEmpty())
@@ -112,12 +125,13 @@ void FilterGraph::refreshFilterPath()
 			return;
 		}
 
-		float traceMagnitude = (float) (activeFilters[0]->getResponse (lowFreq).magnitudeValue);
-        
-		if (traceMagnitude == 0)
-			return;
-
-		jassert(traceMagnitude > 0.0f);
+		// Sanitise rather than bail: a magnitude of exactly 0 used to return early, which
+		// left tracePath cleared and blanked the graph for that whole frame. Worse, a NaN
+		// magnitude (which extreme / fast cutoff sweeps do produce - see the non-finite
+		// coefficient issue in the filters) passes an == 0 test, survives log10, and is NOT
+		// caught by the jlimit below, so lineTo() gets a NaN y and JUCE drops or mangles the
+		// segment. Both showed up as the graph breaking apart under a deep LFO sweep.
+		float traceMagnitude = sanitiseMagnitude((float) (activeFilters[0]->getResponse (lowFreq).magnitudeValue));
 
 		for (int i = 1; i < numActiveFilters; i++)
 		{
@@ -157,22 +171,24 @@ void FilterGraph::refreshFilterPath()
 
 		float firstX = -1.0f;
 		float lastX = 0.0f;
-		float lastY = 0.0f;
-		
+		float lastY = 0.0f;		
 		for (float xPos = 0; xPos < width; xPos += 1)
 		{
 			float freq = xToFreq (xPos);
-            
+
 			traceMagnitude = (float) (activeFilters [0]->getResponse (freq).magnitudeValue);
-            
+
 			for (int i = 1; i < numActiveFilters; i++)
 			{
 				traceMagnitude *= (float) (activeFilters [i]->getResponse (freq).magnitudeValue);
 			}
 
-			traceMagnitude = 20 * log10 (traceMagnitude);
+			traceMagnitude = 20 * log10 (sanitiseMagnitude(traceMagnitude));
 
 			auto yValue = (height / 2) - (traceMagnitude * scaleFactor);
+
+			if (!std::isfinite(yValue))
+				yValue = height;
 
 			if(minimalPath && yValue > height)
 				continue;
@@ -195,6 +211,7 @@ void FilterGraph::refreshFilterPath()
 			lastY = yValue;
 			lastX = xPos;
 		}
+
 
 		if(drawType == Line)
 		{

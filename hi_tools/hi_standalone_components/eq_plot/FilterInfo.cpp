@@ -424,11 +424,15 @@ void FilterDataObject::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t,
 {
 	if(t == ComplexDataUIUpdaterBase::EventType::DisplayIndex)
 	{
+		// Every reader here takes a ScopedReadLock; this writer used to take nothing, so the
+		// lock protected nothing. Hold the write lock for the update.
+		SimpleReadWriteLock::ScopedWriteLock sl(getDataLock());
+
 		for(auto& d: internalData)
 		{
 			if(auto f = dynamic_cast<scriptnode::data::filter_base*>(d.broadcaster.get()))
 			{
-                d.coefficients = f->getApproximateCoefficients();
+				d.coefficients = f->getApproximateCoefficients();
 			}
 		}
 	}
