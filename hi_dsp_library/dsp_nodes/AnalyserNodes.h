@@ -347,6 +347,16 @@ struct Helpers
 		mutable AudioSampleBuffer windowBuffer;
 		mutable AudioSampleBuffer lastBuffer;
 
+		// Cached across calls: constructing a juce::dsp::FFT calls vDSP_create_fftsetup,
+		// which allocates and precomputes the whole twiddle table. transformReadBuffer runs
+		// at UI rate (PooledUIUpdater, ~33Hz), so rebuilding it per call was measured at
+		// ~11% of the message thread while completely idle. Only rebuild when the order
+		// actually changes. Safe to cache here: SimpleRingBuffer::onComplexDataEvent holds
+		// getReadBufferLock() around the transformReadBuffer call, so this is serialised.
+		mutable ScopedPointer<juce::dsp::FFT> cachedFFT;
+		mutable int cachedFFTOrder = -1;
+		mutable AudioSampleBuffer transformBuffer;
+
 		bool usePeakDecay = false;
 	};
 

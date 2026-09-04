@@ -58,9 +58,19 @@ void Helpers::FFT::transformReadBuffer(AudioSampleBuffer& b)
 	auto delta = roundToInt(overlap * size);
 
 	auto order = log2(size);
-	auto fft = juce::dsp::FFT(order);
 
-	AudioSampleBuffer b2(2, size * 2);
+	if (cachedFFT == nullptr || cachedFFTOrder != (int)order)
+	{
+		cachedFFTOrder = (int)order;
+		cachedFFT = new juce::dsp::FFT(order);
+	}
+
+	auto& fft = *cachedFFT;
+
+	if (transformBuffer.getNumSamples() != size * 2 || transformBuffer.getNumChannels() != 2)
+		transformBuffer.setSize(2, size * 2, false, false, true);
+
+	auto& b2 = transformBuffer;
 
 	for(int offset = 0; offset < b.getNumSamples() - (size-1); offset += delta)
 	{
