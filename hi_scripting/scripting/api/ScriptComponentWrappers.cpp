@@ -3252,7 +3252,12 @@ float ScriptedControlAudioParameter::getValue() const
 {
 	if (scriptProcessor.get() != nullptr)
 	{
-		const float value = jlimit<float>(0.0f, 1.0f, range.convertTo0to1(scriptProcessor->getAttribute(attributeIndex)));
+		const float attribute = scriptProcessor->getAttribute(attributeIndex);
+
+		if (lastHostNormalised >= 0.0f && attribute == lastHostAttribute)
+			return lastHostNormalised;
+
+		const float value = jlimit<float>(0.0f, 1.0f, range.convertTo0to1(attribute));
 		return value;
 		
 	}
@@ -3276,6 +3281,9 @@ void ScriptedControlAudioParameter::setValue(float newValue)
 		const float snappedValue = range.snapToLegalValue(convertedValue);
 
 		scriptProcessor->setAttribute(attributeIndex, snappedValue, sendNotificationSync);
+
+		lastHostNormalised = jlimit(0.0f, 1.0f, newValue);
+		lastHostAttribute = scriptProcessor->getAttribute(attributeIndex);
 	}
 }
 

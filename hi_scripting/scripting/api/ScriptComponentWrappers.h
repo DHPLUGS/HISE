@@ -148,6 +148,12 @@ private:
 	// the index of the attribute for this component
 	int attributeIndex = -1;
 
+	// APEX: the normalised value the host last wrote and the attribute it produced. getValue()
+	// hands the host back exactly what it set while the attribute is unchanged, so a 0.01-step
+	// snap in single precision (0.4 -> 0.39999998) cannot fail an AU validation round-trip.
+	mutable float lastHostNormalised = -1.0f;
+	mutable float lastHostAttribute = 0.0f;
+
 	float lastValue = -1.0f;
 	bool lastValueInitialised = false;
 	String groupName;
