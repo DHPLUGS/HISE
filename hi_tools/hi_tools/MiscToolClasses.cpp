@@ -1314,7 +1314,14 @@ void ScrollbarFader::addScrollBarToAnimate(ScrollBar& b)
 GlContextHolder::GlContextHolder(juce::Component& topLevelComponent): parent(topLevelComponent)
 {
 	context.setRenderer(this);
-	context.setContinuousRepainting(true);
+#ifndef HISE_OPENGL_CONTINUOUS_REPAINT
+	// APEX: continuous repainting redraws the ENTIRE component tree on every display frame,
+	// idle or not (70-80 % of a core for a full plugin UI). Off, JUCE's GL context repaints only
+	// the areas that were invalidated (it keeps its own RectangleList), which also sidesteps the
+	// AppKit layer path where every dirty rectangle is merged into one bounding box.
+#define HISE_OPENGL_CONTINUOUS_REPAINT 0
+#endif
+	context.setContinuousRepainting(HISE_OPENGL_CONTINUOUS_REPAINT);
 	context.setComponentPaintingEnabled(true);
 	context.attachTo(parent);
 }
