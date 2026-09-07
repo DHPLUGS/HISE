@@ -659,6 +659,13 @@ class DebugSession;
 #define MEASURE_TIMER_CHILDREN 0
 #endif
 
+/** Interval in ms of the shared PooledUIUpdater timer that drives every SimpleTimer
+    (filter displays, sliders, meters etc.). Default was 30 (~33 Hz).
+    TESTING: 15 (~66 Hz) to evaluate smoother filter graph refresh. */
+#ifndef HISE_POOLED_UI_UPDATER_INTERVAL_MS
+#define HISE_POOLED_UI_UPDATER_INTERVAL_MS 15
+#endif
+
 /** Coallescates timer updates.
 	@ingroup event_handling
 	

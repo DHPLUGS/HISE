@@ -1751,7 +1751,7 @@ PooledUIUpdater::PooledUIUpdater():
 #endif
 
 	suspendTimer(false);
-	startTimer(30);
+	startTimer(HISE_POOLED_UI_UPDATER_INTERVAL_MS);
 }
 
 PooledUIUpdater::Listener::~Listener()
