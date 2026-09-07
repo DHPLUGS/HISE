@@ -383,6 +383,7 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
 		phaseOffset = (double)newValue;
 
 		uptime += phaseChange * (double)SAMPLE_LOOKUP_TABLE_SIZE;
+		phaseResetCounter++;
 
 		while (uptime >= (double)SAMPLE_LOOKUP_TABLE_SIZE)
 			uptime -= (double)SAMPLE_LOOKUP_TABLE_SIZE;
@@ -635,7 +636,11 @@ void LfoModulator::prepareToPlay(double sampleRate, int samplesPerBlock)
 		
 		smoother.setSmoothingTime(smoothingTime);
 
-		inputMerger.setManualCountLimit(10);
+		// APEX: push the phase into the table every audio block (was every 10th). The table's
+		// ComplexDataUIUpdater latches the latest value and only forwards it on the pooled UI
+		// timer tick, so per-block sends cost nothing on the UI side but remove the 10-block
+		// stepping of the table ruler (~9 Hz at a 512 buffer).
+		inputMerger.setManualCountLimit(1);
 
 		valueUpdater.setManualCountLimit(LFO_DOWNSAMPLING_FACTOR);
 
@@ -694,11 +699,24 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 
 	const float newInputValue = ((int)(uptime) % SAMPLE_LOOKUP_TABLE_SIZE) / (float)SAMPLE_LOOKUP_TABLE_SIZE;
 
-	if (inputMerger.shouldUpdate() && currentWaveform == Custom)
+	if (currentWaveform == Custom)
 	{
 		const bool isLooped = (loopEnabled || uptime < (double)SAMPLE_LOOKUP_TABLE_SIZE);
+		auto table = getTableUnchecked(0);
 
-		getTableUnchecked(0)->setNormalisedIndexSync(isLooped ? newInputValue : 1.0f);
+		if (inputMerger.shouldUpdate())
+			table->setNormalisedIndexSync(isLooped ? newInputValue : 1.0f);
+
+		// APEX prototype: publish phase, rate and a timestamp so the table editor can
+		// extrapolate a smooth playhead on every display frame. angleDelta is table
+		// indices per control-rate sample and already includes frequency modulation.
+		const double cyclesPerSecond = angleDelta * getControlRate() / (double)SAMPLE_LOOKUP_TABLE_SIZE;
+
+		table->publishPlayhead(isLooped ? (double)newInputValue : 1.0,
+		                       isLooped ? cyclesPerSecond : 0.0,
+		                       loopEnabled,
+		                       phaseResetCounter,
+		                       keysPressed > 0);   // gate the playhead to notes being held
 	}
 
 	float *mod = internalBuffer.getWritePointer(0, startIndex);
@@ -786,6 +804,7 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 void LfoModulator::resetPhase()
 {
     uptime = phaseOffset * (double)SAMPLE_LOOKUP_TABLE_SIZE;
+    phaseResetCounter++;
     lastCycleIndex = 0;
 
     loopEndValue = -1.0f;

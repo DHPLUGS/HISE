@@ -346,11 +346,13 @@ private:
 
 	float lastIndex = 0.0f;
 
-	class Ruler : public Component
+	class Ruler : public Component,
+	              public DisplayLinkClock::Listener
 	{
 	public:
 
 		Ruler();;
+		~Ruler();
 
 		void paint(Graphics &g);
 		
@@ -358,12 +360,31 @@ private:
 
 		void setIndex(float newIndex);;
 
+		/** APEX prototype: when the edited Table publishes a playhead state (see
+		    Table::publishPlayhead) the ruler runs off the display link: it extrapolates
+		    the position on every frame, repaints only the old/new strips and draws the
+		    line natively. Otherwise it behaves as before (setIndex + LAF drawTableRuler). */
+		void onDisplayFrame(double frameTimeMs, double deltaMs) override;
+
+		bool isPlayheadActive() const { return playheadActive; }
+
 	private:
+
+		void setPlayheadActive(TableEditor* te, bool shouldBeActive);
+		Rectangle<int> getPlayheadStrip(TableEditor* te, double position) const;
 
 		GUIUpdater updater;
 
 		float value;
 
+		bool playheadActive = false;
+		bool playheadVisible = true;
+		bool hasPlayheadPos = false;
+		double playheadPos = 0.0;
+		int playheadGeneration = -1;
+		bool wantsFrames = false;
+
+		void requestFrames(bool shouldRun);
 	};
 
 	//==============================================================================
@@ -582,6 +603,18 @@ private:
 	float lineThickness = 2.0f;
 
 	Array<float> snapValues;
+
+	// APEX prototype: while the ruler runs off the display link the static table graphics
+	// (background, path, mid points) are cached so that a playhead strip repaint is a blit
+	// instead of a full look-and-feel render (which for a scripted LAF is a script call).
+	void renderStaticContent(Graphics& g);
+	void invalidatePaintCache();
+	void colourChanged() override;
+	void lookAndFeelChanged() override;
+
+	Image paintCache;
+	bool paintCacheValid = false;
+	Rectangle<int> playheadClip;
 
     //==============================================================================
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TableEditor)

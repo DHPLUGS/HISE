@@ -65,6 +65,9 @@ FilterGraph::FilterGraph (int numFiltersInit, int drawType_):
     numFilters = numFiltersInit;
     traceColour = Colour (0xFF990000);
     traceType = Magnitude;
+
+	// APEX prototype: response easing runs on the display link (no-op while not animating)
+	DisplayLinkClock::getInstance()->addListener(this);
 }
 
 FilterGraph::~FilterGraph()
@@ -76,6 +79,9 @@ FilterGraph::~FilterGraph()
 	// memory, crashing in onComplexDataEvent() -> refreshAsync() -> refreshFilterPath().
 	if (filterData != nullptr)
 		filterData->getUpdater().removeEventListener(this);
+
+	if (auto c = DisplayLinkClock::getInstanceWithoutCreating())
+		c->removeListener(this);
 }
 
 void FilterGraph::refreshFilterPath()
@@ -83,149 +89,217 @@ void FilterGraph::refreshFilterPath()
 	if(getLocalBounds().isEmpty())
 		return;
 
+	computeTargetResponse();
+
+	// Structural changes (size, curve <-> empty), easing off, or not on screen: jump.
+	// Otherwise the displayed response chases the target in onDisplayFrame().
+	const bool structural = displayDb.size() != targetDb.size() || displayEmpty != targetEmpty;
+
+	if (structural || easeTimeMs <= 0.0f || !isShowing())
+	{
+		displayDb = targetDb;
+		displayEmpty = targetEmpty;
+		setAnimating(false);
+		buildPathFromResponse();
+		repaint();
+		return;
+	}
+
+	setAnimating(true);
+}
+
+void FilterGraph::setAnimating(bool shouldAnimate)
+{
+	if (animating == shouldAnimate)
+		return;
+
+	animating = shouldAnimate;
+	DisplayLinkClock::getInstance()->setNeedsFrames(this, shouldAnimate);
+}
+
+void FilterGraph::onDisplayFrame(double, double deltaMs)
+{
+	if (!animating)
+		return;
+
+	if (displayDb.size() != targetDb.size() || displayEmpty != targetEmpty)
+	{
+		displayDb = targetDb;
+		displayEmpty = targetEmpty;
+		setAnimating(false);
+		buildPathFromResponse();
+		repaint();
+		return;
+	}
+
+	const float k = 1.0f - std::exp(-(float)deltaMs / jmax(1.0f, easeTimeMs));
+
+	auto* d = displayDb.getRawDataPointer();
+	auto* t = targetDb.getRawDataPointer();
+
+	float maxErr = 0.0f;
+
+	for (int i = 0; i < displayDb.size(); i++)
+	{
+		const float e = t[i] - d[i];
+		maxErr = jmax(maxErr, std::abs(e));
+		d[i] += e * k;
+	}
+
+	if (maxErr < 0.05f)   // settled: land exactly on the target and go idle
+	{
+		displayDb = targetDb;
+		setAnimating(false);
+	}
+
+	buildPathFromResponse();
+	repaint();
+}
+
+void FilterGraph::computeTargetResponse()
+{
+	const int width = getWidth();
+
+	targetDb.clearQuick();
+	targetEmpty = true;
+
+	if(numFilters == 0 || bypassed)
+		return;
+
+	Array<FilterInfo*> activeFilters;
+
+	for(auto& v: filterVector)
+	{
+		if(v->isEnabled())
+			activeFilters.add(v);
+	}
+
+	const int numActiveFilters = activeFilters.size();
+
+	if(numActiveFilters == 0)
+		return;
+
+	targetEmpty = false;
+	targetDb.ensureStorageAllocated(width);
+
+	for (int xPos = 0; xPos < width; xPos++)
+	{
+		const float freq = xToFreq ((float)xPos);
+
+		float traceMagnitude = (float) (activeFilters [0]->getResponse (freq).magnitudeValue);
+
+		for (int i = 1; i < numActiveFilters; i++)
+			traceMagnitude *= (float) (activeFilters [i]->getResponse (freq).magnitudeValue);
+
+		// keep the dB values finite so they can be interpolated
+		traceMagnitude = jmax(traceMagnitude, 1.0e-10f);
+		targetDb.add(jlimit(-200.0f, 200.0f, 20.0f * log10 (traceMagnitude)));
+	}
+}
+
+void FilterGraph::buildPathFromResponse()
+{
 	float width = (float) getWidth();
 	float height = (float) getHeight();
 
 	tracePath.clear();
-    
+
 	float scaleFactor = (((height / 2) - (height - 5) / (numHorizontalLines + 1) - 2.5f) / maxdB);
-	
-	if(numFilters == 0 || bypassed)
+
+	if (displayEmpty || displayDb.isEmpty())
 	{
 		clearFilterPath();
+		return;
+	}
+
+	tracePath.startNewSubPath(-1.0f * pathMargin, -1.0f * pathMargin);
+	tracePath.startNewSubPath((float)width+ 2.0f * pathMargin, (float)height+ 2.0f * pathMargin);
+
+	bool started = false;
+
+	if(drawType == Line)
+	{
+		if(!minimalPath)
+		{
+			tracePath.startNewSubPath (-1.0f * pathMargin, height / 2);
+			started = true;
+		}
+	}
+	else if(drawType == Icon)
+	{
+		tracePath.startNewSubPath (0, height);
+		started = true;
 	}
 	else
 	{
-		Array<FilterInfo*> activeFilters;
-
-		for(auto& v: filterVector)
+		if(!minimalPath)
 		{
-			if(v->isEnabled())
-				activeFilters.add(v);
-		}
-
-		const int numActiveFilters = activeFilters.size();
-
-		if(numActiveFilters == 0)
-		{
-			clearFilterPath();
-			return;
-		}
-
-		float traceMagnitude = (float) (activeFilters[0]->getResponse (lowFreq).magnitudeValue);
-        
-		if (traceMagnitude == 0)
-			return;
-
-		jassert(traceMagnitude > 0.0f);
-
-		for (int i = 1; i < numActiveFilters; i++)
-		{
-			traceMagnitude *= (float) (activeFilters [i]->getResponse (lowFreq).magnitudeValue);
-		}
-		traceMagnitude = 20 * log10 (traceMagnitude);
-		
-        tracePath.startNewSubPath(-1.0f * pathMargin, -1.0f * pathMargin);
-        tracePath.startNewSubPath((float)width+ 2.0f * pathMargin, (float)height+ 2.0f * pathMargin);
-
-		bool started = false;
-
-		if(drawType == Line)
-		{
-			if(!minimalPath)
-			{
-				tracePath.startNewSubPath (-1.0f * pathMargin, height / 2);
-				started = true;
-			}
-				
-			//tracePath.lineTo (-1, (height / 2) - (traceMagnitude * scaleFactor));
-
-		}
-		else if(drawType == Icon)
-		{
-			tracePath.startNewSubPath (0, height);
+			tracePath.startNewSubPath (-1.0f * pathMargin, height / 2);
 			started = true;
-		}
-		else
-		{
-			if(!minimalPath)
-			{
-				tracePath.startNewSubPath (-1.0f * pathMargin, height / 2);
-				started = true;
-			}
-		}
-
-		float firstX = -1.0f;
-		float lastX = 0.0f;
-		float lastY = 0.0f;
-		
-		for (float xPos = 0; xPos < width; xPos += 1)
-		{
-			float freq = xToFreq (xPos);
-            
-			traceMagnitude = (float) (activeFilters [0]->getResponse (freq).magnitudeValue);
-            
-			for (int i = 1; i < numActiveFilters; i++)
-			{
-				traceMagnitude *= (float) (activeFilters [i]->getResponse (freq).magnitudeValue);
-			}
-
-			traceMagnitude = 20 * log10 (traceMagnitude);
-
-			auto yValue = (height / 2) - (traceMagnitude * scaleFactor);
-
-			if(minimalPath && yValue > height)
-				continue;
-
-            yValue = jlimit<float>(0.0f, (float)height, yValue);
-
-			if(firstX == -1.0f)
-				firstX = xPos;
-
-			if(started)
-			{
-				tracePath.lineTo (xPos, yValue);
-			}
-			else
-			{
-				tracePath.startNewSubPath(xPos, yValue);
-				started = true;
-			}
-
-			lastY = yValue;
-			lastX = xPos;
-		}
-
-		if(drawType == Line)
-		{
-			if(!minimalPath)
-			{
-				tracePath.lineTo (width+ 1.0f * pathMargin, lastY);
-				tracePath.lineTo (width+ 1.0f * pathMargin, (height / 2));
-			}
-		}
-		else if (drawType == Icon)
-		{
-			tracePath.lineTo(width, height);
-			tracePath.closeSubPath();
-		}
-		else
-		{
-			if(minimalPath)
-			{
-				tracePath.lineTo(lastX, height+1.0f * pathMargin);
-				tracePath.lineTo(firstX, height+1.0f * pathMargin);
-			}
-			else
-			{
-				tracePath.lineTo (width+1.0f * pathMargin, (height / 2));
-			}
-			
-			tracePath.closeSubPath();
 		}
 	}
 
-	repaint();
+	float firstX = -1.0f;
+	float lastX = 0.0f;
+	float lastY = 0.0f;
+
+	const int numColumns = jmin(displayDb.size(), (int)width);
+
+	for (int i = 0; i < numColumns; i++)
+	{
+		const float xPos = (float)i;
+
+		auto yValue = (height / 2) - (displayDb.getUnchecked(i) * scaleFactor);
+
+		if(minimalPath && yValue > height)
+			continue;
+
+		yValue = jlimit<float>(0.0f, (float)height, yValue);
+
+		if(firstX == -1.0f)
+			firstX = xPos;
+
+		if(started)
+		{
+			tracePath.lineTo (xPos, yValue);
+		}
+		else
+		{
+			tracePath.startNewSubPath(xPos, yValue);
+			started = true;
+		}
+
+		lastY = yValue;
+		lastX = xPos;
+	}
+
+	if(drawType == Line)
+	{
+		if(!minimalPath)
+		{
+			tracePath.lineTo (width+ 1.0f * pathMargin, lastY);
+			tracePath.lineTo (width+ 1.0f * pathMargin, (height / 2));
+		}
+	}
+	else if (drawType == Icon)
+	{
+		tracePath.lineTo(width, height);
+		tracePath.closeSubPath();
+	}
+	else
+	{
+		if(minimalPath)
+		{
+			tracePath.lineTo(lastX, height+1.0f * pathMargin);
+			tracePath.lineTo(firstX, height+1.0f * pathMargin);
+		}
+		else
+		{
+			tracePath.lineTo (width+1.0f * pathMargin, (height / 2));
+		}
+
+		tracePath.closeSubPath();
+	}
 }
 
 void FilterGraph::changeListenerCallback(SafeChangeBroadcaster *b)

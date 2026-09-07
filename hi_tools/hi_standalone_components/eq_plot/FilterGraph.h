@@ -44,7 +44,8 @@ class FilterGraph    : public ComponentWithMiddleMouseDrag,
 					   public SafeChangeListener,
 					   public ComplexDataUIUpdaterBase::EventListener,
 					   public ComplexDataUIBase::EditorBase,
-					   public AsyncUpdater	
+					   public AsyncUpdater,
+					   public DisplayLinkClock::Listener
 {
 public:
 
@@ -101,6 +102,13 @@ public:
 	int getNumFilterBands() const { return numFilters; }
 
 	void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType e, var newValue) override;
+
+	/** APEX prototype: the displayed response eases towards the latest coefficients on
+	    every display frame instead of jumping when they arrive. */
+	void onDisplayFrame(double frameTimeMs, double deltaMs) override;
+
+	/** Time constant of the response easing in ms (0 = off, jump like before). */
+	void setResponseEaseTime(float ms) { easeTimeMs = ms; }
 
 	void handleAsyncUpdate()
 	{
@@ -259,6 +267,19 @@ public:
 private:
 
 	void refreshFilterPath();
+
+	// APEX prototype: response-domain easing. targetDb holds the magnitude (dB) per pixel
+	// column for the current coefficients, displayDb what is on screen. The path is built
+	// from displayDb, which chases targetDb on the display link.
+	void computeTargetResponse();
+	void buildPathFromResponse();
+	void setAnimating(bool shouldAnimate);
+
+	Array<float> targetDb, displayDb;
+	bool targetEmpty = true;
+	bool displayEmpty = true;
+	bool animating = false;
+	float easeTimeMs = 45.0f;
 
 	float pathMargin = 0.0f;
 	bool minimalPath = true;

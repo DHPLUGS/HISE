@@ -198,8 +198,31 @@ public:
 	void removeRulerListener(Listener* l);
 
 	Array<GraphPoint> getCopyOfGraphPoints() const;
+
+	/** APEX prototype: playhead state published by a processor (eg. an LFO) once per audio
+	    block. An editor that finds this active extrapolates a smooth position from it on
+	    every display frame instead of repainting whenever setNormalisedIndexSync() arrives. */
+	struct PlayheadState
+	{
+		double position = 0.0;         // normalised 0..1
+		double cyclesPerSecond = 0.0;  // rate the position advances at
+		double timestampMs = 0.0;      // Time::getMillisecondCounterHiRes() when published
+		bool loops = true;             // wrap at 1.0 (false: clamp, 1.0 means finished)
+		int generation = 0;            // changes on a real phase discontinuity (retrigger etc.)
+		bool playing = true;           // false: publisher idle (no notes held) - playhead hidden
+		bool active = false;
+	};
+
+	/** Audio thread. Lock-free (sequence lock). */
+	void publishPlayhead(double normalisedPosition, double cyclesPerSecond, bool loops, int generation = 0, bool playing = true);
+
+	/** Any thread. Returns a consistent snapshot. */
+	PlayheadState getPlayheadState() const;
     
 private:
+
+	PlayheadState playhead;
+	mutable std::atomic<uint32> playheadSeq { 0 };
 
 	bool delayUpdates = false;
 

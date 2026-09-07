@@ -43,7 +43,7 @@ BEGIN_JUCE_MODULE_DECLARATION
   license:          GPL / Commercial
 
   dependencies:      juce_audio_basics, juce_audio_formats, juce_core, juce_graphics,  juce_data_structures, juce_events
-  OSXFrameworks:    Accelerate
+  OSXFrameworks:    Accelerate CoreVideo
   iOSFrameworks:    Accelerate
 
 END_JUCE_MODULE_DECLARATION
@@ -222,6 +222,7 @@ will break compatibility with older projects / presets because the tempo indexes
 #include "hi_tools/UpdateMerger.h"
 
 #include "hi_tools/MiscToolClasses.h"
+#include "hi_tools/DisplayLinkClock.h"
 #include "hi_tools/SiTraNoConverter.h"
 
 #include "hi_tools/PathFactory.h"

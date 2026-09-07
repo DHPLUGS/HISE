@@ -334,6 +334,11 @@ private:
 
 	double uptime;
 
+	/** APEX: bumped whenever uptime is set discontinuously (retrigger, phase offset knob),
+	    so the table playhead knows to snap instead of gliding. Transport re-pinning is
+	    continuous and does not count. */
+	int phaseResetCounter = 0;
+
 	bool run;
 
 	juce::Random randomGenerator;

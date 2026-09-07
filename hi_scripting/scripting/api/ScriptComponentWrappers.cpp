@@ -1678,6 +1678,7 @@ void ScriptCreatedComponentWrappers::TableWrapper::updateComponent(int propertyI
 		PROPERTY_CASE::ScriptComponent::bgColour: t->setColour(TableEditor::ColourIds::bgColour, GET_OBJECT_COLOUR(bgColour)); t->repaint(); break;
 		PROPERTY_CASE::ScriptComponent::itemColour: t->setColour(TableEditor::ColourIds::fillColour, GET_OBJECT_COLOUR(itemColour)); t->repaint(); break;
 		PROPERTY_CASE::ScriptComponent::itemColour2: t->setColour(TableEditor::ColourIds::lineColour, GET_OBJECT_COLOUR(itemColour2)); t->repaint(); break;
+		PROPERTY_CASE::ScriptComponent::textColour: t->setColour(TableEditor::ColourIds::rulerColour, GET_OBJECT_COLOUR(textColour)); t->repaint(); break;
 		PROPERTY_CASE::ScriptComponent::tooltip: t->setTooltip(GET_SCRIPT_PROPERTY(tooltip)); break;
 		PROPERTY_CASE::ScriptTable::Properties::customColours: t->setUseFlatDesign(newValue); break;
 		// "ParentCursor" is the no-override default: leave the cursor to setMouseHandlingProperties (script)

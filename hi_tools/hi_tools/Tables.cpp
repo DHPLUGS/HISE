@@ -218,6 +218,46 @@ namespace hise { using namespace juce;;
 		internalUpdater.sendDisplayChangeMessage(value, sendNotificationAsync);
 	}
 
+	void Table::publishPlayhead(double normalisedPosition, double cyclesPerSecond, bool loops, int generation, bool playing)
+	{
+		// Sequence lock: odd = write in progress. Readers retry until they see an even,
+		// unchanged sequence number around their copy.
+		playheadSeq.fetch_add(1, std::memory_order_acquire);
+
+		playhead.position = normalisedPosition;
+		playhead.cyclesPerSecond = cyclesPerSecond;
+		playhead.timestampMs = Time::getMillisecondCounterHiRes();
+		playhead.loops = loops;
+		playhead.generation = generation;
+		playhead.playing = playing;
+		playhead.active = true;
+
+		playheadSeq.fetch_add(1, std::memory_order_release);
+	}
+
+	Table::PlayheadState Table::getPlayheadState() const
+	{
+		PlayheadState copy;
+
+		for (int attempt = 0; attempt < 64; attempt++)
+		{
+			const auto s1 = playheadSeq.load(std::memory_order_acquire);
+
+			if (s1 & 1)
+				continue;
+
+			copy = playhead;
+
+			std::atomic_thread_fence(std::memory_order_acquire);
+
+			if (playheadSeq.load(std::memory_order_relaxed) == s1)
+				return copy;
+		}
+
+		copy.active = false;
+		return copy;
+	}
+
 	void Table::sendGraphUpdateMessage()
 	{
 		internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);

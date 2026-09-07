@@ -56,6 +56,10 @@ TableEditor::TableEditor(UndoManager* undoManager_, Table *tableToBeEdited):
 	
 	ruler->setAlwaysOnTop(true);
 
+	// APEX prototype: the ruler listens to the display link; it only does work while the
+	// edited table publishes a playhead state (see Ruler::onDisplayFrame).
+	DisplayLinkClock::getInstance()->addListener(ruler);
+
 	setColour(ColourIds::bgColour, Colours::transparentBlack);
 	setColour(ColourIds::fillColour, Colours::white.withAlpha(0.2f));
 	setColour(ColourIds::lineColour, Colours::white);
@@ -80,6 +84,8 @@ TableEditor::~TableEditor()
 
 void TableEditor::refreshGraph()
 {	
+	invalidatePaintCache();
+
 	auto closePath = getTableLookAndFeel()->shouldClosePath() && dragProperties.closePath;
 
 	if(editedTable.get() != nullptr) 
@@ -330,18 +336,42 @@ void TableEditor::paint (Graphics& g)
 		return;
 	}
 
-	if (auto l = getTableLookAndFeel())
+	if (ruler != nullptr && ruler->isPlayheadActive() && getWidth() > 0 && getHeight() > 0)
 	{
-		l->drawTableBackground(g, *this, getTableArea(), this->ruler->getValue());
-		l->drawTablePath(g, *this, dragPath, getTableArea(), lineThickness);
+		// APEX prototype: playhead mode. A repaint whose clip lies inside the strips the
+		// ruler asked for is served from the cache; anything larger re-renders it.
+		const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+		const int cw = jmax(1, roundToInt((float)getWidth() * scale));
+		const int ch = jmax(1, roundToInt((float)getHeight() * scale));
 
-		for(const auto& mp: mid_points)
+		const bool cacheFits = paintCache.isValid() && paintCache.getWidth() == cw && paintCache.getHeight() == ch;
+		const bool stripRepaint = paintCacheValid && cacheFits && !playheadClip.isEmpty() && playheadClip.contains(g.getClipBounds());
+
+		if (!stripRepaint)
 		{
-			auto dragged = mp.first == draggedMidPointIndex;
-			auto hovered = mp.first == hoveredMidPointIndex;
+			if (!cacheFits)
+				paintCache = Image(Image::ARGB, cw, ch, true);
+			else
+				paintCache.clear(paintCache.getBounds());
 
-			l->drawTableMidPoint(g, *this, mp.second, hovered, dragged);
+			Graphics ig(paintCache);
+			ig.addTransform(AffineTransform::scale(scale));
+			renderStaticContent(ig);
+			paintCacheValid = true;
 		}
+
+		g.setImageResamplingQuality(Graphics::lowResamplingQuality);
+		g.drawImageTransformed(paintCache, AffineTransform::scale(1.0f / scale), false);
+	}
+	else
+	{
+		if (paintCache.isValid())
+		{
+			paintCache = Image();
+			paintCacheValid = false;
+		}
+
+		renderStaticContent(g);
 	}
 	
     if (currently_dragged_point != nullptr)
@@ -377,6 +407,21 @@ void TableEditor::Ruler::paint(Graphics &g)
 	if (te == nullptr)
 		return;
 
+	if (playheadActive)
+	{
+		// APEX prototype: drawn natively so that a per-frame playhead never goes through a
+		// scripted look and feel. Colour is rulerColour (ScriptTable: textColour).
+		if (!playheadVisible)
+			return;
+
+		const auto area = te->getTableArea();
+		const float x = (float)(area.getX() + playheadPos * area.getWidth());
+
+		g.setColour(te->findColour(TableEditor::ColourIds::rulerColour));
+		g.drawLine(Line<float>(x, area.getY(), x, area.getBottom()), jmax(1.0f, te->lineThickness * 0.5f));
+		return;
+	}
+
 	if (auto l = te->getTableLookAndFeel())
 		l->drawTableRuler(g, *te, te->getTableArea(), te->lineThickness, value);
 }
@@ -389,6 +434,7 @@ void TableEditor::resized()
 		this->addMouseListener(this, true);
 
 		ruler->setBounds(0, 0, getWidth(), getHeight());
+		invalidatePaintCache();
 
 		if (getHeight() > 0 && getWidth() > 0)
 		{
@@ -1205,13 +1251,14 @@ Rectangle<float> TableEditor::getTableArea() const
 void TableEditor::setUseFlatDesign(bool shouldUseFlatDesign)
 {
 	useFlatDesign = shouldUseFlatDesign;
-		
+	invalidatePaintCache();
 	repaint();
 }
 
 void TableEditor::setLineThickness(float newLineThickness)
 {
 	lineThickness = newLineThickness;
+	invalidatePaintCache();
 	repaint();
 }
 
@@ -1271,6 +1318,40 @@ void TableEditor::setScrollWheelEnabled(bool shouldBeEnabled)
 	setScrollModifiers(mod);
 }
 
+void TableEditor::renderStaticContent(Graphics& g)
+{
+	if (auto l = getTableLookAndFeel())
+	{
+		l->drawTableBackground(g, *this, getTableArea(), this->ruler->getValue());
+		l->drawTablePath(g, *this, dragPath, getTableArea(), lineThickness);
+
+		for(const auto& mp: mid_points)
+		{
+			auto dragged = mp.first == draggedMidPointIndex;
+			auto hovered = mp.first == hoveredMidPointIndex;
+
+			l->drawTableMidPoint(g, *this, mp.second, hovered, dragged);
+		}
+	}
+}
+
+void TableEditor::invalidatePaintCache()
+{
+	paintCacheValid = false;
+}
+
+void TableEditor::colourChanged()
+{
+	invalidatePaintCache();
+	repaint();
+}
+
+void TableEditor::lookAndFeelChanged()
+{
+	invalidatePaintCache();
+	repaint();
+}
+
 void TableEditor::paintOverChildren(Graphics& g)
 {
 	
@@ -1306,14 +1387,178 @@ TableEditor::Ruler::Ruler():
 double TableEditor::Ruler::getValue()
 {return value;}
 
+void TableEditor::Ruler::requestFrames(bool shouldRun)
+{
+	if (wantsFrames == shouldRun)
+		return;
+
+	wantsFrames = shouldRun;
+	DisplayLinkClock::getInstance()->setNeedsFrames(this, shouldRun);
+}
+
 void TableEditor::Ruler::setIndex(float newIndex)
 {
+	// This arrives on the pooled UI timer for as long as the LFO runs. In playhead mode it
+	// is only used as the wake-up: when notes are being held, ask the display link for
+	// frames; onDisplayFrame() releases them again once the playhead hides.
+	if (auto te = findParentComponentOfClass<TableEditor>())
+	{
+		if (auto table = te->getEditedTable())
+		{
+			const auto ps = table->getPlayheadState();
+
+			if (ps.active)
+			{
+				setPlayheadActive(te, true);
+				value = newIndex;
+
+				if (ps.playing)
+					requestFrames(true);
+
+				return;
+			}
+		}
+	}
+
+	if (playheadActive)
+	{
+		value = newIndex;
+		return;
+	}
+
 	if (newIndex != value)
 	{
 		value = newIndex;
 
 		SafeAsyncCall::repaint(this);
 	}
+}
+
+TableEditor::Ruler::~Ruler()
+{
+	if (auto c = DisplayLinkClock::getInstanceWithoutCreating())
+		c->removeListener(this);
+}
+
+Rectangle<int> TableEditor::Ruler::getPlayheadStrip(TableEditor* te, double position) const
+{
+	const auto area = te->getTableArea();
+	const int x = roundToInt(area.getX() + position * area.getWidth());
+	const int pad = roundToInt(te->lineThickness) + 6;
+
+	return Rectangle<int>(x - pad, 0, 2 * pad, getHeight());
+}
+
+void TableEditor::Ruler::setPlayheadActive(TableEditor* te, bool shouldBeActive)
+{
+	if (playheadActive == shouldBeActive)
+		return;
+
+	playheadActive = shouldBeActive;
+	hasPlayheadPos = false;
+
+	te->invalidatePaintCache();
+	te->repaint();
+}
+
+void TableEditor::Ruler::onDisplayFrame(double frameTimeMs, double deltaMs)
+{
+	auto te = findParentComponentOfClass<TableEditor>();
+
+	if (te == nullptr)
+		return;
+
+	auto table = te->getEditedTable();
+
+	if (table == nullptr)
+	{
+		setPlayheadActive(te, false);
+		return;
+	}
+
+	const auto ps = table->getPlayheadState();
+
+	if (!ps.active)
+	{
+		setPlayheadActive(te, false);
+		requestFrames(false);
+		return;
+	}
+
+	if (!isShowing())
+	{
+		requestFrames(false);   // setIndex() wakes us again when we are back on screen
+		return;
+	}
+
+	setPlayheadActive(te, true);
+
+	auto wrap = [](double v) { return v - std::floor(v); };
+	auto constrain = [&](double v) { return ps.loops ? wrap(v) : jlimit(0.0, 1.0, v); };
+
+	// Where the audio thread says the playhead is *now*: the last reported position plus
+	// the time elapsed since it was reported. Held if the audio thread has gone quiet.
+	const double age = frameTimeMs - ps.timestampMs;
+	const bool stale = age < 0.0 || age > 500.0;
+	const double target = constrain(stale ? ps.position : ps.position + ps.cyclesPerSecond * age * 0.001);
+
+	const bool resetHappened = ps.generation != playheadGeneration;
+	playheadGeneration = ps.generation;
+
+	double next;
+
+	if (!hasPlayheadPos || stale || resetHappened)
+	{
+		next = target;
+	}
+	else
+	{
+		// Advance on the display clock only. Hosts render audio in bursts, so the reported
+		// position leads or lags real time by a block or two; jumping to it shows as judder.
+		// Instead the error just trims the speed (+-15 %) until the gap is closed. Real
+		// discontinuities (retrigger, phase knob) arrive through the generation counter.
+		double err = target - playheadPos;
+
+		if (ps.loops)
+		{
+			if (err > 0.5)       err -= 1.0;
+			else if (err < -0.5) err += 1.0;
+		}
+
+		const double trim = jlimit(-0.15, 0.15, err * 1.5);
+
+		next = constrain(playheadPos + ps.cyclesPerSecond * (1.0 + trim) * deltaMs * 0.001);
+	}
+
+	// hidden while no notes are held, and once a one-shot LFO has finished its cycle
+	const bool nowVisible = ps.playing && (ps.loops || ps.position < 1.0);
+
+	const bool visibilityChanged = nowVisible != playheadVisible;
+
+	if (visibilityChanged && nowVisible)
+		next = target;   // reappearing: nobody sees this jump, so start exactly on the audio position
+
+	// frames are only needed while the playhead is on screen; setIndex() re-requests them
+	requestFrames(nowVisible);
+
+	if (hasPlayheadPos && next == playheadPos && !visibilityChanged)
+		return;
+
+	const auto oldStrip = getPlayheadStrip(te, hasPlayheadPos ? playheadPos : next);
+	const auto newStrip = getPlayheadStrip(te, next);
+
+	playheadPos = next;
+	value = (float)next;
+	playheadVisible = nowVisible;
+	hasPlayheadPos = true;
+
+	if (!nowVisible && !visibilityChanged)
+		return;   // keep tracking silently, nothing to draw
+
+	te->playheadClip = oldStrip.getUnion(newStrip);
+
+	repaint(oldStrip);
+	repaint(newStrip);
 }
 
 Point<float> TableEditor::DragPoint::getPos() const

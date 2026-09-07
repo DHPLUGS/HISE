@@ -66,6 +66,7 @@
 
 #include "hi_tools/SiTraNoConverter.cpp"
 #include "hi_tools/MiscToolClasses.cpp"
+#include "hi_tools/DisplayLinkClock.cpp"
 
 #if HI_RUN_UNIT_TESTS
 #include "hi_tools/FuzzySearcherTests.cpp"
