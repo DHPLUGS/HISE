@@ -197,7 +197,9 @@ public:
 
 	Colour getColourForAnalyser(RingBufferComponentBase::ColourId id);
 
-	void timerCallback() override { repaint(); }
+	// APEX: a tile that is not on screen (hidden page, collapsed parent) has nothing to show;
+	// skip the 33 Hz repaint (and the path/FFT-image work behind it) until it is visible again.
+	void timerCallback() override { if (isShowing()) repaint(); }
 
 	class Panel : public PanelWithProcessorConnection
 	{

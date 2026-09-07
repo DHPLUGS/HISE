@@ -58,7 +58,17 @@ void Helpers::FFT::transformReadBuffer(AudioSampleBuffer& b)
 	auto delta = roundToInt(overlap * size);
 
 	auto order = log2(size);
-	auto fft = juce::dsp::FFT(order);
+
+	// APEX: keep the FFT object across calls. Constructing juce::dsp::FFT builds the vDSP
+	// setup for that order, which is far more expensive than the transform itself; doing it
+	// on every ring-buffer update was ~16 % of the message thread for one 32k analyser tile.
+	if (cachedFFT == nullptr || cachedFFTOrder != (int)order)
+	{
+		cachedFFT = std::make_unique<juce::dsp::FFT>((int)order);
+		cachedFFTOrder = (int)order;
+	}
+
+	auto& fft = *cachedFFT;
 
 	AudioSampleBuffer b2(2, size * 2);
 
