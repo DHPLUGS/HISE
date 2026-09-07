@@ -111,10 +111,14 @@ public:
 		lastSpecs = ps;
 		checkSignalRatio();
 
-		if(sr == SignalRatio::Incompatible)
-			scriptnode::Error::throwError(Error::SampleRateMismatch, 
-									      signal.sampleRate_cr * HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR, 
-									      lastSpecs.sampleRate);
+		// APEX: a mismatch here is not a configuration error but a transient during a sample
+		// rate change: the master effects (which host these receivers) are prepared before the
+		// child synth that hosts the global modulators, so `signal` still carries the old rate
+		// until the sender's updateTargets() -> onValue() re-announces it. Throwing turned a
+		// rate change after a state restore into a failed AudioUnitInitialize (auval / Logic).
+		// Instead stay silent (ok == false, every process path is gated on it) until the
+		// re-announcement flips the check; the voice states do not depend on the ratio.
+		// (Was: scriptnode::Error::throwError(Error::SampleRateMismatch, ...).)
 
 		state.prepare(ps);
 
