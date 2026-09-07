@@ -328,6 +328,8 @@ void TableEditor::setEdge(float f, bool setLeftEdge)
 
 void TableEditor::paint (Graphics& g)
 {
+	RepaintLog::count("table", getName(), getWidth(), getHeight());
+
 	if (editedTable.get() == nullptr)
 	{
 		g.setFont(GLOBAL_BOLD_FONT());

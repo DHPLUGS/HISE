@@ -1744,6 +1744,54 @@ SuspendableTimer::Internal::Internal(SuspendableTimer& parent_):
 void SuspendableTimer::Internal::timerCallback()
 { parent.timerCallback(); }
 
+bool RepaintLog::isEnabled()
+{
+	static const bool enabled = std::getenv("HISE_LOG_REPAINTS") != nullptr;
+	return enabled;
+}
+
+void RepaintLog::count(const char* category, const juce::String& name, int w, int h)
+{
+	if (!isEnabled())
+		return;
+
+	struct Entry { int hits = 0; int64 pixels = 0; };
+
+	static SpinLock lock;
+	static std::map<String, Entry> entries;
+	static uint32 lastFlush = Time::getMillisecondCounter();
+
+	SpinLock::ScopedLockType sl(lock);
+
+	auto& e = entries[String(category) + "  " + (name.isEmpty() ? String("(unnamed)") : name)];
+	e.hits++;
+	e.pixels += (int64)w * (int64)h;
+
+	const auto now = Time::getMillisecondCounter();
+
+	if (now - lastFlush >= 1000)
+	{
+		String out;
+		out << "--- " << Time::getCurrentTime().toString(false, true, true, true) << "  (" << String(now - lastFlush) << " ms)\n";
+
+		std::vector<std::pair<String, Entry>> sorted(entries.begin(), entries.end());
+		std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second.pixels > b.second.pixels; });
+
+		for (const auto& kv : sorted)
+			out << String(kv.second.hits).paddedLeft(' ', 5) << " x " << String(kv.second.pixels / jmax(1, kv.second.hits)).paddedLeft(' ', 8) << " px  " << kv.first << "\n";
+
+		auto dir = File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("HISE");
+
+		if (!dir.isDirectory())
+			dir = File::getSpecialLocation(File::tempDirectory);
+
+		dir.getChildFile("repaint_log.txt").appendText(out);
+
+		entries.clear();
+		lastFlush = now;
+	}
+}
+
 PooledUIUpdater::PooledUIUpdater():
 	pendingHandlers(8192)
 {

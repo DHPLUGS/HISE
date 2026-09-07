@@ -4724,6 +4724,8 @@ bool ScriptingApi::Content::ScriptPanel::internalRepaintIdle(bool forceRepaint, 
 		engine->maximumExecutionTime = HiseJavascriptEngine::getDefaultTimeOut();
 	}
 
+	RepaintLog::count("script-paint-routine", getName().toString(), canvasWidth, canvasHeight);
+
 	engine->callExternalFunction(paintRoutine, args, &r);
 
 	if (r.failed())

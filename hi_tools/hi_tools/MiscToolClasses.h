@@ -666,6 +666,15 @@ class DebugSession;
 #define HISE_POOLED_UI_UPDATER_INTERVAL_MS 15
 #endif
 
+/** APEX diagnostics: counts paints per component and writes a per-second summary to
+    ~/Library/Application Support/HISE/repaint_log.txt (or the temp dir) while the
+    environment variable HISE_LOG_REPAINTS is set. One cached bool check when it is not. */
+struct RepaintLog
+{
+	static bool isEnabled();
+	static void count(const char* category, const juce::String& name, int w, int h);
+};
+
 /** Coallescates timer updates.
 	@ingroup event_handling
 	

@@ -1152,6 +1152,8 @@ struct GraphicHelpers
 
 void BorderPanel::paint(Graphics &g)
 {
+	RepaintLog::count("panel", getComponentID(), getWidth(), getHeight());
+
 
 	dispatch::StringBuilder n;
 
