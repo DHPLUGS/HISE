@@ -1305,15 +1305,44 @@ struct HiSlider::ModulationLabel: public Component
 
 	void update(const HoverPopupLookandFeel::DrawData& dd)
 	{
+		bool changed = false;
+
 		if(auto pp = slider.getParentComponent())
 		{
 			// Position relative to whatever component we were added to (the script content).
 			if(auto labelParent = getParentComponent())
-				setBounds(labelParent->getLocalArea(pp, labelAreaInPP));
+			{
+				auto nb = labelParent->getLocalArea(pp, labelAreaInPP);
+
+				if(nb != getBounds())
+				{
+					setBounds(nb);
+					changed = true;
+				}
+			}
 		}
 
-		currentDrawData = dd;
-		repaint();
+		// APEX: update() is called from HoverPopup::paint(). Repainting unconditionally here
+		// dirtied the popup underneath (this label sits above it at the top level), which
+		// painted the popup again, which called update() again: a repaint loop at display
+		// rate for as long as a popup was showing, redrawing everything underneath through
+		// the scripted LAF. Only repaint when the label's content actually changed.
+		if(!sameDrawData(currentDrawData, dd))
+		{
+			currentDrawData = dd;
+			changed = true;
+		}
+
+		if(changed)
+			repaint();
+	}
+
+	static bool sameDrawData(const HoverPopupLookandFeel::DrawData& a, const HoverPopupLookandFeel::DrawData& b)
+	{
+		return a.bounds == b.bounds && a.sourceIndex == b.sourceIndex && a.sourceName == b.sourceName &&
+		       a.targetName == b.targetName && a.labelText == b.labelText && a.intensityRange == b.intensityRange &&
+		       a.intensityValue == b.intensityValue && a.targetMode == b.targetMode &&
+		       a.isHover == b.isHover && a.isDown == b.isDown;
 	}
 
 	HiSlider& slider;

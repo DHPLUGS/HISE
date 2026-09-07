@@ -794,7 +794,9 @@ void PresetBrowserColumn::updateButtonVisibility(bool isReadOnly)
 
 void PresetBrowserColumn::timerCallback()
 {
-	if (!isVisible()) return;
+	// APEX: isShowing(), not isVisible(): a browser inside a hidden tile kept rebuilding its
+	// list content and favourite icons every tick although nothing could reach the screen.
+	if (!isShowing()) return;
 
 	listbox->updateContent();
 	listbox->repaint();
