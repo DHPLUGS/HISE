@@ -345,9 +345,12 @@ void TableEditor::paint (Graphics& g)
 		const int ch = jmax(1, roundToInt((float)getHeight() * scale));
 
 		const bool cacheFits = paintCache.isValid() && paintCache.getWidth() == cw && paintCache.getHeight() == ch;
-		const bool stripRepaint = paintCacheValid && cacheFits && !playheadClip.isEmpty() && playheadClip.contains(g.getClipBounds());
 
-		if (!stripRepaint)
+		// Serve every repaint from the cache while it is valid, whatever the clip: with a
+		// continuously repainting (OpenGL) window or a large dirty region the old "strips only"
+		// rule re-rendered the table through the scripted LAF on every frame. Content changes
+		// invalidate explicitly (graph, size, colours, LAF, mid-point hover/drag).
+		if (!(paintCacheValid && cacheFits))
 		{
 			if (!cacheFits)
 				paintCache = Image(Image::ARGB, cw, ch, true);
@@ -517,6 +520,7 @@ void TableEditor::mouseDown(const MouseEvent &e)
 	{
 		lastRightDragValue = (float)parentEvent.getPosition().getY();
 		draggedMidPointIndex = midPointIndex;
+		invalidatePaintCache();
 		needsRepaint = true;
 		repaint();
 		return;
@@ -524,6 +528,7 @@ void TableEditor::mouseDown(const MouseEvent &e)
 	else
 	{
 		draggedMidPointIndex = -1;
+		invalidatePaintCache();
 	}
 
 	x = (int)snapXValueToGrid((float)x);
@@ -659,6 +664,7 @@ void TableEditor::mouseUp(const MouseEvent& e)
 	closeTouchOverlay();
 
 	draggedMidPointIndex = -1;
+	invalidatePaintCache();
 	currently_dragged_point = nullptr;
 	updateTable(true);
 
@@ -812,6 +818,7 @@ void TableEditor::mouseDrag(const MouseEvent &e)
 void TableEditor::mouseMove(const MouseEvent& e)
 {
 	hoveredMidPointIndex = getDraggedMidPointIndex(e);
+	invalidatePaintCache();
 
 	setMouseCursor(hoveredMidPointIndex != -1 ? MouseCursor(dragProperties.midPointCursor) : MouseCursor::NormalCursor);
 

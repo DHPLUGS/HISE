@@ -105,6 +105,20 @@ void FilterGraph::refreshFilterPath()
 		return;
 	}
 
+	// Nothing to do if the new target is what is already on screen: modules re-send their
+	// coefficients regardless of change, and animating towards an identical target would keep
+	// the display link alive and repaint this graph every frame while idle.
+	if (!targetEmpty)
+	{
+		float maxErr = 0.0f;
+
+		for (int i = 0; i < targetDb.size(); i++)
+			maxErr = jmax(maxErr, std::abs(targetDb.getUnchecked(i) - displayDb.getUnchecked(i)));
+
+		if (maxErr < 0.05f)
+			return;
+	}
+
 	setAnimating(true);
 }
 
