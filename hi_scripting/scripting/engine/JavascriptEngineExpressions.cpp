@@ -681,11 +681,12 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 #if ENABLE_SCRIPTING_BREAKPOINTS
         
         LocalScopeCreator::ScopedSetter sls(s.root, const_cast<FunctionObject*>(this));
-        
-        {
-            SimpleReadWriteLock::ScopedWriteLock sl(debugScopeLock);
-            lastScope = functionRoot;
-        }
+
+        // APEX: lastScope used to be published here, before the body ran. The Script Watch Table
+        // reads lastScope's properties from the message thread without any lock on the set
+        // itself, so while the body was still declaring locals into it the reader raced a
+        // reallocating NamedValueSet and crashed on project open. It is now published after
+        // the call has completed (below), when the scope is immutable.
 #endif
         
 		body->perform(Scope(&s, s.root.get(), functionRoot.get()), &result);
@@ -696,6 +697,13 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 #endif
 
 		functionRoot->removeProperty("this");
+
+#if ENABLE_SCRIPTING_BREAKPOINTS
+		{
+			SimpleReadWriteLock::ScopedWriteLock sl(debugScopeLock);
+			lastScope = functionRoot;   // completed, no further mutation: safe for the watch table
+		}
+#endif
 
 
 
