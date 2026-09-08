@@ -382,6 +382,11 @@ void FilterGraph::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType e, var 
 
 		IIRCoefficients empty;
 
+		// APEX: the filter modules re-send their coefficients on every display update whether or
+		// not they changed. Recomputing the response and repainting for an identical set kept the
+		// graphs (and everything painted with them) busy at idle, so only apply real changes.
+		bool anyChange = fs != filterData->getSamplerate();
+
 		for (int i = 0; i < numCoefficients; i++)
 		{
 			auto co = filterData->getCoefficients(i);
@@ -389,13 +394,24 @@ void FilterGraph::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType e, var 
 			auto shouldBeEnabled = !isEmpty;
 
 			if (shouldBeEnabled != filterVector[i]->isEnabled())
+			{
 				filterVector[i]->setEnabled(shouldBeEnabled);
+				anyChange = true;
+			}
 
-			filterVector[i]->setCoefficients(0, filterData->getSamplerate(), co);
+			auto old = filterVector[i]->getCoefficients();
+
+			if (memcmp(&old.coefficients, &co.first.coefficients, sizeof(IIRCoefficients::coefficients)) != 0)
+			{
+				filterVector[i]->setCoefficients(0, filterData->getSamplerate(), co);
+				anyChange = true;
+			}
 		}
 
 		fs = filterData->getSamplerate();
-		refreshAsync();
+
+		if (anyChange)
+			refreshAsync();
 	}
 }
 
