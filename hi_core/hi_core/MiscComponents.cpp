@@ -159,8 +159,15 @@ void MouseCallbackComponent::mouseDoubleClick(const MouseEvent &event)
 
 void MouseCallbackComponent::mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel)
 {
+	// juce::Component's default passes the wheel up to the parent. Overriding it
+	// and returning here made every ScriptPanel eat the wheel, so a panel placed
+	// inside a ScriptedViewport (or a panel nested in one) could never scroll
+	// the viewport. Always pass the event up after the script has seen it.
 	if (callbackLevel != CallbackLevel::WheelCallbacks && callbackLevel != CallbackLevel::AllCallbacks)
+	{
+		Component::mouseWheelMove(event, wheel);
 		return;
+	}
 
 	static const Identifier x("x");
 	static const Identifier y("y");
@@ -177,6 +184,8 @@ void MouseCallbackComponent::mouseWheelMove(const MouseEvent& event, const Mouse
 	e->setProperty(isSmooth,    wheel.isSmooth);
 
 	sendToListeners(obj);
+
+	Component::mouseWheelMove(event, wheel);
 }
 
 void MouseCallbackComponent::setEnableFileDrop(const String& newCallbackLevel, const String& allowedWildcards)
