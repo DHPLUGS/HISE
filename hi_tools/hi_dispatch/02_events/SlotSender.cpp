@@ -294,6 +294,9 @@ bool SlotSender::sendChangeMessage(uint8 indexInSlot, DispatchType n)
 			flowManager.openFlow(sn, indexInSlot);
 	});
 
+	// APEX: let the owner know there is something to flush (see Source::flushChanges)
+	obj.markPending();
+
 	// If the message wasn't explicitely sent as sendNotificationAsync, it will flush the sync changes immediately
 	if(n == sendNotification || n == sendNotificationSync)
 	{

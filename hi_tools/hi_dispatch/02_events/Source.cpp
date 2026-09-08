@@ -67,22 +67,38 @@ void Source::flushChanges(DispatchType n)
 	if(currentState != State::Running)
 		return;
 
+	// APEX: nothing was sent since the last flush -> nothing to walk. The plain async flush is
+	// the last one of a UI timer tick and its slot flush also drains the sync / hi-priority
+	// bitmaps, so that is where the flag is consumed; the hi-priority pass only peeks. A change
+	// that lands between the peek and the walk is picked up by the next tick.
+	if(n == DispatchType::sendNotificationAsync)
+	{
+		if(!pendingFlush.exchange(false, std::memory_order_acq_rel))
+			return;
+	}
+	else if(!pendingFlush.load(std::memory_order_acquire))
+		return;
+
+#if PERFETTO
     if(n == DispatchType::sendNotificationAsyncHiPriority)
     {
         StringBuilder b;
         b << "flush " << getDispatchId();
         TRACE_EVENT_BEGIN("dispatch", DYNAMIC_STRING_BUILDER(b));
     }
+#endif
     
 	for(int i = 0; i < getNumSlotSenders(); i++)
 	{
 		getSlotSender(i)->flush(n);
 	}
     
+#if PERFETTO
     if(n == DispatchType::sendNotificationAsyncHiPriority)
     {
         TRACE_EVENT_END("dispatch");
     }
+#endif
 }
 
 ListenerQueue* Source::getListenerQueue(uint8 slotSenderIndex, DispatchType n)

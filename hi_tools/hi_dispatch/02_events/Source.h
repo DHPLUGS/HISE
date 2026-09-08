@@ -77,6 +77,10 @@ public:
 
 	void flushChanges(DispatchType n);
 
+	/** APEX: called by a slot sender whenever it records a change, so that flushChanges() can
+	    skip this source entirely while nothing is pending. */
+	void markPending() noexcept { pendingFlush.store(true, std::memory_order_release); }
+
 	virtual int getNumSlotSenders() const = 0;
 
 	virtual SlotSender* getSlotSender(uint8 slotSenderIndex) = 0;
@@ -102,6 +106,11 @@ protected:
 private:
 
     std::atomic<State> currentState = { State::Running };
+
+	// APEX: set by SlotSender::sendChangeMessage, cleared by the async flush. Without it every
+	// UI timer tick walked every slot sender of every processor (~1500 sources in APEX, 66 Hz,
+	// three dispatch types) to find nothing: ~10 % of a core at idle in the plugin.
+	std::atomic<bool> pendingFlush = { false };
 
 	SourceManager& parent;
 	HashedCharPtr sourceId;
