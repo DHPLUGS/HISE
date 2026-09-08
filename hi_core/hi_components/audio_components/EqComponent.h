@@ -253,6 +253,9 @@ public:
 
 	FilterGraph filterGraph;
 
+	uint32 fftLastPaintedWriteCounter = 0xFFFFFFFF;   // APEX: see timerCallback()
+	bool fftLastFrameStatic = false;
+
 private:
 
 	

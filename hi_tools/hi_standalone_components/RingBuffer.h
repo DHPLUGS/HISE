@@ -190,6 +190,13 @@ struct SimpleRingBuffer: public ComplexDataUIBase,
 
 	bool isActive() const noexcept;
 
+	/** APEX: true once the whole ring holds one constant value (silence, DC, a held modulation),
+	    ie. a display connected to it has nothing new to show. */
+	bool isStatic() const noexcept;
+
+	/** APEX: increments on every write; a display that saw the same counter last frame has no new data. */
+	uint32 getWriteCounter() const noexcept { return writeCounter.load(std::memory_order_relaxed); }
+
 	var getReadBufferAsVar();
 
 	const AudioSampleBuffer& getReadBuffer() const;
@@ -272,6 +279,16 @@ private:
 	std::atomic<int> numAvailable = { 0 };
 	std::atomic<int> writeIndex = { 0 };
 
+	// APEX: consecutive silent samples written so far, capped at the ring length. When the whole
+	// ring was already silent before a silent block arrives, write() skips the display update:
+	// at idle every analyser buffer receives zeros forever, and each update used to cost an FFT /
+	// buffer read on the UI timer plus the repaint of whatever sits under the tile.
+	static constexpr float staticThreshold = 1.0e-5f;
+	std::atomic<int> staticSamples = { 0 };
+	std::atomic<uint32> writeCounter = { 0 };
+	float lastStaticValue = 0.0f;
+	bool updateStatic(bool blockIsConstant, float constantValue, int numSamples);
+
 	double maxLength = -1.0;
 	double interpolatedReadIndex = 0.0;
 	double interpolatedWriteIndex = 0.0;
@@ -321,6 +338,9 @@ struct RingBufferComponentBase : public ComplexDataUIBase::EditorBase,
 	virtual void refresh() = 0;
 
 	virtual Colour getColourForAnalyserBase(int colourId);
+
+	/** APEX: the buffer this display reads, so owners can ask whether there is anything new to draw. */
+	SimpleRingBuffer* getRingBuffer() const { return rb.get(); }
 
 	void setUseCustomColours(bool shouldUseCustomColours)
 	{

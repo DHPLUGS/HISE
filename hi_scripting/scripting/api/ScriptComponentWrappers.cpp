@@ -3045,7 +3045,10 @@ ScriptCreatedComponentWrappers::FloatingTileWrapper::FloatingTileWrapper(ScriptC
 
 	ft->setComponentID(floatingTile->getName().toString());
 	ft->setName(floatingTile->name.toString());
-	ft->setOpaque(false);
+	// APEX: a tile whose background colour is fully opaque can be opaque as a component. JUCE
+	// then excludes its area from every ancestor's clip, so a scope repainting at 30 Hz no
+	// longer re-runs the paint of the full-size panels behind it. Transparent stays as before.
+	ft->setOpaque(Colour((uint32)(int64)floatingTile->getScriptObjectProperty(ScriptingApi::Content::ScriptComponent::bgColour)).isOpaque());
 	ft->setContent(floatingTile->getContentData());
 	ft->refreshRootLayout();
 
@@ -3149,7 +3152,7 @@ void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent(int pr
 	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType:
         ft->setContent(sft->getContentData());
         updateLookAndFeel();
-        break;
+        if (auto* tile = dynamic_cast<FloatingTile*>(component.get())) tile->setOpaque(GET_OBJECT_COLOUR(bgColour).isOpaque()); break;
 	}
 
 #if USE_BACKEND

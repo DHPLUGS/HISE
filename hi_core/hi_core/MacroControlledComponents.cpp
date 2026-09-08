@@ -1096,6 +1096,12 @@ HiSlider::HoverPopupLookandFeel& HiSlider::getHoverPopupLookAndFeel()
 
 void HiSlider::ModUpdater::timerCallback()
 {
+	// APEX: a slider on a hidden page has nobody to show its mod ring to. Skip the query (two
+	// dynamic_casts + a range copy per slider per tick, ~200 sliders at 66 Hz) until it is showing;
+	// the first tick after it appears brings it up to date.
+	if(!parent.isShowing())
+		return;
+
 	if(modFunction != nullptr)
 	{
 		if(auto p = parent.getProcessor())

@@ -145,8 +145,19 @@ int SimpleRingBuffer::read(AudioSampleBuffer& b)
 
 void SimpleRingBuffer::write(double value, int numSamples)
 {
+	// APEX: nothing written -> nothing to show (a zero-length write used to send a display update
+	// every time, and could never let the buffer count as static)
+	if (numSamples <= 0)
+		return;
+
 	if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getDataLock()))
 	{
+		const bool skipUpdate = updateStatic(true, (float)value, numSamples);
+
+		if (!skipUpdate && RepaintLog::isEnabled())
+			RepaintLog::count("ringbuffer", "write(value) v=" + String(value, 4) + " n=" + String(numSamples) + (MessageManager::getInstance()->isThisTheMessageThread() ? " [msg]" : " [audio]"), numSamples, 1);
+		++writeCounter;
+
 		if (numSamples == 1)
 		{
 			isBeingWritten = true;
@@ -163,7 +174,9 @@ void SimpleRingBuffer::write(double value, int numSamples)
 
 			if (updateCounter++ >= 1024)
 			{
-				getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
+				if (!skipUpdate)
+					getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
+
 				updateCounter = 0;
 			}
 		}
@@ -199,7 +212,8 @@ void SimpleRingBuffer::write(double value, int numSamples)
 			numAvailable += numSamples;
 			isBeingWritten = false;
 
-			getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
+			if (!skipUpdate)
+				getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
 		}
 	}
 }
@@ -280,7 +294,25 @@ void SimpleRingBuffer::write(const float** data, int numChannels, int numSamples
 
 		isBeingWritten = false;
 
-		getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
+		++writeCounter;
+
+		bool blockConstant = numSamples > 0;
+		float constantValue = 0.0f;
+
+		for (int i = 0; i < jmin(numChannels, internalBuffer.getNumChannels()) && blockConstant; i++)
+		{
+			auto r = FloatVectorOperations::findMinAndMax(data[i], numSamples);
+			blockConstant = (r.getEnd() - r.getStart()) < staticThreshold;
+			if (i == 0) constantValue = r.getStart();
+		}
+
+		if (!updateStatic(blockConstant, constantValue, numSamples))
+		{
+			if (RepaintLog::isEnabled())
+				RepaintLog::count("ringbuffer", String("write(audio) ") + (blockConstant ? "const v=" + String(constantValue, 4) : "signal") + " n=" + String(numSamples) + " ch=" + String(numChannels) + (MessageManager::getInstance()->isThisTheMessageThread() ? " [msg]" : " [audio]"), numSamples, 1);
+
+			getUpdater().sendDisplayChangeMessage((int)numAvailable, sendNotificationAsync, true);
+		}
 	}
 }
 
@@ -1897,6 +1929,28 @@ String SimpleRingBuffer::toBase64String() const
 void SimpleRingBuffer::setActive(bool shouldBeActive)
 {
 	active = shouldBeActive;
+}
+
+bool SimpleRingBuffer::isStatic() const noexcept
+{
+	const int len = internalBuffer.getNumSamples();
+	return len > 0 && staticSamples.load(std::memory_order_relaxed) >= len;
+}
+
+bool SimpleRingBuffer::updateStatic(bool blockIsConstant, float constantValue, int numSamples)
+{
+	const int len = internalBuffer.getNumSamples();
+	const int before = staticSamples.load(std::memory_order_relaxed);
+	const bool wasStatic = len > 0 && before >= len;
+	const bool sameAsLast = blockIsConstant && std::abs(constantValue - lastStaticValue) < staticThreshold;
+
+	staticSamples.store(sameAsLast ? jmin(len, before + numSamples) : 0, std::memory_order_relaxed);
+
+	if (blockIsConstant)
+		lastStaticValue = constantValue;
+
+	// only skip once the whole ring already held this value before the block arrived
+	return sameAsLast && wasStatic;
 }
 
 bool SimpleRingBuffer::isActive() const noexcept

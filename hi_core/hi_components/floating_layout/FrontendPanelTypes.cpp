@@ -201,9 +201,15 @@ namespace hise { using namespace juce;
 			}
                 
 			auto oldValue = currentPeaks[i];
-                
-			change |= FloatSanitizers::isNotSilence(thisValue - oldValue);
-			currentPeaks[i] = thisValue;
+
+			// APEX: only a visible change counts. The meter value decays asymptotically after the
+			// signal stops, so the tiny per-tick differences kept this repainting (and, on the AppKit
+			// path, the whole window with it) at idle.
+			if (std::abs(thisValue - oldValue) > 0.002f)
+			{
+				change = true;
+				currentPeaks[i] = thisValue;
+			}
 		}
             
 		if(change)
@@ -844,7 +850,7 @@ PerformanceLabelPanel::PerformanceLabelPanel(FloatingTile* parent) :
 
 	statisticLabel->setFont(GLOBAL_BOLD_FONT());
 
-	startTimer(200);
+	startTimer(1000);   // APEX: was 200 ms - a CPU % that flickers repaints this label (and the window) 5x/s at idle
 }
 
 void PerformanceLabelPanel::timerCallback()

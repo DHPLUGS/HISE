@@ -634,6 +634,21 @@ void FilterDragOverlay::addFilterDragger(int index)
 void FilterDragOverlay::timerCallback()
 {
 	updateCoefficients();
+
+	// APEX: the FFT has something new only when its buffer received data since the last frame
+	// and has not settled (silence / DC); the unconditional 20 Hz repaint churned the layer at idle.
+	if (auto rb = fftAnalyser.getRingBuffer())
+	{
+		const auto wc = rb->getWriteCounter();
+		const bool isStatic = rb->isStatic();
+
+		if (wc == fftLastPaintedWriteCounter || (isStatic && fftLastFrameStatic))
+			return;
+
+		fftLastPaintedWriteCounter = wc;
+		fftLastFrameStatic = isStatic;
+	}
+
 	fftAnalyser.repaint();
 }
 

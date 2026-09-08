@@ -199,7 +199,36 @@ public:
 
 	// APEX: a tile that is not on screen (hidden page, collapsed parent) has nothing to show;
 	// skip the 33 Hz repaint (and the path/FFT-image work behind it) until it is visible again.
-	void timerCallback() override { if (isShowing()) repaint(); }
+	// Likewise once its buffer has gone fully silent: paint that one empty frame, then stop until
+	// signal returns. At idle the goniometer tile alone was driving ~33 frames/s through every
+	// background panel underneath it.
+	void timerCallback() override
+	{
+		if (!isShowing())
+			return;
+
+		if (auto b = getAnalyserBuffer())
+		{
+			// No write since the last frame (the feeding chain is not rendering, e.g. a synth
+			// with no voice) or the content has settled (silence, DC, a held modulation): the
+			// picture cannot change, so do not ask for a frame.
+			const auto wc = b->getWriteCounter();
+			const bool isStatic = b->isStatic();
+
+			if (wc == lastPaintedWriteCounter || (isStatic && lastFrameStatic))
+				return;
+
+			lastPaintedWriteCounter = wc;
+			lastFrameStatic = isStatic;
+		}
+
+		repaint();
+	}
+
+	virtual SimpleRingBuffer* getAnalyserBuffer() const { return nullptr; }
+
+	uint32 lastPaintedWriteCounter = 0xFFFFFFFF;
+	bool lastFrameStatic = false;
 
 	class Panel : public PanelWithProcessorConnection
 	{
@@ -319,6 +348,8 @@ public:
 		drawSpectrum(g);
 	}
 
+	SimpleRingBuffer* getAnalyserBuffer() const override { return rb.get(); }
+
 	double getSamplerate() const override { return getAnalyser()->getSampleRate(); }
 	Colour getColourForAnalyserBase(int colourId) override { return AudioAnalyserComponent::getColourForAnalyser((RingBufferComponentBase::ColourId)colourId); }
 };
@@ -342,6 +373,8 @@ public:
 	{
 		OscilloscopeBase::drawWaveform(g);
 	}
+
+	SimpleRingBuffer* getAnalyserBuffer() const override { return rb.get(); }
 };
 
 
@@ -363,6 +396,8 @@ public:
 	{
 		GoniometerBase::paintSpacialDots(g);
 	}
+
+	SimpleRingBuffer* getAnalyserBuffer() const override { return rb.get(); }
 	
 };
 
