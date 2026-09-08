@@ -839,7 +839,43 @@ void ModulatorChain::ModChainWithBuffer::calculateMonophonicModulationValues(int
 		jassert(c->hasMonophonicTimeModulationMods());
 		jassert(c->getSampleRate() > 0);
 
-		
+#if HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
+		// APEX: no voice alive anywhere -> hold the buffer at the last rendered value and skip the
+		// modulators. The chain-local numActiveVoices is not usable here: effects inside a container
+		// never receive voice starts (that is what f9b0dcb16 works around), so ask the instrument.
+		// A constant buffer means every consumer sees an unchanged parameter: the filter graphs, the
+		// coefficient re-sends and the mod thumbs all go quiet, and the LFOs cost nothing.
+		if (monoRenderedBlocks >= 2 && c->getMainController()->getNumActiveVoices() == 0)
+		{
+			const bool combined = c->getMode() == Modulation::Mode::CombinedMode;
+			float* addPtr = combined ? c->addBufferData->getWritePointer(0, false) : nullptr;
+
+			if (!monoFrozen)
+			{
+				// hold where the last real render ENDED, never a block's first sample: the first
+				// rendered block is a ramp from 0 to the initial value, and holding its start pinned
+				// every matrix-slotted parameter to its minimum (EQ bands at -18 dB, 2026-09-08)
+				monoHoldValue = monoLastRendered;
+				monoHoldAddValue = addPtr != nullptr ? monoLastRenderedAdd : 0.0f;
+				monoFrozen = true;
+			}
+
+			FloatVectorOperations::fill(modBuffer.monoValues + startSample_cr, monoHoldValue, numSamples_cr);
+			currentMonoValue = monoHoldValue;
+
+			if (addPtr != nullptr)
+			{
+				FloatVectorOperations::fill(addPtr + startSample_cr, monoHoldAddValue, numSamples_cr);
+				c->addBufferData->currentTimeVariantAddValue = monoHoldAddValue;
+				currentMonoValue += monoHoldAddValue;
+			}
+
+			monoExpandChecker = false;
+			return;
+		}
+
+		monoFrozen = false;
+#endif
 
 		float iv;
 
@@ -913,6 +949,19 @@ void ModulatorChain::ModChainWithBuffer::calculateMonophonicModulationValues(int
 		}
 
 		
+
+#if HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
+		if (numSamples_cr > 0)
+		{
+			monoLastRendered = modBuffer.monoValues[startSample_cr + numSamples_cr - 1];
+
+			if (c->getMode() == Modulation::Mode::CombinedMode)
+				monoLastRenderedAdd = c->addBufferData->getWritePointer(0, false)[startSample_cr + numSamples_cr - 1];
+
+			if (monoRenderedBlocks < 2)
+				++monoRenderedBlocks;
+		}
+#endif
 
 		monoExpandChecker = false;
 	}

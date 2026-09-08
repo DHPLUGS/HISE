@@ -207,6 +207,19 @@ public:
 		return wp;
 	}
 
+	/** APEX (HISE_FREEZE_MONO_MODS_WITHOUT_VOICES): keep this block's buffer at the last rendered
+	    value while no voice is alive; capture that value on the first frozen block. */
+	void holdBlock(int startSample, int numSamples, bool capture)
+	{
+		auto wp = savedValuesForBlock.getWritePointer(0, 0);
+
+		if (capture && numSamples > 0)
+			heldValue = wp[startSample + numSamples - 1];
+
+		FloatVectorOperations::fill(wp + startSample, heldValue, numSamples);
+	}
+
+
 	void clear()
 	{
 		if (!isClear)
@@ -218,6 +231,9 @@ public:
 	}
 
 private:
+
+
+	float heldValue = 1.0f;
 
 	AudioSampleBuffer savedValuesForBlock;
 	int thisBlockSize = 0;
@@ -299,6 +315,19 @@ public:
 		monoBlockSize = tp;
 		return wp;
 	}
+
+	/** APEX (HISE_FREEZE_MONO_MODS_WITHOUT_VOICES): keep this block's buffer at the last rendered
+	    value while no voice is alive; capture that value on the first frozen block. */
+	void holdBlock(int startSample, int numSamples, bool capture)
+	{
+		auto wp = savedValuesForBlock.getWritePointer(0, 0);
+
+		if (capture && numSamples > 0)
+			heldValue = wp[startSample + numSamples - 1];
+
+		FloatVectorOperations::fill(wp + startSample, heldValue, numSamples);
+	}
+
 
 	std::pair<const int*, const float*> getRuntimePointer(const HiseEvent& e, int startSample) const
 	{
@@ -429,6 +458,9 @@ private:
 	AudioSampleBuffer monophonicallyReducedSignal;
 	int monoBlockSize = -1;
 	bool useMonoBufferAsSource = false;
+
+
+	float heldValue = 1.0f;
 
 	AudioSampleBuffer savedValuesForBlock;
 	AudioSampleBuffer emptyBlock;
@@ -724,6 +756,10 @@ public:
 private:
 
 	int lastBlockSize = 0;
+
+	// APEX (HISE_FREEZE_MONO_MODS_WITHOUT_VOICES): see preVoiceRendering()
+	int gmRenderedBlocks = 0;
+	bool gmFrozen = false;
 
 	bool isIdleOrHasAudioLock() const
 	{

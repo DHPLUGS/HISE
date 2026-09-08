@@ -486,6 +486,37 @@ void GlobalModulatorContainer::preVoiceRendering(int startSample, int numThisTim
 {
 	int startSample_cr = startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
 	int numSamples_cr = numThisTime / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+
+#if HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
+	// APEX: the global LFOs / envelopes rendered here are the sources of every matrix cable.
+	// With no voice alive anywhere, hold each block buffer at its last rendered sample and skip
+	// the renders and the cable sends: the cables, the script-slider control-rate callbacks and
+	// the Matrix plotters all go quiet. The first two blocks always render (nothing to hold yet).
+	// Counterpart of ModChainWithBuffer::calculateMonophonicModulationValues for the FX chains.
+	if (gmRenderedBlocks >= 2 && getMainController()->getNumActiveVoices() == 0)
+	{
+		const bool capture = !gmFrozen;
+		gmFrozen = true;
+
+		for (auto& ev : envelopeData)
+			if (auto mod = ev.getModulator())
+				if (mod->isInMonophonicMode() && !mod->isBypassed())
+					ev.holdBlock(startSample_cr, numSamples_cr, capture);
+
+		for (auto& tv : timeVariantData)
+			if (auto mod = tv.getModulator())
+				if (!mod->isBypassed())
+					tv.holdBlock(startSample_cr, numSamples_cr, capture);
+
+		lastBlockSize = numThisTime;
+		return;
+	}
+
+	gmFrozen = false;
+
+	if (gmRenderedBlocks < 2)
+		++gmRenderedBlocks;
+#endif
 	
 	auto scratchBuffer = modChains[GainChain].getScratchBuffer();
 

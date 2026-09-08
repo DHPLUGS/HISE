@@ -67,6 +67,19 @@ namespace hise { using namespace juce;
 *	For an example usage of an polyphonic ModulatorChain, take a look at the WavetableSynth class.
 *	For an example usage of an monophonic ModulatorChain, the LfoModulator class is your friend.
 */
+/** Config: HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
+
+    APEX: when no voice is active anywhere in the instrument (MainController::getNumActiveVoices()
+    == 0), monophonic time-variant modulators (global LFOs etc.) are not rendered and their output
+    buffer is held at the last rendered value. Nothing downstream then sees a parameter change at
+    idle: no filter coefficient updates, no display refreshes, no dispatch traffic, no LFO CPU.
+    The modulation resumes on the next voice start. Leave this OFF for effect plugins or projects
+    that rely on free-running modulation while no note is played (see f9b0dcb16).
+*/
+#ifndef HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
+#define HISE_FREEZE_MONO_MODS_WITHOUT_VOICES 0
+#endif
+
 class ModulatorChain: public Chain,
 					  public EnvelopeModulator
 {
@@ -315,6 +328,16 @@ public:
 		bool manualExpansionPending = false;
 
 		int numActiveVoices = 0;
+
+		// APEX (HISE_FREEZE_MONO_MODS_WITHOUT_VOICES): the monophonic modulation buffer is held at its
+		// last rendered value while no voice is alive anywhere in the instrument, see
+		// calculateMonophonicModulationValues().
+		bool monoFrozen = false;
+		int monoRenderedBlocks = 0;          // freeze only after >= 2 real renders (block 1 is the initial-value ramp)
+		float monoLastRendered = 1.0f;       // last sample of the last real render (mono buffer)
+		float monoLastRenderedAdd = 0.0f;    // same for the combined-mode add buffer
+		float monoHoldValue = 1.0f;
+		float monoHoldAddValue = 0.0f;
 
 		Options options;
 		
