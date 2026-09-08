@@ -2673,6 +2673,12 @@ void HiComboBox::updateValue(NotificationType /*sendAttributeChange*/)
 
 	setSelectedId(roundToInt(getProcessor()->getAttribute(parameter)), dontSendNotification);
 
+	// Every script-driven value change (preset recall, setValue from a callback)
+	// lands here with dontSendNotification, so the ComboBox listener that would
+	// normally refresh the submenu ticks never fires. Refresh them explicitly or
+	// the folder dot stays wherever the mouse last put it.
+	refreshTickState();
+
 	//addItemsToMenu(*getRootMenu());
 }
 

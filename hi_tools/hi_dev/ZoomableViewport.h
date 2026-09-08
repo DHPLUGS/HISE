@@ -79,15 +79,22 @@ struct SubmenuComboBox: public juce::ComboBox
 
 	void refreshTickState()
 	{
-		auto currentId = getSelectedId();
+		// Raw id as stored by setSelectedId(). getSelectedId() additionally
+		// demands that the label text equals the item text, which fails for a
+		// submenu leaf whose label was set from the flat "A::B::C" list.
+		auto currentId = (int)getSelectedIdAsValue().getValue();
 
-		for (PopupMenu::MenuItemIterator iterator (*getRootMenu(), false); iterator.next();)
+		// Walk every level so nested folders tick too, not just the top level.
+		for (PopupMenu::MenuItemIterator iterator (*getRootMenu(), true); iterator.next();)
 		{
 			auto& item = iterator.getItem();
 
 			if(auto s = item.subMenu.get())
 			{
-				item.isTicked = isTicked(*s, currentId);
+				// Nothing selected: no folder can contain the selection. Without this
+				// guard every folder that holds a subfolder ticks, because submenu
+				// headers carry itemID 0 and match currentId 0 inside isTicked().
+				item.isTicked = currentId != 0 && isTicked(*s, currentId);
 			}
 		}
 	}
@@ -100,7 +107,8 @@ private:
 		{
 			auto& item = iterator.getItem();
 
-			if(item.itemID == currentId)
+			// Submenu headers and separators have itemID 0 and are never a selection.
+			if(item.itemID != 0 && item.itemID == currentId)
 				return true;
 
 			if(auto s = item.subMenu.get())

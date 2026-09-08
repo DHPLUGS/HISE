@@ -1265,6 +1265,10 @@ void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateItems(HiComboBox * c
     
     auto currentValue = (int)getScriptComponent()->getValue();
     cb->setSelectedId(currentValue, dontSendNotification);
+
+    // rebuildPopupMenu() computed the submenu ticks while the box was cleared
+    // (nothing selected); redo them now that the selection is restored.
+    cb->refreshTickState();
 }
 
 void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateColours(HiComboBox * cb)
