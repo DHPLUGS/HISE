@@ -179,6 +179,11 @@ void HardcodedMasterFX::voicesKilled()
 
 void HardcodedMasterFX::setInternalAttribute(int parameterIndex, float newValue)
 {
+	// APEX: a parameter change wakes a silence-suspended network for another suspension period,
+	// so its smoothing ramps run and its display cables push even while nothing is playing.
+	// Without this a knob turned during silence left the filter / EQ graphs stuck mid-way.
+	masterState.numSilentBuffers = 0;
+
 	setHardcodedAttribute(parameterIndex, newValue);
 }
 
