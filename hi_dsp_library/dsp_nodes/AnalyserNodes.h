@@ -281,8 +281,6 @@ struct Helpers
 			return num;
 		}
 
-		std::unique_ptr<juce::dsp::FFT> cachedFFT;
-		int cachedFFTOrder = -1;
 
 		void resizeBuffers(int requiredSize)
 		{
