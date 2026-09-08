@@ -783,6 +783,14 @@ void ScriptContentComponent::paint(Graphics &g)
 {
 	TRACE_COMPONENT();
 
+	// Leave the ground transparent while Content.createScreenshot() is capturing.
+	// createComponentSnapshot() already hands us an Image::ARGB cleared to transparent
+	// (this component is never setOpaque(true)), so skipping the fill is all that is
+	// needed for an exported PNG to carry real alpha - which is what makes a knob
+	// body or filmstrip usable over any panel colour instead of baking one in.
+	if (ScriptingObjects::ScriptShader::isRenderingScreenshot())
+		return;
+
 	g.fillAll(JUCE_LIVE_CONSTANT_OFF(Colour(0xff252525)));
 }
 

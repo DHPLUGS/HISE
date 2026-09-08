@@ -84,6 +84,21 @@ FilterGraph::~FilterGraph()
 		c->removeListener(this);
 }
 
+/** Clamps a filter magnitude to something log10 can survive.
+
+	Returns a floor rather than zero/NaN so the curve is drawn at the bottom of the graph
+	instead of vanishing: 1e-6 is -120dB, well below any usable gain range. A NaN magnitude
+	(extreme / fast cutoff sweeps do produce one) passes an == 0 test and survives jmax,
+	so it has to be caught explicitly here.
+*/
+static float sanitiseMagnitude(float m)
+{
+	if (!std::isfinite(m) || m < 1.0e-6f)
+		return 1.0e-6f;
+
+	return m;
+}
+
 void FilterGraph::refreshFilterPath()
 {
 	if(getLocalBounds().isEmpty())
@@ -206,7 +221,7 @@ void FilterGraph::computeTargetResponse()
 			traceMagnitude *= (float) (activeFilters [i]->getResponse (freq).magnitudeValue);
 
 		// keep the dB values finite so they can be interpolated
-		traceMagnitude = jmax(traceMagnitude, 1.0e-10f);
+		traceMagnitude = sanitiseMagnitude(traceMagnitude);
 		targetDb.add(jlimit(-200.0f, 200.0f, 20.0f * log10 (traceMagnitude)));
 	}
 }
