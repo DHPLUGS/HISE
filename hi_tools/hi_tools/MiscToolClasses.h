@@ -673,6 +673,10 @@ struct RepaintLog
 {
 	static bool isEnabled();
 	static void count(const char* category, const juce::String& name, int w, int h);
+
+	/** Installed into juce::Component::repaintRequestHook when the log is enabled: logs every
+	    repaint request of every component under category "juce", named by component ID or class. */
+	static void juceRepaintHook(const juce::Component& c, juce::Rectangle<int> area);
 };
 
 /** Coallescates timer updates.

@@ -40,6 +40,10 @@
 #endif
 
 
+#if JUCE_MAC || JUCE_LINUX || JUCE_IOS
+#include <cxxabi.h>
+#endif
+
 namespace hise {
 using namespace juce;
 
@@ -1746,8 +1750,50 @@ void SuspendableTimer::Internal::timerCallback()
 
 bool RepaintLog::isEnabled()
 {
-	static const bool enabled = std::getenv("HISE_LOG_REPAINTS") != nullptr;
+	// Environment variable, or a marker file for hosts whose plugin process is an XPC service
+	// that never sees the user's environment (Logic's AUHostingService): touch
+	// ~/Library/Application Support/HISE/repaint_log.enable and relaunch the host.
+	static const bool enabled = std::getenv("HISE_LOG_REPAINTS") != nullptr ||
+		File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("HISE").getChildFile("repaint_log.enable").existsAsFile();
+
+	// Name the native requesters too (sliders, tiles, keyboards...): the paint counts alone only
+	// show what got painted, not who asked.
+	static const bool hooked = enabled ? (juce::Component::repaintRequestHook = &RepaintLog::juceRepaintHook, true) : false;
+	ignoreUnused(hooked);
+
 	return enabled;
+}
+
+void RepaintLog::juceRepaintHook(const Component& c, Rectangle<int> area)
+{
+	auto name = c.getComponentID();
+
+	if (name.isEmpty())
+	{
+		const char* raw = typeid(c).name();
+#if JUCE_MAC || JUCE_LINUX || JUCE_IOS
+		int status = 0;
+		if (auto* d = abi::__cxa_demangle(raw, nullptr, nullptr, &status))
+		{
+			name = String(d);
+			free(d);
+		}
+		else
+#endif
+			name = String(raw);
+	}
+
+	// nearest ancestor with an ID says where an anonymous component lives (which tile / panel)
+	for (auto* p = c.getParentComponent(); p != nullptr; p = p->getParentComponent())
+	{
+		if (p->getComponentID().isNotEmpty())
+		{
+			name << " in " << p->getComponentID();
+			break;
+		}
+	}
+
+	count("juce", name, area.getWidth(), area.getHeight());
 }
 
 void RepaintLog::count(const char* category, const juce::String& name, int w, int h)
@@ -1769,7 +1815,10 @@ void RepaintLog::count(const char* category, const juce::String& name, int w, in
 
 	const auto now = Time::getMillisecondCounter();
 
-	if (now - lastFlush >= 1000)
+	// Only the message thread ever touches the file: count() is also reached from the audio
+	// thread (ring-buffer writes) and the script thread, and a file append from either of those
+	// would stall it. Other threads just accumulate; the next message-thread hit flushes.
+	if (now - lastFlush >= 1000 && MessageManager::getInstance()->isThisTheMessageThread())
 	{
 		String out;
 		out << "--- " << Time::getCurrentTime().toString(false, true, true, true) << "  (" << String(now - lastFlush) << " ms)\n";

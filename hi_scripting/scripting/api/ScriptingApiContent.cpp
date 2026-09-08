@@ -4612,6 +4612,12 @@ void ScriptingApi::Content::ScriptPanel::repaint()
 	auto p = profile(pRepaint);
 	getScriptProcessor()->getScriptingContent()->contentProfile.openTrack(pRepaint);
 
+
+	// APEX RepaintLog: name the script line that asked for this repaint (the per-second paint
+	// counts alone cannot tell a timer from a broadcaster from a mouse callback).
+	if (RepaintLog::isEnabled())
+		RepaintLog::count("repaint-request", getName().toString() + " <- " + getCurrentLocationInFunctionCall().toGotoString(), 0, 0);
+
 	auto threadId = getScriptProcessor()->getMainController_()->getKillStateHandler().getCurrentThread();
 
 	if (threadId == MainController::KillStateHandler::TargetThread::SampleLoadingThread ||
