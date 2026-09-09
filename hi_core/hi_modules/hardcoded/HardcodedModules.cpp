@@ -182,7 +182,11 @@ void HardcodedMasterFX::setInternalAttribute(int parameterIndex, float newValue)
 	// APEX: a parameter change wakes a silence-suspended network for another suspension period,
 	// so its smoothing ramps run and its display cables push even while nothing is playing.
 	// Without this a knob turned during silence left the filter / EQ graphs stuck mid-way.
-	masterState.numSilentBuffers = 0;
+	// Only from a real change on a non-audio thread: a matrix target with a scripted callback
+	// gets that callback at control rate on the audio thread for as long as its source moves,
+	// and waking from there kept the network processing (and its graphs bobbing) with no note.
+	if (getMainController()->getKillStateHandler().getCurrentThread() != MainController::KillStateHandler::TargetThread::AudioThread)
+		masterState.numSilentBuffers = 0;
 
 	setHardcodedAttribute(parameterIndex, newValue);
 }

@@ -411,7 +411,12 @@ void MatrixModulator::setInternalAttribute(int parameterIndex, float newValue)
 
 		// APEX: a knob bound to this modulator never touches the owning effect's attributes, so the
 		// silence-suspended network it feeds would not wake for the change (the direct path is
-		// HardcodedMasterFX::setInternalAttribute). The chain's owner is the effect.
+		// HardcodedMasterFX::setInternalAttribute). The chain's owner is the effect. Not from the
+		// audio thread: a scripted matrix target pushes its modulated value here at control rate
+		// while its source moves, which must not keep a sleeping network awake.
+		if (getMainController()->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::TargetThread::AudioThread)
+			break;
+
 		if (auto chain = dynamic_cast<ModulatorChain*>(getParentProcessor(false, false)))
 		{
 			if (auto fx = dynamic_cast<EffectProcessor*>(chain->getParentProcessor()))
