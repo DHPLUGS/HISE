@@ -635,11 +635,21 @@ void MatrixModulator::calculateBlock(int startSample, int numSamples)
 		scriptnode::PolyHandler::ScopedVoiceSetter sv(polyHandler, voiceIndex);
 		ProcessData<1> pd(&ptr, numSamples, 1);
 
+		// APEX (HISE_HOLD_MODS_WITHOUT_VOICES): no plot writes while no voice is active anywhere.
+		const bool plot = !(getMainController()->shouldHoldModsWithoutVoices() &&
+		                    getMainController()->getNumActiveVoices() == 0);
+
 		for(auto sl: scaleMods)
+		{
+			sl->plotEnabled = plot;
 			sl->process(pd);
+		}
 
 		for(auto al: addMods)
+		{
+			al->plotEnabled = plot;
 			al->process(pd);
+		}
 	}
 
 	if(rangeData.outputRange.isNonDefault())

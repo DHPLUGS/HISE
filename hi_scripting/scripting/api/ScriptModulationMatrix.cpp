@@ -480,10 +480,18 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 	if(gc != nullptr && getMainController()->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::TargetThread::AudioThread)
 		numThisTime = gc->getCurrentNumSamples() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
 
+	// APEX (HISE_HOLD_MODS_WITHOUT_VOICES): with no voice anywhere the slider's callback receives
+	// its base value and the plot buffers are left alone, so curves and plotters stand still.
+	const bool holdAtBase = getMainController()->shouldHoldModsWithoutVoices() &&
+	                        getMainController()->getNumActiveVoices() == 0;
+
 	if(auto sl = SimpleReadWriteLock::ScopedTryReadLock(listLock))
 	{
 		for(auto s: scaleTargets)
 		{
+			if (holdAtBase)
+				break;
+
 			jassert(s->tm == modulation::TargetMode::Gain);
 			auto i = s->intensity;
 
@@ -503,6 +511,9 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 			
 		for(auto a: addTargets)
 		{
+			if (holdAtBase)
+				break;
+
 			auto modValue = a->lastModValue;
 
 			if(a->tm == modulation::TargetMode::Bipolar)

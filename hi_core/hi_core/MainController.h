@@ -1613,6 +1613,7 @@ public:
 #if USE_BACKEND
 		cachedPreprocessors.clear();
 		preprocessor = nullptr;
+		holdModsWithoutVoicesCached = -1;
 #endif
 	}
 
@@ -1925,6 +1926,10 @@ public:
 
 	/** Returns the amount of playing voices. */
 	int getNumActiveVoices() const;;
+
+	/** APEX: true when the project holds modulation consumers at their base value while no voice
+	    is active (HISE_HOLD_MODS_WITHOUT_VOICES, read once per project). */
+	bool shouldHoldModsWithoutVoices() const;
 
 	void setLastActiveEditor(Component *editor, CodeDocument::Position position)
 	{
@@ -2240,6 +2245,9 @@ private:
 #if USE_BACKEND
 	mutable juce::HashMap<String, int> cachedPreprocessors;
 #endif
+
+	// APEX: HISE_HOLD_MODS_WITHOUT_VOICES, resolved once (see shouldHoldModsWithoutVoices()).
+	mutable int holdModsWithoutVoicesCached = -1;
 
 #if HISE_INCLUDE_RLOTTIE
 	ScopedPointer<RLottieManager> rLottieManager;

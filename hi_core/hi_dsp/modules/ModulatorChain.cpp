@@ -1270,7 +1270,12 @@ float ModulatorChain::ModChainWithBuffer::getOneModulationValue(int startSample)
 		// free running monophonic mods (eg. global LFOs on a filter inside a container
 		// or a FX plugin) are rendered every block, so use their value instead of
 		// freezing the chain at the inactive value.
-		if(c->hasMonophonicTimeModulationMods() && modBuffer.monoValues != nullptr)
+		// APEX (HISE_HOLD_MODS_WITHOUT_VOICES): with no voice anywhere the consumer holds at the
+		// base value below instead of following the free-running modulator.
+		const bool holdAtBase = c->getMainController()->shouldHoldModsWithoutVoices() &&
+		                        c->getMainController()->getNumActiveVoices() == 0;
+
+		if(!holdAtBase && c->hasMonophonicTimeModulationMods() && modBuffer.monoValues != nullptr)
 			return modBuffer.monoValues[startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR];
 
 		ModIterator<Modulator> iter(c);

@@ -948,6 +948,14 @@ int MainController::getNumActiveVoices() const
 	return getMainSynthChain()->getNumActiveVoices();
 }
 
+bool MainController::shouldHoldModsWithoutVoices() const
+{
+	if (holdModsWithoutVoicesCached < 0)
+		holdModsWithoutVoicesCached = HISE_GET_PREPROCESSOR(this, HISE_HOLD_MODS_WITHOUT_VOICES) != 0 ? 1 : 0;
+
+	return holdModsWithoutVoicesCached > 0;
+}
+
 #if !HISE_JUCE8
 void MainController::beginParameterChangeGesture(int index)			{ dynamic_cast<PluginParameterAudioProcessor*>(this)->beginParameterChangeGesture(index); }
 

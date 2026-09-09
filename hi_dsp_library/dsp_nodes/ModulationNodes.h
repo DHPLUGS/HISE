@@ -827,7 +827,7 @@ template <int NV> struct matrix_mod:
 		auxMod.process(ad);
 		applyModulation(data[0].begin(), sptr, aptr, data.getNumSamples());
 
-		if(lastSpecs.voiceIndex->getVoiceIndex() == lastVoiceIndex)
+		if(plotEnabled && lastSpecs.voiceIndex->getVoiceIndex() == lastVoiceIndex)
 			updateBuffer(sptr, data.getNumSamples());
 
 		mv.setModValue(sptr[0]);
@@ -841,7 +841,10 @@ template <int NV> struct matrix_mod:
 		sourceMod.processFrame(sd);
 		auxMod.processFrame(ad);
 		applyModulation(data.begin(), sd.begin(), ad.begin(), 1);
-		updateBuffer(sd[0], 1);
+
+		if(plotEnabled)
+			updateBuffer(sd[0], 1);
+
 		mv.setModValue(sd[0]);
 	}
 
@@ -1004,6 +1007,10 @@ template <int NV> struct matrix_mod:
 	float zeroDelta = 0.0f;;
 
 	double getLastModValue() const { return mv.getModValue(); }
+
+	// APEX: the owner clears this while no voice is active (HISE_HOLD_MODS_WITHOUT_VOICES) so the
+	// matrix plotters stand still between notes; the modulation itself keeps rendering.
+	bool plotEnabled = true;
 
 private:
 

@@ -80,6 +80,20 @@ namespace hise { using namespace juce;
 #define HISE_FREEZE_MONO_MODS_WITHOUT_VOICES 0
 #endif
 
+/** Config: HISE_HOLD_MODS_WITHOUT_VOICES
+
+    APEX: the safer sibling of the freeze above. Modulators keep rendering (no bookkeeping is
+    skipped), but while no voice is active anywhere (MainController::getNumActiveVoices() == 0)
+    the CONSUMERS hold at the base value: the value pushed into an effect's parameter, the value
+    a scripted matrix target receives, and the matrix plot buffers. Graphs, curves and plotters
+    therefore stand still between notes and effect tails are not swept. Read at runtime in the
+    IDE (project extra definitions) and at compile time in an export; leave it OFF for effect
+    plugins, which never have a voice (see f9b0dcb16).
+*/
+#ifndef HISE_HOLD_MODS_WITHOUT_VOICES
+#define HISE_HOLD_MODS_WITHOUT_VOICES 0
+#endif
+
 class ModulatorChain: public Chain,
 					  public EnvelopeModulator
 {
