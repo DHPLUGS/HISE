@@ -2073,11 +2073,26 @@ void HiSlider::ModUpdater::onExclusiveSourceSelection(ModUpdater& mu, int index)
 {
 	auto& slider = mu.parent;
 
-	// The HoverPopup attaches to the slider's parent component, so skip it if the slider isn't in a
-	// hierarchy yet (e.g. during preset load) - otherwise the ctor dereferences a null parent. This
-	// guard was added in bac1fca58 but dropped by the alwaysOnTop refactor in 678f40e1a.
+	// The HoverPopup attaches to the slider's parent component, so it cannot be built while the
+	// slider isn't in a hierarchy yet - otherwise the ctor dereferences a null parent. This guard
+	// was added in bac1fca58 but dropped by the alwaysOnTop refactor in 678f40e1a.
+	//
+	// This is not a rare path: LambdaBroadcaster::addListener() delivers its current value to
+	// every new listener, and the slider registers from HiSlider::setup(), which the script
+	// component wrappers call in their constructor - before ScriptContentComponent::setNewContent()
+	// parents the component. So every scripted slider used to receive the selected source here,
+	// unparented, and lose it. Only a later broadcast (a click, or the interface script's init
+	// timers) built the popup, which is why the draggers were missing whenever the UI was built
+	// after those timers had fired (the plugin editor, a slow project open). Park the index and
+	// let parentHierarchyChanged() apply it instead of dropping it.
 	if(slider.getParentComponent() == nullptr)
+	{
+		mu.hasPendingExclusiveIndex = true;
+		mu.pendingExclusiveIndex = index;
 		return;
+	}
+
+	mu.hasPendingExclusiveIndex = false;
 
 	// If this slider already shows the dragger for this exclusive source, leave it untouched.
 	// Rebuilding the popup on every reselect re-inserts it and makes the draggers climb the z-order.
@@ -2109,6 +2124,22 @@ void HiSlider::ModUpdater::onExclusiveSourceSelection(ModUpdater& mu, int index)
 	{
 		mu.currentExlusiveIndex = -1;
 		slider.currentHoverPopup = nullptr;
+	}
+}
+
+void HiSlider::parentHierarchyChanged()
+{
+	Slider::parentHierarchyChanged();
+
+	// Apply an exclusive source selection that arrived before the slider was parented (see the
+	// null-parent guard in ModUpdater::onExclusiveSourceSelection). The early-out for an
+	// unchanged index with a live popup keeps this from rebuilding anything on later hierarchy
+	// changes.
+	if(modUpdater != nullptr && modUpdater->isUsingExclusiveSourceMode() && modUpdater->hasPendingExclusiveIndex &&
+	   getParentComponent() != nullptr)
+	{
+		modUpdater->hasPendingExclusiveIndex = false;
+		ModUpdater::onExclusiveSourceSelection(*modUpdater, modUpdater->pendingExclusiveIndex);
 	}
 }
 

@@ -943,6 +943,13 @@ public:
 		bool exclusiveSourceMode = false;
 		int currentExlusiveIndex = -1;
 
+		// An exclusive source index that arrived while the slider had no parent yet (the
+		// broadcaster hands new listeners its current value from inside HiSlider::setup(),
+		// which the script wrappers call before the component is parented). It is applied
+		// from HiSlider::parentHierarchyChanged() once the slider is in a hierarchy.
+		bool hasPendingExclusiveIndex = false;
+		int pendingExclusiveIndex = -1;
+
 		static void onExclusiveSourceSelection(ModUpdater& updater, int sourceIndex);
 
 		ModulationDisplayValue::QueryFunction::Ptr modFunction;
@@ -973,6 +980,8 @@ public:
 		if(currentHoverPopup != nullptr && modUpdater != nullptr && modUpdater->isUsingExclusiveSourceMode())
 			currentHoverPopup->setVisible(isVisible());
 	}
+
+	void parentHierarchyChanged() override;
 
     void itemDragExit (const SourceDetails& d) override
 	{
