@@ -4351,6 +4351,13 @@ FilterCoefficientData StateVariableFilterSubType::getCoefficients(double freqNor
         FilterCoefficientData cd;
         cd.customFunction = getPlotValueHighOrder;
         cd.obj = m;
+        // APEX: fingerprint the response instead of a random nudge, so the display's change detection
+        // (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
+        {
+        	static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
+        	for (int i = 0; i < 5; i++)
+        		cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
+        }
         return cd;
     }
     return {};
@@ -4360,13 +4367,6 @@ double StateVariableFilterSubType::getPlotValueHighOrder(void* obj, bool getMagn
 {
 	auto* typed = static_cast<StateVariableFilterSubType*>(obj);
 	const double sr = typed->storedSampleRate;
-        // APEX: fingerprint the response instead of a random nudge, so the display's change detection
-        // (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
-        {
-        	static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
-        	for (int i = 0; i < 5; i++)
-        		cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
-        }
 	const double fc = typed->storedFrequency;
 	const double rawUserQ = (double)typed->storedUserQ;
 	const double userQ = (rawUserQ <= 1.0) ? rawUserQ : 1.0 + (rawUserQ - 1.0) * 0.5;
@@ -5388,6 +5388,13 @@ FilterCoefficientData StateVariableEqSubType::getCoefficients(double freqNorm, d
 	// curve when a parameter moves (mirrors StateVariableFilterSubType).
 	cd.customFunction = getPlotValue;
 	cd.obj = m;
+	// APEX: fingerprint the response instead of a random nudge, so the display's change detection
+	// (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
+	{
+		static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
+		for (int i = 0; i < 5; i++)
+			cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
+	}
 	return cd;
 }
 
@@ -5397,13 +5404,6 @@ FilterCoefficientData StateVariableEqSubType::getCoefficients(double freqNorm, d
 //   LP(z)/X = P*(a3*(P-a1) + a2^2) / Det
 //   H(z)    = m0 + m1*BP + m2*LP
 // This mirrors Coefficients::computeA()/State::tick() so the plot is identical
-	// APEX: fingerprint the response instead of a random nudge, so the display's change detection
-	// (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
-	{
-		static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
-		for (int i = 0; i < 5; i++)
-			cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
-	}
 // to what processSamples() produces.
 static std::complex<double> evalCytomicStage(double g, double k,
 	double m0, double m1, double m2, double freqNorm)
@@ -6129,6 +6129,13 @@ FilterCoefficientData ApexFilterSubType::getCoefficients(double freqNorm, double
 	FilterCoefficientData cd;
 	cd.customFunction = getPlotValue;
 	cd.obj = m;
+	// APEX: fingerprint the response instead of a random nudge, so the display's change detection
+	// (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
+	{
+		static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
+		for (int i = 0; i < 5; i++)
+			cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
+	}
 	return cd;
 }
 
@@ -6138,13 +6145,6 @@ double ApexFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	const double sr = t->storedSampleRate;
 	const double g0 = std::tan(double_Pi * jlimit(20.0, sr * 0.499, t->storedFrequency) / sr);
 	const double q  = t->storedQ;
-	// APEX: fingerprint the response instead of a random nudge, so the display's change detection
-	// (FilterGraph::setCoefficients / onComplexDataEvent) fires only when something actually moved.
-	{
-		static constexpr double probes[5] = { 0.03, 0.1, 0.25, 0.5, 0.85 };
-		for (int i = 0; i < 5; i++)
-			cd.first.coefficients[i] = (float)cd.customFunction(cd.obj, true, probes[i]);
-	}
 
 	// Drive doesn't alter the linear magnitude curve - the plot shows filter shape.
 	std::complex<double> h(1.0, 0.0);

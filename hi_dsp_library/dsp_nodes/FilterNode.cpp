@@ -105,12 +105,6 @@ FilterDataObject::CoefficientData FilterNodeBase<FilterType, NV>::getApproximate
 	FilterCoefficientData cd;
 	cd.customFunction = FilterNodeBase::getPlotValueStatic;
 	cd.obj = const_cast<FilterNodeBase*>(this);
-	return cd;
-}
-
-template <class FilterType, int NV>
-void scriptnode::filters::FilterNodeBase<FilterType, NV>::onComplexDataEvent(hise::ComplexDataUIUpdaterBase::EventType e, var newValue)
-{
 
 	// APEX: this used to plant a random number in coefficients[0] so the graph would always see
 	// "changed" data. The filter node sends an update on every parameter set (once per block while
@@ -121,6 +115,12 @@ void scriptnode::filters::FilterNodeBase<FilterType, NV>::onComplexDataEvent(his
 
 	for (int i = 0; i < 5; i++)
 		cd.first.coefficients[i] = (float)getPlotValueStatic(cd.obj, true, probes[i]);
+	return cd;
+}
+
+template <class FilterType, int NV>
+void scriptnode::filters::FilterNodeBase<FilterType, NV>::onComplexDataEvent(hise::ComplexDataUIUpdaterBase::EventType e, var newValue)
+{
 
 }
 
