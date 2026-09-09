@@ -1275,7 +1275,12 @@ float ModulatorChain::ModChainWithBuffer::getOneModulationValue(int startSample)
 
 		ModIterator<Modulator> iter(c);
 
-		float m = 1.0f;
+		// APEX: seed with the chain's initial value like the voice path (currentConstantVoiceValues)
+		// and the mono render (smoothConstantInitialValue) do. A parameter that reaches its node
+		// through an unconnected chain (a hardcoded effect's setHardcodedAttribute only sets the
+		// chain's initial value) was dropped here while no voice was active: its knob moved the
+		// sound and the graph only during a note (2026-09-09).
+		float m = c->getInitialValueInternal();
 
 		while(auto mod = iter.next())
 		{
