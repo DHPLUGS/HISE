@@ -122,6 +122,12 @@ FilterDataObject::CoefficientData FilterNodeBase<FilterType, NV>::getApproximate
 	if (!enabled)
 		return {};
 
+	// Capture the plot parameters ONCE per display update (UI timer thread). This is
+	// the only place that reads the live target frequency / Q / gain for the display;
+	// getPlotValueStatic() below must not touch them again per pixel.
+	plotSnapshot = const_cast<FilterNodeBase*>(this)->filter.getFirst().getApproximateCoefficients();
+	plotMix = mix;
+
 	FilterCoefficientData cd;
 	cd.customFunction = FilterNodeBase::getPlotValueStatic;
 	cd.obj = const_cast<FilterNodeBase*>(this);
@@ -280,11 +286,12 @@ double FilterNodeBase<FilterType, NV>::getPlotValueStatic(void* obj, bool getMag
 {
 	auto* typed = static_cast<FilterNodeBase*>(obj);
 
-	auto innerCd = typed->filter.getFirst().getApproximateCoefficients();
-	double wetValue = innerCd.getFilterPlotValue(getMagnitude, freqNorm);
+	// Evaluate against the snapshot taken in getApproximateCoefficients(), never the
+	// live filter: this runs once per pixel and the audio thread is modulating.
+	double wetValue = typed->plotSnapshot.getFilterPlotValue(getMagnitude, freqNorm);
 	double dryValue = getMagnitude ? 1.0 : 0.0;
 
-	return wetValue * typed->mix + dryValue * (1.0 - typed->mix);
+	return wetValue * typed->plotMix + dryValue * (1.0 - typed->plotMix);
 }
 
 #define DEFINE_FILTER_NODE_TEMPIMPL(className) template class FilterNodeBase<hise::MultiChannelFilter<className>, 1>; \

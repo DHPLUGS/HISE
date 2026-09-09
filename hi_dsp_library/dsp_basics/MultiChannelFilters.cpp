@@ -2103,9 +2103,10 @@ void CombFilterSubType::reset(int numChannels)
 
 void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
+	// Display members (stored*) are captured in getCoefficients() on the UI thread.
+	// Writing them here from the audio thread made the plot flip between the target
+	// and the smoothed value and tear mid-refresh; only the sample rate stays.
 	storedSampleRate = sampleRate;
-	storedGain       = gain;
-	storedQ          = (float)q;
 
 	// All modes use the same parameter mapping:
 	//   Q   -> feedback depth (fb_gain 0-0.95)
@@ -2149,7 +2150,6 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 		//   low  freq -> long  delay (~20 ms, slow whoosh)
 		//   high freq -> short delay (~0.1 ms, high-pitched shimmer)
 		const double fc = jlimit(20.0, 20000.0, frequency);
-		storedFrequency = fc;
 		const double t  = (fc - 20.0) / (20000.0 - 20.0);
 		delayLength     = sampleRate * 0.0001 * std::pow(200.0, 1.0 - t);
 	}
@@ -2157,7 +2157,6 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 	{
 		// Comb / feedforward: delay = period of the fundamental
 		const double fc = jlimit(20.0, 5000.0, frequency);
-		storedFrequency = fc;
 		delayLength     = sampleRate / fc;
 	}
 
@@ -2172,6 +2171,15 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 FilterCoefficientData CombFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
 {
 	auto* m = const_cast<CombFilterSubType*>(this);
+
+	if (storedSampleRate > 0.0)
+	{
+		const bool isFlanger = (mode == Flanger || mode == FlangerInv ||
+		                        mode == FlangerFB || mode == FlangerFBInv);
+		m->storedFrequency = isFlanger ? jlimit(20.0, 20000.0, freqNorm * storedSampleRate)
+		                               : jlimit(20.0, 5000.0, freqNorm * storedSampleRate);
+	}
+
 	m->storedQ    = (float)q;
 	m->storedGain = gain;
 
@@ -2475,10 +2483,10 @@ void FormantFilterSubType::reset(int /*numChannels*/)
 
 void FormantFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
+	// Display members (stored*) are captured in getCoefficients() on the UI thread.
+	// Writing them here from the audio thread made the plot flip between the target
+	// and the smoothed value and tear mid-refresh; only the sample rate stays.
 	storedSampleRate = sampleRate;
-	storedFrequency  = frequency;
-	storedQ          = (float)q;
-	storedGain       = gain;
 
 	// Voice type from mode parameter
 	const int voiceIndex = (int)mode;
@@ -2726,10 +2734,10 @@ static const double kDiffuserBaseDelaysMs[8] = {
 
 void DisperserFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
+	// Display members (stored*) are captured in getCoefficients() on the UI thread.
+	// Writing them here from the audio thread made the plot flip between the target
+	// and the smoothed value and tear mid-refresh; only the sample rate stays.
 	storedSampleRate = sampleRate;
-	storedFrequency  = frequency;
-	storedQ          = q;
-	storedGain       = gain;
 
 	const double gainDB = jlimit(-18.0, 18.0,
 		(double)Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f)));
@@ -3133,9 +3141,10 @@ void ZDFDiodeLadderSubType::reset(int /*numChannels*/)
 void ZDFDiodeLadderSubType::updateCoefficients(double sampleRate, double frequency,
                                                 double q, double /*gain*/)
 {
+    // Display members (stored*) are captured in getCoefficients() on the UI thread.
+    // Writing them here from the audio thread made the plot flip between the target
+    // and the smoothed value and tear mid-refresh; only the sample rate stays.
     storedSampleRate = sampleRate;
-    storedFrequency  = frequency;
-    storedQ          = q;
 
     k        = jlimit(0.0, 20.0, (q - 0.3) / (9.9 - 0.3) * 20.0);
     amp_comp = 1.0 + 0.5 * k;
@@ -3338,10 +3347,10 @@ void DJFilterSubType::reset(int numChannels)
 
 void DJFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
 {
+	// Display members (stored*) are captured in getCoefficients() on the UI thread.
+	// Writing them here from the audio thread made the plot flip between the target
+	// and the smoothed value and tear mid-refresh; only the sample rate stays.
 	storedSampleRate = sampleRate;
-	storedFrequency  = frequency;
-	storedQ          = q;
-	storedGain       = gain;
 	outputGain       = (float)gain;
 
 	if (sampleRate <= 0.0)
@@ -3891,10 +3900,10 @@ void PhaseAllpassSubType::updateCoefficients(double sampleRate, double frequency
 	if (sampleRate <= 0.0)
 		return;
 
+	// Display members (stored*) are captured in getCoefficients() on the UI thread.
+	// Writing them here from the audio thread made the plot flip between the target
+	// and the smoothed value and tear mid-refresh; only the sample rate stays.
 	storedSampleRate = sampleRate;
-	storedFrequency  = frequency;
-	storedQ          = q;
-	storedGain       = gain;
 
 	const bool isInv = (apMode == Phaser3Inv || apMode == Phaser6Inv || apMode == Phaser12Inv);
 	const int  ns    = (apMode == Phaser12 || apMode == Phaser12Inv) ? 12

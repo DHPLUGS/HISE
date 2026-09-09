@@ -226,6 +226,14 @@ public:
 	double lastQ = std::numeric_limits<double>::quiet_NaN();
 	double lastGain = std::numeric_limits<double>::quiet_NaN();
 	double lastMode = std::numeric_limits<double>::quiet_NaN();
+
+	// Display snapshot, captured once per UI update in getApproximateCoefficients().
+	// getPlotValueStatic() runs once per pixel on the message thread while the audio
+	// thread keeps modulating the live filter. Re-reading the live target parameters
+	// per pixel let the curve change halfway through a refresh, which tears the line.
+	// Mutable because the capture happens inside a const accessor.
+	mutable FilterCoefficientData plotSnapshot;
+	mutable float plotMix = 1.0f;
 	bool mixProcess = false;
 	bool wetOnly = false;
 	AudioSampleBuffer dryBuffer;
