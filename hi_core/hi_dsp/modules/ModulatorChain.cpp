@@ -1853,13 +1853,21 @@ void ModulatorChain::ModulatorChainHandler::bypassStateChanged(Processor* p, boo
 
 	auto mod = dynamic_cast<Modulator*>(p);
 
+	// APEX: releasing every voice when an envelope's activity changes is a safety for a synth's
+	// own chains (a voice that started without the envelope must not be left hanging). It is
+	// pointless for a chain owned by an effect, and a MatrixModulator (an envelope) flips its
+	// bypass state on its first connection and last removal, so every source dragged onto or
+	// off an FX parameter cut the notes that were playing (2026-09-09).
+	const bool ownedBySynth = dynamic_cast<ModulatorSynth*>(chain->getParentProcessor()) != nullptr;
+
 	if (!bypassState)
 	{
 		activeAllList.insert(mod);
 
 		if (auto env = dynamic_cast<EnvelopeModulator*>(mod))
 		{
-			chain->getMainController()->allNotesOff();
+			if (ownedBySynth)
+				chain->getMainController()->allNotesOff();
 
 			if (env->isInMonophonicMode())
 			{
@@ -1887,7 +1895,9 @@ void ModulatorChain::ModulatorChainHandler::bypassStateChanged(Processor* p, boo
 
 		if (auto env = dynamic_cast<EnvelopeModulator*>(mod))
 		{
-			chain->getMainController()->allNotesOff();
+			if (ownedBySynth)
+				chain->getMainController()->allNotesOff();
+
 			activeEnvelopesList.remove(env);
 			activeMonophonicEnvelopesList.remove(static_cast<MonophonicEnvelope*>(env));
 		}
