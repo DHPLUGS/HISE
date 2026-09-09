@@ -781,6 +781,10 @@ private:
 	ReferenceCountedObjectPtr<ReferenceCountedObject> timerSession;
 
 	Array<WeakReference<SimpleTimer>, CriticalSection> simpleTimers;
+
+	// APEX: the tick walks this copy, taken under the one lock, instead of indexing simpleTimers
+	// (see timerCallback()).
+	Array<WeakReference<SimpleTimer>> simpleTimerScratch;
 	LockfreeQueue<WeakReference<Broadcaster>> pendingHandlers;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(PooledUIUpdater);

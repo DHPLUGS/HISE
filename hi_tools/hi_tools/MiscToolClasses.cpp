@@ -1962,9 +1962,17 @@ void PooledUIUpdater::timerCallback()
 		auto now = Time::getMillisecondCounterHiRes();
 #endif
 
-		for (int i = 0; i < simpleTimers.size(); i++)
+		// APEX: simpleTimers[i] and simpleTimers.size() each re-enter the (recursive) lock held
+		// above - two slow-path mutex operations per timer per tick, ~1 % of the main thread with
+		// a few hundred timers at 66 Hz. Walk a copy taken under that one lock instead; the lock
+		// stays held around the callbacks as before, and a timer added or removed by a callback
+		// lands in simpleTimers, not in the copy. Dead entries are pruned afterwards.
+		simpleTimerScratch.clearQuick();
+		simpleTimerScratch.addArray(simpleTimers);
+		bool hasDeadTimers = false;
+
+		for (auto& st : simpleTimerScratch)
 		{
-			auto st = simpleTimers[i];
 
 			if (st.get() != nullptr)
 			{
@@ -2002,8 +2010,11 @@ void PooledUIUpdater::timerCallback()
 #endif
 			}
 			else
-				simpleTimers.remove(i--);
+				hasDeadTimers = true;
 		}
+
+		if (hasDeadTimers)
+			simpleTimers.removeIf([](const WeakReference<SimpleTimer>& w) { return w.get() == nullptr; });
 
 #if MEASURE_TIMER_CHILDREN
 		lastDuration = Time::getMillisecondCounterHiRes() - now;
