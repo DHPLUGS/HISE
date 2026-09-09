@@ -408,6 +408,16 @@ void MatrixModulator::setInternalAttribute(int parameterIndex, float newValue)
 	{
 	case SpecialParameters::Value:
 		setValueInternal(newValue);
+
+		// APEX: a knob bound to this modulator never touches the owning effect's attributes, so the
+		// silence-suspended network it feeds would not wake for the change (the direct path is
+		// HardcodedMasterFX::setInternalAttribute). The chain's owner is the effect.
+		if (auto chain = dynamic_cast<ModulatorChain*>(getParentProcessor(false, false)))
+		{
+			if (auto fx = dynamic_cast<EffectProcessor*>(chain->getParentProcessor()))
+				fx->wakeFromSilence();
+		}
+
 		break;
 	case SpecialParameters::SmoothingTime:
 		baseValue.prepare(getSampleRate() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR, newValue);

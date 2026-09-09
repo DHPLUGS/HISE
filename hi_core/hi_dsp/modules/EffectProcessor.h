@@ -87,6 +87,12 @@ public:
 	/** Overwrite this method and return true if the effect is currently suspended. */
 	virtual bool isCurrentlySuspended() const;;
 
+	/** APEX: ends a silence suspension for another suspension period. A parameter that reaches the
+	    effect through one of its modulator chains (a matrix-bound knob writes the MatrixModulator's
+	    Value, never the effect's own attribute) must wake it too, or the change is not processed
+	    until audio returns. Only master effects suspend, so the base does nothing. */
+	virtual void wakeFromSilence() {}
+
 	/** Checks if the effect is tailing off. This simply returns the calculated value, but the EffectChain overwrites this. */
 	bool isTailingOff() const;;
 
@@ -179,6 +185,8 @@ public:
 	virtual bool isFadeOutPending() const noexcept;
 
 	virtual void updateSoftBypass();
+
+	void wakeFromSilence() override { masterState.numSilentBuffers = 0; }
 
 	bool isSoftBypassed() const noexcept;
 
