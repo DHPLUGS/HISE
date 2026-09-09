@@ -948,6 +948,7 @@ public:
 		ModulationDisplayValue::QueryFunction::Ptr modFunction;
 		HiSlider& parent;
 		ModulationDisplayValue lastValue;
+		int idleTickCounter = 0;
 		
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ModUpdater);
 	} ;

@@ -1102,6 +1102,14 @@ void HiSlider::ModUpdater::timerCallback()
 	if(!parent.isShowing())
 		return;
 
+	// APEX: a slider nobody modulates has nothing to animate. Poll it at a quarter of the rate
+	// (~16 Hz): a page shows well over a hundred such sliders and each query costs two
+	// dynamic_casts and a range copy. A new connection still shows up within four ticks
+	// (~60 ms). A slider with a selected exclusive source keeps the full rate so its dragger
+	// follows a drag without a hiccup.
+	if(!lastValue.modulationActive && currentExlusiveIndex < 0 && (++idleTickCounter & 3) != 0)
+		return;
+
 	if(modFunction != nullptr)
 	{
 		if(auto p = parent.getProcessor())
