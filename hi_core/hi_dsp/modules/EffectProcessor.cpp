@@ -253,6 +253,13 @@ void MasterEffectProcessor::renderNextBlock(AudioSampleBuffer&, int startSample,
 {
 	jassert(isOnAir());
 
+	// APEX: a network suspended on silence does not read its modulation chains (applyEffect returns
+	// before the parameter push), so rendering them every block was pure idle cost: every connected
+	// MatrixModulator of every sleeping effect, ~1 % of a core with a full rack (2026-09-09). The
+	// first awake block pushes one stale value; the chains render again from the next block on.
+	if (isCurrentlySuspended())
+		return;
+
 	renderAllChains(startSample, numSamples);
 }
 
