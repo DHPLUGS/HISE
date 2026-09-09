@@ -1096,18 +1096,18 @@ HiSlider::HoverPopupLookandFeel& HiSlider::getHoverPopupLookAndFeel()
 
 void HiSlider::ModUpdater::timerCallback()
 {
-	// APEX: a slider on a hidden page has nobody to show its mod ring to. Skip the query (two
-	// dynamic_casts + a range copy per slider per tick, ~200 sliders at 66 Hz) until it is showing;
-	// the first tick after it appears brings it up to date.
-	if(!parent.isShowing())
-		return;
-
 	// APEX: a slider nobody modulates has nothing to animate. Poll it at a quarter of the rate
 	// (~16 Hz): a page shows well over a hundred such sliders and each query costs two
 	// dynamic_casts and a range copy. A new connection still shows up within four ticks
 	// (~60 ms). A slider with a selected exclusive source keeps the full rate so its dragger
-	// follows a drag without a hiccup.
+	// follows a drag without a hiccup. This comes first: it costs nothing, whereas the
+	// isShowing() walk below showed up at ~1 % of the main thread on its own (2026-09-09).
 	if(!lastValue.modulationActive && currentExlusiveIndex < 0 && (++idleTickCounter & 3) != 0)
+		return;
+
+	// APEX: a slider on a hidden page has nobody to show its mod ring to. Skip the query until it
+	// is showing; the first tick after it appears brings it up to date.
+	if(!parent.isShowing())
 		return;
 
 	if(modFunction != nullptr)
