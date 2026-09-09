@@ -215,6 +215,17 @@ public:
 	double sr = -1.0;
 	bool enabled = true;
 	float mix = 1.0f;
+
+	// APEX: the value each setter last applied. A wrap::mod / control::multi_parameter pushes
+	// its value once per block whether or not it changed, and every push walked the filters and
+	// posted a display update, so the graph's data object kept the pooled UI updater ticking at
+	// idle. Mono nodes skip an unchanged value (NaN so the first one always passes). Poly nodes
+	// keep the old behaviour: the filter range is voice-scoped there, so a node-wide "same as
+	// last time" could starve a second voice that receives the same value.
+	double lastFrequency = std::numeric_limits<double>::quiet_NaN();
+	double lastQ = std::numeric_limits<double>::quiet_NaN();
+	double lastGain = std::numeric_limits<double>::quiet_NaN();
+	double lastMode = std::numeric_limits<double>::quiet_NaN();
 	bool mixProcess = false;
 	bool wetOnly = false;
 	AudioSampleBuffer dryBuffer;

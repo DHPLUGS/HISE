@@ -46,6 +46,11 @@ using namespace hise;
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setMode(double newMode)
 {
+	if (NV == 1 && newMode == lastMode)
+		return;
+
+	lastMode = newMode;
+
 	for (auto& f : filter)
 		f.setType((int)newMode);
 
@@ -55,6 +60,11 @@ void FilterNodeBase<FilterType, NV>::setMode(double newMode)
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setQ(double newQ)
 {
+	if (NV == 1 && newQ == lastQ)
+		return;
+
+	lastQ = newQ;
+
 	for (auto& f : filter)
 		f.setQ(newQ);
 
@@ -64,6 +74,11 @@ void FilterNodeBase<FilterType, NV>::setQ(double newQ)
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setGain(double newGain)
 {
+	if (NV == 1 && newGain == lastGain)
+		return;
+
+	lastGain = newGain;
+
 	auto gainValue = Decibels::decibelsToGain(newGain);
 
 	for (auto& f : filter)
@@ -75,6 +90,11 @@ void FilterNodeBase<FilterType, NV>::setGain(double newGain)
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setFrequency(double newFrequency)
 {
+	if (NV == 1 && newFrequency == lastFrequency)
+		return;
+
+	lastFrequency = newFrequency;
+
 	for (auto& f : filter)
 		f.setFrequency(newFrequency);
 

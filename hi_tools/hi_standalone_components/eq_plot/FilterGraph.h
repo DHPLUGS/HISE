@@ -201,6 +201,12 @@ public:
 			}
 			
 			filterData->getUpdater().addEventListener(this);
+
+			// APEX: registering as a listener does not replay the current state, and the filter
+			// nodes no longer re-send an unchanged value every block, so build the response from
+			// the coefficients pulled above. A no-op until the graph has bounds; resized() covers
+			// that case.
+			refreshFilterPath();
 		}
 
 		repaint();
