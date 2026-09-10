@@ -97,6 +97,7 @@ bool MainController::unitTestMode = false;
 	}
 
 	MainController::MainController() :
+	hostParameterInfoUpdater(*this),
 	debugSessionHandler(getGlobalUIUpdater()),
 	sampleManager(new SampleManager(this)),
 	
@@ -233,6 +234,16 @@ MainController::~MainController()
 	javascriptThreadPool = nullptr;
 }
 
+
+void MainController::HostParameterInfoUpdater::handleAsyncUpdate()
+{
+	// One notification for however many controls asked during this pass. Each one costs
+	// the AU wrapper a full parameter-tree rebuild, so the coalescing is the point.
+	auto details = AudioProcessorListener::ChangeDetails().withParameterInfoChanged(true);
+
+	if (auto ap = dynamic_cast<AudioProcessor*>(&mc))
+		ap->updateHostDisplay(details);
+}
 
 void MainController::notifyShutdownToRegisteredObjects()
 {

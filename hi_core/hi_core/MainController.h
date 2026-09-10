@@ -1591,6 +1591,12 @@ public:
 	JavascriptThreadPool& getJavascriptThreadPool() noexcept { return *javascriptThreadPool.get(); }
 	const JavascriptThreadPool& getJavascriptThreadPool() const noexcept { return *javascriptThreadPool.get(); }
 
+	/** Ask the host to re-read the plugin parameter list. Coalesced - see
+	    HostParameterInfoUpdater. Prefer this over calling updateHostDisplay() with
+	    withParameterInfoChanged(true) directly, which rebuilds the whole AU parameter
+	    tree on every call. */
+	void requestHostParameterInfoUpdate() { hostParameterInfoUpdater.request(); }
+
 	PooledUIUpdater* getGlobalUIUpdater() { return &globalUIUpdater; }
 	const PooledUIUpdater* getGlobalUIUpdater() const { return &globalUIUpdater; }
 
@@ -2263,6 +2269,30 @@ private:
 
 	int maxEventTimestamp = 0;
 	bool embedAllResources = false;
+
+	/** Coalesces "the plugin parameter list changed" notifications.
+
+		Every MacroControlledObject that rebuilds its plugin-parameter connection used to
+		call updateHostDisplay(withParameterInfoChanged(true)) directly. Each of those makes
+		the AU wrapper invalidate and rebuild the ENTIRE parameter tree, reading every
+		parameter back out - so building an interface fired one full rebuild per control.
+		On a large instrument that pegged the AU host at 200% and starved the host's audio
+		engine until it dropped the device (APEX, 2026-09-10: ~190 AUParameterTree queues
+		from one track selection). Requests within a message-thread pass now collapse into
+		one notification.
+	*/
+	struct HostParameterInfoUpdater : private AsyncUpdater
+	{
+		HostParameterInfoUpdater(MainController& mc_): mc(mc_) {};
+
+		void request() { triggerAsyncUpdate(); }
+
+		void handleAsyncUpdate() override;
+
+		MainController& mc;
+	};
+
+	HostParameterInfoUpdater hostParameterInfoUpdater;
 
 	PooledUIUpdater globalUIUpdater;
     DebugSession debugSessionHandler;

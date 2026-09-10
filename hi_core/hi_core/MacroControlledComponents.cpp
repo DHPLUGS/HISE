@@ -2961,8 +2961,11 @@ void HiToggleButton::buttonClicked(Button *b)
 
 		if(sendPluginParameterUpdate && !skipHostDisplayUpdate)
 		{
-			auto details = AudioProcessorListener::ChangeDetails().withParameterInfoChanged(true);
-			dynamic_cast<AudioProcessor*>(getProcessor()->getMainController())->updateHostDisplay(details);
+			// Coalesced: this used to call updateHostDisplay() directly, and every call makes
+			// the AU wrapper rebuild the WHOLE parameter tree. initMacroControl() runs this
+			// once per control, so building an interface fired one full rebuild per control -
+			// enough to peg the AU host at 200% and starve the host's audio engine.
+			getProcessor()->getMainController()->requestHostParameterInfoUpdate();
 		}
 	}
 
