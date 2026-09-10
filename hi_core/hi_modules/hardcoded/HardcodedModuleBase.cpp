@@ -857,6 +857,24 @@ void HardcodedSwappableEffect::setHardcodedAttribute(int parameterIndex, float n
 
 	if(auto p = opaqueNode->getParameter(parameterIndex))
 	{
+		// APEX: a restored attribute outside the parameter's range (an EQ band frequency stored as
+		// 0.0 on a 20..20000 Hz range, a compressor ratio of 0.09 on 1..32) went through
+		// convertTo0to1's skew law pow((v - min) / (max - min), skew) = pow(negative, skew) = NaN
+		// and became the modulation chain's initial value; from there NaN reached the node's
+		// parameter on every block and, through effects without a non-finite guard, the audio
+		// device (2026-09-10). Clamp to the declared range and keep the stored value in step.
+		{
+			auto legal = p->toRange().getRange();
+
+			if (!std::isfinite(newValue))
+				newValue = (float)legal.getStart();
+
+			newValue = (float)legal.clipValue((double)newValue);
+
+			if(auto ptr = getParameterPtr(parameterIndex))
+				*ptr = newValue;
+		}
+
 		if(auto mc = getModulationChainForParameter(parameterIndex))
 		{
 			auto normValue = p->toRange().convertTo0to1(newValue, false);

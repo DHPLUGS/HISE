@@ -82,14 +82,24 @@ template <typename T> struct RangeBase
 	static constexpr T from0To1(T min, T max, T value) { return hmath::map(value, min, max); }
 	static constexpr T to0To1(T min, T max, T value) { return (value - min) / (max - min); }
 
-	static constexpr T from0To1Skew(T min, T max, T skew, T value) 
-	{ 
-		return min + (max - min) * hmath::exp(hmath::log(value) / skew);
+	// APEX: the skew laws below are only defined on 0..1 (log / pow of a negative number is NaN,
+	// and a value above 1 extrapolates past the range - past Nyquist for a frequency). JUCE's
+	// NormalisableRange clamps here; these did not, and an out-of-range parameter value became a
+	// NaN chain initial value that took the audio device down (2026-09-10). Written as a
+	// comparison so a NaN input (which fails every comparison) also lands on 0.
+	static constexpr T clampSkewDomain(T value)
+	{
+		return !(value > (T)0) ? (T)0 : (value > (T)1 ? (T)1 : value);
 	}
 
-	static constexpr T to0To1Skew(T min, T max, T skew, T value) 
+	static constexpr T from0To1Skew(T min, T max, T skew, T value)
 	{
-		return hmath::pow(to0To1(min, max, value), skew);
+		return min + (max - min) * hmath::exp(hmath::log(clampSkewDomain(value)) / skew);
+	}
+
+	static constexpr T to0To1Skew(T min, T max, T skew, T value)
+	{
+		return hmath::pow(clampSkewDomain(to0To1(min, max, value)), skew);
 	}
 
 	static constexpr T to0To1Step(T min, T max, T step, T value) { return to0To1(min, max, value - hmath::fmod(value, step)); }

@@ -5703,6 +5703,12 @@ void StateVariableEqSubType::Coefficients::update(double freq, double q, StateVa
 
 void StateVariableEqSubType::Coefficients::setGain(double gainDb)
 {
+	// A non-finite or runaway gain (an unclamped modulation value on a +/-18 dB range reached +54 dB
+	// per band, 2026-09-10) poisons m[] and gain_sqrt for every following block, and a finite but
+	// huge boost is a NaN source for everything downstream. Bound it before it becomes a coefficient.
+	if (!std::isfinite(gainDb)) gainDb = 0.0;
+	gainDb = jlimit(-24.0, 24.0, gainDb);
+
 	gain = std::pow(10.0, gainDb / 40.0);
 	gain_sqrt = std::sqrt(gain);
 }
