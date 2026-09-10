@@ -1011,6 +1011,21 @@ public:
 				if(rd.pp.isConnected(mi))
 				{
 					auto mv = extraMods[mi]->getOneModulationValue(startSample);
+
+					// APEX: the chain value is a CombinedMode sum/product that nothing clamps (matrix_mod's
+					// Bipolar/Unipolar targets add up to +/-1, a negative Gain intensity scales by up to 2, and
+					// options.clampTo0to1 is never enabled), and InvertableParameterRange::convertFrom0to1 does
+					// not clamp either (its skew law is exp(log(v)/skew)). A value above 1 on a skewed
+					// frequency range lands past Nyquist, a negative one becomes NaN, and on a linear gain
+					// range it is a +54 dB boost: the EQ_FX bands blew up this way (2026-09-10). Clamp here,
+					// where every hardcoded FX parameter receives its modulation. jlimit passes NaN
+					// through (every comparison is false), so a non-finite chain value - a poisoned
+					// initial value - must not reach the node at all: leave its last value in place.
+					if (!std::isfinite(mv))
+						continue;
+
+					mv = jlimit(0.0f, 1.0f, mv);
+
 					auto pIndex = rd.pp.getParameterIndex(mi);
 					jassert(pIndex != -1);
 					rd.handleModulation(pIndex, mv);

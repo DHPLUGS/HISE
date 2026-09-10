@@ -229,6 +229,10 @@ public:
 			{
 				auto bl = mv.toBlock();
 
+				// APEX: see process() - keep the read inside the sender's block
+				if(!isPositiveAndBelow(s.uptime, bl.size()))
+					s.uptime = 0;
+
 				if(sr == SignalRatio::AudioRate)
 				{
 					auto alpha = (float)(s.controlRateSubIndex++ / (float)HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR);
@@ -249,7 +253,7 @@ public:
 				else
 					v = bl[s.uptime++];
 
-				if(s.uptime == bl.size())
+				if(s.uptime >= bl.size())
 					s.uptime = 0;
 
 				applyModulation(&v, 1, s.baseValue, s.intensity);
@@ -324,32 +328,56 @@ public:
 				else if (t == Types::ID::Block)
 				{
 					auto signal = mv.toBlock();
+
+					// APEX: `signal` is the sender's buffer for the CURRENT host block and uptime is
+					// this receiver's read position in it. The two only stay aligned if the receiver
+					// consumes exactly one sender block per host block; a chain render skipped for a
+					// sub-block (a network that suspends on silence mid-block), a host block size
+					// that changes underneath, or a note-on timestamp past the sender's block leave
+					// uptime off by a few samples, and the old code then read past the sender's
+					// block with only a debug assert in the way: uptime never hit size() again, grew
+					// every block and walked off the allocation into heap garbage -> NaN modulation
+					// -> NaN audio -> wedged audio device (2026-09-10). Re-align on entry, never read
+					// past the sender's block, and wrap on >= rather than ==.
+					if(!isPositiveAndBelow(s.uptime, signal.size()))
+						s.uptime = 0;
+
 					const float* ptr = signal.begin() + s.uptime;
+					const int numAvailable = signal.size() - s.uptime;
 					int uptimeDelta = 0;
 
 					if(sr == SignalRatio::ControlRate)
 					{
 						// We can directly copy the signal to the control rate target signal
-						FloatVectorOperations::copy(target.begin(), ptr, numToCopy);
-						uptimeDelta = numToCopy;
+						const int numFromSignal = jmin(numToCopy, numAvailable);
+						FloatVectorOperations::copy(target.begin(), ptr, numFromSignal);
+
+						if(numFromSignal > 0 && numFromSignal < numToCopy)
+							FloatVectorOperations::fill(target.begin() + numFromSignal, ptr[numFromSignal - 1], numToCopy - numFromSignal);
+
+						uptimeDelta = numFromSignal;
 						s.lastRampValue = data[0][data.getNumSamples() - 1];
 					}
 					else // sr == SignalRatio::AudioRate
 					{
 						// Expand it using the AlignedRamper tool class
 						float* target = data[0].begin();
-						uptimeDelta = data.getNumSamples() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+						const int numControlRate = data.getNumSamples() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+						uptimeDelta = jmin(numControlRate, numAvailable);
 						FloatVectorOperations::copy(target, ptr, uptimeDelta);
+
+						if(uptimeDelta > 0 && uptimeDelta < numControlRate)
+							FloatVectorOperations::fill(target + uptimeDelta, ptr[uptimeDelta - 1], numControlRate - uptimeDelta);
 
 						if(!ModBufferExpansion::expand(target, 0, data.getNumSamples(), s.lastRampValue))
 							FloatVectorOperations::fill(target, s.lastRampValue, data.getNumSamples());
 					}
-					
+
 					s.uptime += uptimeDelta;
 
 					jassert(s.uptime <= signal.size());
 
-					if(s.uptime == signal.size())
+					if(s.uptime >= signal.size())
 						s.uptime = 0;
 
 					applyModulation(target.begin(), data.getNumSamples(), s.baseValue, s.intensity);
@@ -387,11 +415,15 @@ public:
 					else // sr == SignalRatio::AudioRate
 						uptimeDelta = jmax(1, data.getNumSamples() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR);
 
+					// APEX: see the block path above - keep the read inside the sender's block
+					if(!isPositiveAndBelow(s.uptime, signal.size()))
+						s.uptime = 0;
+
 					v = signal[s.uptime];
 
 					s.uptime += uptimeDelta;
 
-					if(s.uptime == signal.size())
+					if(s.uptime >= signal.size())
 						s.uptime = 0;
 
 					applyModulation(&v, 1, s.baseValue, s.intensity);
@@ -485,6 +517,12 @@ public:
 			{
 				auto bl = v.toBlock();
 				jassert(isPositiveAndBelow(uptime, bl.size()));
+
+				// APEX: a note-on timestamp past the sender's current block (event-split render, a
+				// host block that changed size) must not index past it - see mod_base::process.
+				if(!isPositiveAndBelow(uptime, bl.size()))
+					uptime = 0;
+
 				lastRampValue = bl[uptime];
 			}
 		}

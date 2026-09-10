@@ -253,13 +253,13 @@ void MasterEffectProcessor::renderNextBlock(AudioSampleBuffer&, int startSample,
 {
 	jassert(isOnAir());
 
-	// APEX: a network suspended on silence does not read its modulation chains (applyEffect returns
-	// before the parameter push), so rendering them every block was pure idle cost: every connected
-	// MatrixModulator of every sleeping effect, ~1 % of a core with a full rack (2026-09-09). The
-	// first awake block pushes one stale value; the chains render again from the next block on.
-	if (isCurrentlySuspended())
-		return;
-
+	// APEX 2026-09-10: the 09-09 idle saving that skipped renderAllChains() while
+	// isCurrentlySuspended() is withdrawn. The suspension flag is decided in applyEffect() at
+	// startSample == 0 only, so the later sub-blocks of the same host block (an effect chain inside
+	// a synth renders in event-split sub-blocks) skipped their chain render while the network still
+	// processed audio. That put every matrix receiver's read position out of step with the global
+	// modulator's block, and from there the receivers read past the sender's buffer (see the
+	// re-alignment guard in mod_base::process). The chains must consume every sub-block.
 	renderAllChains(startSample, numSamples);
 }
 
