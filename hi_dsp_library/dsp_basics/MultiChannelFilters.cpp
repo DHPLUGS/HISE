@@ -4524,6 +4524,24 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 {
 	auto numChannels = buffer.getNumChannels();
 
+	// These integrators are leak-free, so a single non-finite sample latches them for
+	// good (NaN * anything = NaN) - the filter then outputs NaN forever, which silences
+	// the plugin and wedges the audio device once it escapes. Sanitize on the way in and
+	// again on the way out; the per-mode branches below are left untouched.
+	for (int c = 0; c < numChannels; c++)
+	{
+		auto* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			if (!std::isfinite(d[i]))
+			{
+				d[i] = 0.0f;
+				reset(numChannels);
+			}
+		}
+	}
+
 	switch (type)
 	{
 	case LP:
@@ -4799,10 +4817,36 @@ void StateVariableFilterSubType::processSamples(AudioSampleBuffer& buffer, int s
 		jassertfalse;
 		break;
 	}
+
+	// Never let a non-finite sample escape: it wedges the audio device and crashes the
+	// goniometer/filter displays downstream. Heal the state so the next block recovers.
+	for (int c = 0; c < numChannels; c++)
+	{
+		auto* d = buffer.getWritePointer(c, startSample);
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			if (!std::isfinite(d[i]))
+			{
+				d[i] = 0.0f;
+				reset(numChannels);
+			}
+		}
+	}
 }
 
 void StateVariableFilterSubType::processFrame(float* d, int numChannels)
 {
+	// see processSamples - one non-finite sample latches these integrators permanently
+	for (int c = 0; c < numChannels; c++)
+	{
+		if (!std::isfinite(d[c]))
+		{
+			d[c] = 0.0f;
+			reset(numChannels);
+		}
+	}
+
 	switch (type)
 	{
 	case LP:
@@ -5358,9 +5402,30 @@ void StateVariableEqSubType::processSamples(AudioSampleBuffer& b, int startSampl
 
 		for (int c = 0; c < numChannels; c++)
 		{
-			float v = states[c].tick(ptrs[c][i], coefficients);
+			// A single non-finite sample latches these leak-free integrators forever
+			// (NaN * anything = NaN): the plugin goes silent and, once the NaN reaches
+			// the device, the audio HAL wedges and takes system audio down with it.
+			// Sanitize the input, heal the state, and never emit a non-finite sample.
+			float in = ptrs[c][i];
+
+			if (!std::isfinite(in))
+			{
+				in = 0.0f;
+				states[c].reset();
+				for (int s = 0; s < numExtra; ++s) states_s[s][c].reset();
+			}
+
+			float v = states[c].tick(in, coefficients);
 			for (int s = 0; s < numExtra; ++s)
 				v = states_s[s][c].tick(v, coefficients_s[s]);
+
+			if (!std::isfinite(v))
+			{
+				v = 0.0f;
+				states[c].reset();
+				for (int s = 0; s < numExtra; ++s) states_s[s][c].reset();
+			}
+
 			ptrs[c][i] = v;
 		}
 	}
@@ -5377,9 +5442,27 @@ void StateVariableEqSubType::processFrame(float* frameData, int numChannels)
 
 	for (int c = 0; c < numChannels; c++)
 	{
-		float v = states[c].tick(frameData[c], coefficients);
+		// see processSamples: one non-finite sample latches the integrators for good
+		float in = frameData[c];
+
+		if (!std::isfinite(in))
+		{
+			in = 0.0f;
+			states[c].reset();
+			for (int s = 0; s < numExtra; ++s) states_s[s][c].reset();
+		}
+
+		float v = states[c].tick(in, coefficients);
 		for (int s = 0; s < numExtra; ++s)
 			v = states_s[s][c].tick(v, coefficients_s[s]);
+
+		if (!std::isfinite(v))
+		{
+			v = 0.0f;
+			states[c].reset();
+			for (int s = 0; s < numExtra; ++s) states_s[s][c].reset();
+		}
+
 		frameData[c] = v;
 	}
 }
@@ -5546,8 +5629,22 @@ StateVariableEqSubType::Coefficients::Coefficients()
 
 void StateVariableEqSubType::Coefficients::update(double freq, double q, StateVariableEqSubType::Mode type, double sampleRate)
 {
+	// tan() diverges as freq approaches Nyquist, so an unclamped cutoff at or past
+	// sampleRate/2 makes g infinite - and Inf/NaN coefficients then produce NaN audio,
+	// which latches the leak-free integrators and wedges the audio device downstream.
+	// getPlotValue already clamps to sr * 0.499; the audio path did not, so the display
+	// protected itself while the DSP blew up. A non-finite freq/q (from a modulation
+	// gone bad) is caught here too rather than propagating into every coefficient.
+	if (!std::isfinite(freq)) freq = 1000.0;
+	if (!std::isfinite(q) || q <= 0.0) q = 0.7;
+
+	freq = jlimit(1.0, sampleRate * 0.49, freq);
+
 	double g = std::tan((freq / sampleRate) * double_Pi);
 	double k = computeK(q, type == Peak);
+
+	if (!std::isfinite(g)) g = 1.0;
+	if (!std::isfinite(k) || k <= 0.0) k = 1.0;
 
 	switch (type) {
 	case LowPass:
