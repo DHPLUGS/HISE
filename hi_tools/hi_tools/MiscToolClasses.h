@@ -667,7 +667,7 @@ class DebugSession;
 #endif
 
 /** APEX diagnostics: counts paints per component and writes a per-second summary to
-    ~/Library/Application Support/HISE/repaint_log.txt (or the temp dir) while the
+    ~/Library/HISE/repaint_log.txt (or the temp dir) while the
     environment variable HISE_LOG_REPAINTS is set. One cached bool check when it is not. */
 struct RepaintLog
 {

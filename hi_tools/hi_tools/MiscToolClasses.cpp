@@ -1752,7 +1752,8 @@ bool RepaintLog::isEnabled()
 {
 	// Environment variable, or a marker file for hosts whose plugin process is an XPC service
 	// that never sees the user's environment (Logic's AUHostingService): touch
-	// ~/Library/Application Support/HISE/repaint_log.enable and relaunch the host.
+	// ~/Library/HISE/repaint_log.enable and relaunch the host. (userApplicationDataDirectory
+	// is ~/Library on macOS, NOT ~/Library/Application Support - the log lands there too.)
 	static const bool enabled = std::getenv("HISE_LOG_REPAINTS") != nullptr ||
 		File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("HISE").getChildFile("repaint_log.enable").existsAsFile();
 
