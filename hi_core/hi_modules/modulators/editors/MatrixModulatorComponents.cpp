@@ -947,6 +947,27 @@ void MatrixContent::Controller::ModulationDragger::mouseUp(const MouseEvent& eve
 	}
 }
 
+void MatrixContent::Controller::ModulationDragger::setNumConnections(int newNumConnections)
+{
+	if(numConnections == newNumConnections)
+		return;
+
+	auto wasConnected = numConnections > 0;
+	numConnections = newNumConnections;
+
+	if(wasConnected != (numConnections > 0))
+	{
+		StringArray dynamicClasses;
+
+		if(numConnections > 0)
+			dynamicClasses.add(".connected");
+
+		simple_css::FlexboxComponent::Helpers::setDynamicClasses(*this, dynamicClasses);
+	}
+
+	repaint();
+}
+
 MatrixContent::Controller::Controller(MainController* mc, Component& p, bool unselectableExclusiveSource):
   FlexboxComponent(simple_css::Selector(simple_css::ElementType::Panel)),
   ControlledObject(mc),
@@ -1007,6 +1028,24 @@ MatrixContent::Controller::Controller(MainController* mc, Component& p, bool uns
 				d->repaint();
 			};
 		});
+
+		// Connections can change from the loading thread (preset restore), so the listeners
+		// only schedule the recount and the draggers get updated on the message thread.
+		matrixData = gc->getMatrixModulatorData();
+
+		connectionCountListener.setCallback(matrixData, valuetree::AsyncMode::Synchronously,
+		                                    [this](const ValueTree&, bool)
+		{
+			triggerAsyncUpdate();
+		});
+
+		connectionSourceListener.setCallback(matrixData, { MatrixIds::SourceIndex }, valuetree::AsyncMode::Synchronously,
+		                                     [this](const ValueTree&, const Identifier&)
+		{
+			triggerAsyncUpdate();
+		});
+
+		updateConnectionState();
 	}
 }
 
@@ -1085,6 +1124,28 @@ void MatrixContent::Controller::buttonClicked(Button* b)
 		MatrixIds::Helpers::removeLastConnection(data, um, targetId);
 	if(b == &clearButton)
 		MatrixIds::Helpers::removeAllConnections(data, um, targetId);
+}
+
+void MatrixContent::Controller::handleAsyncUpdate()
+{
+	updateConnectionState();
+}
+
+void MatrixContent::Controller::updateConnectionState()
+{
+	Array<int> counts;
+	counts.insertMultiple(0, 0, draggers.size());
+
+	for(auto c: matrixData)
+	{
+		auto sourceIndex = (int)c[MatrixIds::SourceIndex];
+
+		if(isPositiveAndBelow(sourceIndex, draggers.size()))
+			counts.set(sourceIndex, counts[sourceIndex] + 1);
+	}
+
+	for(int i = 0; i < draggers.size(); i++)
+		draggers[i]->setNumConnections(counts[i]);
 }
 
 void MatrixContent::Controller::initLaf(Component* p)

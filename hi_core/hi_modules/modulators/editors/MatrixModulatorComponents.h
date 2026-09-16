@@ -384,7 +384,8 @@ struct MatrixContent: public MatrixBase
 
 	struct Controller: public simple_css::FlexboxComponent,
 					   public ControlledObject,
-					   public Button::Listener
+					   public Button::Listener,
+					   public AsyncUpdater
 	{
 		struct ModulationDragger: public Component,
 								  public simple_css::ComponentWithAutoTextSize,
@@ -414,6 +415,9 @@ struct MatrixContent: public MatrixBase
 
 						auto tb = getLocalBounds().toFloat();
 						root->stateWatcher.checkChanges(this, ss, state);
+						static const Identifier connectionsId("connections");
+						ss->setPropertyVariable(connectionsId, String(numConnections));
+
 						r.drawBackground(g, tb, ss);
 						r.renderText(g, tb.reduced(2.0f, 0.0f), getName(), ss);
 					}
@@ -422,11 +426,24 @@ struct MatrixContent: public MatrixBase
 
 			String getTextToAutofit() const override { return getName(); }
 
+			/** Sets the number of matrix connections that use this source. A dragger with at least
+			 *  one connection gets the dynamic class .connected, and the count is available to the
+			 *  stylesheet as var(--connections), e.g.
+			 *
+			 *  .connected::after { content: var(--connections); }
+			 *
+			 *  Use the single class: a compound selector like .dragger.connected::after also applies
+			 *  its properties to the dragger body, because the parser collects the pseudo state of
+			 *  every simple selector in the group.
+			 */
+			void setNumConnections(int newNumConnections);
+
 			String p64;
 			Path p;
 			bool currentlySelected = false;
 			int prevSourceIndex = -1;
 			bool unselectableExclusiveSource = false;
+			int numConnections = 0;
 		};
 
 		Controller(MainController* mc, Component& p, bool unselectableExclusiveSource);
@@ -439,6 +456,10 @@ struct MatrixContent: public MatrixBase
 		void resized() override;
 		void buttonClicked(Button* b) override;
 		void initLaf(Component* p);
+		void handleAsyncUpdate() override;
+
+		/** Counts the connections per source in the matrix data and passes them to the draggers. */
+		void updateConnectionState();
 
 		int lastWidth = 0;
 		int lastHeight = 0;
@@ -449,6 +470,10 @@ struct MatrixContent: public MatrixBase
 		UndoManager* um;
 		TextButton addButton, removeButton, clearButton;
 		OwnedArray<ModulationDragger> draggers;
+
+		ValueTree matrixData;
+		valuetree::ChildListener connectionCountListener;
+		valuetree::RecursivePropertyListener connectionSourceListener;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Controller);
 	};
