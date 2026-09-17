@@ -947,6 +947,24 @@ void MatrixContent::Controller::ModulationDragger::mouseUp(const MouseEvent& eve
 	}
 }
 
+bool MatrixContent::Controller::ModulationDragger::isInterestedInDragSource(const SourceDetails& details)
+{
+	return MatrixIds::Helpers::getModulationSourceDragIndex(details.description) != -1;
+}
+
+void MatrixContent::Controller::ModulationDragger::itemDragEnter(const SourceDetails& details)
+{
+	auto sourceIndex = MatrixIds::Helpers::getModulationSourceDragIndex(details.description);
+
+	if(auto c = findParentComponentOfClass<Controller>())
+	{
+		auto chain = c->getMainController()->getMainSynthChain();
+
+		if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
+			gc->sendDragMessage(sourceIndex, getName(), GlobalModulatorContainer::DragAction::Hover);
+	}
+}
+
 void MatrixContent::Controller::ModulationDragger::setNumConnections(int newNumConnections)
 {
 	if(numConnections == newNumConnections)

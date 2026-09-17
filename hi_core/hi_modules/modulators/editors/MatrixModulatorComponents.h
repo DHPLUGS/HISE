@@ -389,12 +389,22 @@ struct MatrixContent: public MatrixBase
 	{
 		struct ModulationDragger: public Component,
 								  public simple_css::ComponentWithAutoTextSize,
-		                          public SettableTooltipClient
+		                          public SettableTooltipClient,
+								  public DragAndDropTarget
 		{
 			ModulationDragger(const String& name);
 
 			void mouseDown(const MouseEvent& e) override;
 			void mouseUp(const MouseEvent& event) override;
+
+			/** A modulation drag that enters a dragger sends a Hover drag message with the dragger's
+			 *  source name as target id (e.g. "LFO 2"), so the script can show that modulator's
+			 *  controls while the drag is held and the drop can land on them. Dropping on a dragger
+			 *  does nothing.
+			 */
+			bool isInterestedInDragSource(const SourceDetails& details) override;
+			void itemDragEnter(const SourceDetails& details) override;
+			void itemDropped(const SourceDetails&) override {}
 
 			void paint(Graphics& g) override
 			{
