@@ -952,7 +952,7 @@ bool MatrixContent::Controller::ModulationDragger::isInterestedInDragSource(cons
 	return MatrixIds::Helpers::getModulationSourceDragIndex(details.description) != -1;
 }
 
-void MatrixContent::Controller::ModulationDragger::itemDragEnter(const SourceDetails& details)
+void MatrixContent::Controller::ModulationDragger::sendHoverMessage(const SourceDetails& details, const String& targetId)
 {
 	auto sourceIndex = MatrixIds::Helpers::getModulationSourceDragIndex(details.description);
 
@@ -961,8 +961,18 @@ void MatrixContent::Controller::ModulationDragger::itemDragEnter(const SourceDet
 		auto chain = c->getMainController()->getMainSynthChain();
 
 		if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
-			gc->sendDragMessage(sourceIndex, getName(), GlobalModulatorContainer::DragAction::Hover);
+			gc->sendDragMessage(sourceIndex, targetId, GlobalModulatorContainer::DragAction::Hover);
 	}
+}
+
+void MatrixContent::Controller::ModulationDragger::itemDragEnter(const SourceDetails& details)
+{
+	sendHoverMessage(details, getName());
+}
+
+void MatrixContent::Controller::ModulationDragger::itemDragExit(const SourceDetails& details)
+{
+	sendHoverMessage(details, {});
 }
 
 void MatrixContent::Controller::ModulationDragger::setNumConnections(int newNumConnections)

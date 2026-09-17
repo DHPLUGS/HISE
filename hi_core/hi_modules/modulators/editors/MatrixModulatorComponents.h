@@ -399,12 +399,16 @@ struct MatrixContent: public MatrixBase
 
 			/** A modulation drag that enters a dragger sends a Hover drag message with the dragger's
 			 *  source name as target id (e.g. "LFO 2"), so the script can show that modulator's
-			 *  controls while the drag is held and the drop can land on them. Dropping on a dragger
-			 *  does nothing.
+			 *  controls while the drag is held and the drop can land on them. Leaving it sends a
+			 *  Hover with an empty target id, so a script that waits for the drag to rest on a
+			 *  dragger can tell that it left rather than moved on to another target. Dropping on a
+			 *  dragger does nothing.
 			 */
 			bool isInterestedInDragSource(const SourceDetails& details) override;
 			void itemDragEnter(const SourceDetails& details) override;
+			void itemDragExit(const SourceDetails& details) override;
 			void itemDropped(const SourceDetails&) override {}
+			void sendHoverMessage(const SourceDetails& details, const String& targetId);
 
 			void paint(Graphics& g) override
 			{
