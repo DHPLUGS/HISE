@@ -72,8 +72,31 @@ void Helpers::FFT::transformReadBuffer(AudioSampleBuffer& b)
 
 	auto& b2 = transformBuffer;
 
+	// APEX: a silent ring contributes nothing to any bin, so each step is just the decay
+	// applied to the smoothed spectrum (both modes reduce to last * decay when thisValue is 0).
+	// This is the path the display drives once the ring has gone static, so skip the window
+	// and the FFT. Values here are audio samples; -120 dBFS is well below anything the
+	// display can show.
+	const auto inputRange = FloatVectorOperations::findMinAndMax(b.getReadPointer(0), b.getNumSamples());
+	const bool inputSilent = jmax(std::abs(inputRange.getStart()), std::abs(inputRange.getEnd())) < 1.0e-6f;
+
 	for(int offset = 0; offset < b.getNumSamples() - (size-1); offset += delta)
 	{
+		if (inputSilent)
+		{
+			auto decayToUse = decay;
+
+			if(overlap != 0.0)
+				decayToUse = 1.0 - (1.0 - decay) / (1.0 / (1.0 - overlap));
+
+			FloatVectorOperations::multiply(lastBuffer.getWritePointer(0, 0), (float)decayToUse, size);
+
+			if(delta == 0)
+				break;
+
+			continue;
+		}
+
 		b2.clear();
 
 		auto data = b2.getWritePointer(0);

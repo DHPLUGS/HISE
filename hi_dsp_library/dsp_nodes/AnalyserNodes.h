@@ -333,6 +333,19 @@ struct Helpers
 
 		void transformReadBuffer(AudioSampleBuffer& b) override;
 
+		/** Below this every bin sits on the bottom edge of the display (createPath clamps to
+		    dbRange), so the path can no longer change. */
+		float getSettleFloor() const
+		{
+			return useDb ? Decibels::decibelsToGain(dbRange.getStart()) : 1.0e-4f;
+		}
+
+		bool isSettled() const override
+		{
+			const int n = lastBuffer.getNumSamples();
+			return n == 0 || FloatVectorOperations::findMaximum(lastBuffer.getReadPointer(0), n) < getSettleFloor();
+		}
+
 		int currentProfileTrack = 0;
 
 		FFTHelpers::WindowType currentWindow = FFTHelpers::BlackmanHarris;

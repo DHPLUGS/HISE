@@ -202,6 +202,14 @@ public:
 	// Likewise once its buffer has gone fully silent: paint that one empty frame, then stop until
 	// signal returns. At idle the goniometer tile alone was driving ~33 frames/s through every
 	// background panel underneath it.
+	//
+	// The one exception is a transform that carries state: the FFT smooths its spectrum per
+	// transform, and a transform only runs on a ring-buffer change event. Once the ring is
+	// fully silent SimpleRingBuffer::write() stops sending those (updateStatic), so the
+	// spectrum stopped mid-decay and sat there until the next note - the "frozen on note off"
+	// display. So while the property object reports it is not settled, this timer steps the
+	// transform itself (a sync display-change runs read + transform on this thread, exactly
+	// what the async event would have done), and the static gate takes over once it is.
 	void timerCallback() override
 	{
 		if (!isShowing())
@@ -216,10 +224,19 @@ public:
 			const bool isStatic = b->isStatic();
 
 			if (wc == lastPaintedWriteCounter || (isStatic && lastFrameStatic))
-				return;
+			{
+				auto po = b->getPropertyObject();
 
-			lastPaintedWriteCounter = wc;
-			lastFrameStatic = isStatic;
+				if (po == nullptr || po->isSettled())
+					return;
+
+				b->getUpdater().sendDisplayChangeMessage(0.0f, sendNotificationSync, true);
+			}
+			else
+			{
+				lastPaintedWriteCounter = wc;
+				lastFrameStatic = isStatic;
+			}
 		}
 
 		repaint();

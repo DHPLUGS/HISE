@@ -119,6 +119,12 @@ struct SimpleRingBuffer: public ComplexDataUIBase,
 
 		virtual void transformReadBuffer(AudioSampleBuffer& b);
 
+		/** APEX: false while transformReadBuffer() still carries state that has not run down
+		    (the FFT's smoothed spectrum after the ring went silent). A display that stops
+		    asking for frames once the ring is static must keep stepping the transform until
+		    this is true, or the picture freezes mid-decay. Stateless transforms are always settled. */
+		virtual bool isSettled() const { return true; }
+
 		virtual Path createPath(Range<int> sampleRange, Range<float> valueRange, Rectangle<float> targetBounds, double startValue) const;
 
 		Array<Identifier> getPropertyList() const;
