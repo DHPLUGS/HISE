@@ -169,7 +169,16 @@ public:
 	void voicesKilled() override
 	{
 		if (ringBuffer != nullptr)
+		{
 			ringBuffer->clear();
+
+			// clear() zeroes the data but fires no event, and the UI transform is
+			// EVENT-DRIVEN (SimpleRingBuffer::onComplexDataEvent), not polled - so a
+			// cleared buffer alone leaves the display holding its last path, which is
+			// exactly the freeze this is meant to cure. write() notifies with this same
+			// call, from this same thread; async, so it is posted rather than run inline.
+			ringBuffer->getUpdater().sendDisplayChangeMessage(0, sendNotificationAsync, true);
+		}
 	}
 
 	int getNumInternalChains() const override { return 0; };
