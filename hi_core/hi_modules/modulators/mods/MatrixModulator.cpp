@@ -755,7 +755,17 @@ void MatrixModulator::rebuildModList()
 
 void MatrixModulator::onMatrixChange(const ValueTree& v, bool wasAdded)
 {
-	if(MatrixIds::Helpers::matchesTarget(v, getMatrixTargetId()))
+	// APEX: an item that exists for this connection must be removable even when the row no
+	// longer targets this modulator (its TargetId was changed in the matrix table).
+	bool hasItem = false;
+
+	for(auto i: items)
+		hasItem |= i->data == v;
+
+	if(wasAdded && hasItem)
+		return;
+
+	if(MatrixIds::Helpers::matchesTarget(v, getMatrixTargetId()) || (!wasAdded && hasItem))
 	{
 		ScopedPointer<Item> toBeDeleted;
 
@@ -832,9 +842,32 @@ void MatrixModulator::onMatrixChange(const ValueTree& v, bool wasAdded)
 
 void MatrixModulator::onModeChange(const ValueTree& v, const Identifier& id)
 {
+	// APEX: the matrix page's ADD button creates a blank row (no target, no source) and the
+	// target is picked in the row afterwards. Connections were only ever matched against this
+	// modulator when the row was ADDED, so such a row never got an Item here and did nothing
+	// until the preset was reloaded. Treat a TargetId change as the row arriving / leaving.
+	if(id == MatrixIds::TargetId)
+	{
+		auto matches = MatrixIds::Helpers::matchesTarget(v, getMatrixTargetId());
+		onMatrixChange(v, matches);
+		return;
+	}
+
 	if(MatrixIds::Helpers::matchesTarget(v, getMatrixTargetId()))
 	{
 		jassert(id == MatrixIds::Mode || id == MatrixIds::SourceIndex);
+
+		// APEX: this watcher was registered before the item's own watcher, so it fires
+		// first. A connection created as "add the row, then set SourceIndex" (the matrix
+		// page does this) was rebuilt while its item still had sourceIndex -1, left out
+		// of the mod lists, and stayed dead until something else rebuilt them (a Mode
+		// change). Sync the item from the tree before rebuilding so order doesn't matter.
+		for(auto i: items)
+		{
+			if(i->data == v)
+				i->onUpdate(id, v[id]);
+		}
+
 		rebuildModList();
 	}
 }
@@ -873,7 +906,7 @@ void MatrixModulator::init()
 		                              BIND_MEMBER_FUNCTION_2(MatrixModulator::onMatrixChange));
 
 		modeWatcher.setCallback(globalMatrixData,
-		                        { MatrixIds::SourceIndex, MatrixIds::Mode },
+		                        { MatrixIds::SourceIndex, MatrixIds::Mode, MatrixIds::TargetId },
 		                        valuetree::AsyncMode::Synchronously,
 		                        BIND_MEMBER_FUNCTION_2(MatrixModulator::onModeChange));
 
