@@ -142,44 +142,7 @@ public:
 		return v;
 	}
 	
-	// TRUE on purpose, and the two overrides below are a pair.
-	//
-	// With hasTail() false the display FROZE on note off rather than falling to the
-	// noise floor. EffectProcessorChain::killMasterEffects() only keeps the chain
-	// rendering after the last voice while some master effect claims a tail (it buys a
-	// 0.12 * sampleRate window); an analyser claiming none contributed nothing, so once
-	// nothing else in the rack had a tail applyEffect() was simply never called again and
-	// the ring buffer kept whatever was in it - a spectrum frozen mid-note. applyEffect()
-	// writes unconditionally, so had it still been called with silence the display would
-	// have read empty; that it froze instead is how this was traced.
-	//
-	// Claiming a tail is only the eligibility test - the window is bounded, after which
-	// the chain suspends as before, so this does not keep the synth alive. Within the
-	// window the analyser is soft-bypassed along with everything else and rendering
-	// stops once the ramp completes, which is why voicesKilled() below clears the buffer
-	// explicitly when the window expires (resetMasterEffects()) rather than relying on
-	// silence having been written. Net effect: a brief decay during the ramp, then a
-	// clean drop to nothing, worst case ~120 ms of stale frame.
-	bool hasTail() const override { return true; };
-
-	// Required, not optional: EffectProcessor::voicesKilled() is jassert(!hasTail()), so
-	// anything that claims a tail must provide this. Do NOT chain to the base.
-	// SimpleRingBuffer::clear() takes a try-read lock, so it never blocks the audio
-	// thread; it skips only if a resize holds the write lock, which is harmless here.
-	void voicesKilled() override
-	{
-		if (ringBuffer != nullptr)
-		{
-			ringBuffer->clear();
-
-			// clear() zeroes the data but fires no event, and the UI transform is
-			// EVENT-DRIVEN (SimpleRingBuffer::onComplexDataEvent), not polled - so a
-			// cleared buffer alone leaves the display holding its last path, which is
-			// exactly the freeze this is meant to cure. write() notifies with this same
-			// call, from this same thread; async, so it is posted rather than run inline.
-			ringBuffer->getUpdater().sendDisplayChangeMessage(0, sendNotificationAsync, true);
-		}
-	}
+	bool hasTail() const override { return false; };
 
 	int getNumInternalChains() const override { return 0; };
 	int getNumChildProcessors() const override { return 0; };
