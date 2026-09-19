@@ -1212,6 +1212,7 @@ void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateComponent(int proper
 		PROPERTY_CASE::ScriptComboBox::FontStyle : updateFont(getScriptComponent()); break;
         PROPERTY_CASE::ScriptComboBox::useCustomPopup: cb->setUseCustomPopup((bool)newValue); break;
         PROPERTY_CASE::ScriptComboBox::popupAlignment: cb->getProperties().set("popupAlignment", newValue); break;
+        PROPERTY_CASE::ScriptComboBox::popupWidth: cb->getProperties().set("popupWidth", newValue); break;
 		PROPERTY_CASE::ScriptSlider::numProperties :
 	default:
 		break;

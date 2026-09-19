@@ -1272,6 +1272,7 @@ public:
 			enableMidiLearn,
             popupAlignment,
             useCustomPopup,
+            popupWidth,
 			numProperties
 		};
 

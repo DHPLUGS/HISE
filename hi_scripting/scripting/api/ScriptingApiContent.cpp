@@ -2982,6 +2982,7 @@ ScriptComponent(base, name)
 	ADD_SCRIPT_PROPERTY(i04, "enableMidiLearn"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
     ADD_SCRIPT_PROPERTY(i05, "popupAlignment"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
     ADD_SCRIPT_PROPERTY(i06, "useCustomPopup"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+    ADD_NUMBER_PROPERTY(i07, "popupWidth"); ADD_AS_SLIDER_TYPE(0, 2000, 1);
     
 	priorityProperties.add(getIdFor(Items));
 
@@ -2998,6 +2999,7 @@ ScriptComponent(base, name)
 	setDefaultValue(ScriptComponent::min, 1.0f);
 	setDefaultValue(ScriptComboBox::Properties::enableMidiLearn, false);
     setDefaultValue(ScriptComboBox::Properties::useCustomPopup, false);
+    setDefaultValue(ScriptComboBox::Properties::popupWidth, 0);
 	
 	handleDefaultDeactivatedProperties();
 	initInternalPropertyFromValueTreeOrDefault(Items);

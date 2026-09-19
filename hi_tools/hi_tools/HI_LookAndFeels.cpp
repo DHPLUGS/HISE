@@ -1821,6 +1821,13 @@ PopupMenu::Options PopupLookAndFeel::getOptionsForComboBoxPopupMenu (ComboBox& b
 {
     auto options = LookAndFeel_V3::getOptionsForComboBoxPopupMenu(box, label);
     
+    // popupWidth > 0 replaces JUCE's minimum popup width (the box's own width), so a wide box can
+    // open a narrower popup. The menu is still as wide as its widest item (getIdealPopupMenuItemSize).
+    auto popupWidth = (int)box.getProperties()["popupWidth"];
+    
+    if(popupWidth > 0)
+        options = options.withMinimumWidth(popupWidth);
+    
     auto alignment = box.getProperties()["popupAlignment"].toString();
     
     if(alignment.isNotEmpty())
