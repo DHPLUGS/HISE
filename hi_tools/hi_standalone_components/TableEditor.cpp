@@ -940,7 +940,7 @@ TableEditor::TouchOverlay::TouchOverlay(DragPoint* point)
 	curveSlider->setColour(Slider::ColourIds::backgroundColourId, Colours::transparentBlack);
 	curveSlider->setColour(Slider::ColourIds::thumbColourId, Colours::white.withAlpha(0.1f));
 	curveSlider->setColour(Slider::ColourIds::trackColourId, Colours::white.withAlpha(0.3f));
-	curveSlider->setRange(0.0, 1.0, 0.01);
+	curveSlider->setRange((double)Table::MinCurve, (double)Table::MaxCurve, 0.01);
 	curveSlider->setValue(point->getCurve(), dontSendNotification);
 
 	addAndMakeVisible(deletePointButton = new ShapeButton("Delete", Colours::white.withAlpha(0.4f), Colours::white.withAlpha(0.8f), Colours::white));
@@ -1616,12 +1616,12 @@ void TableEditor::DragPoint::setPosNormalized(Point<float> normalizedPoint)
 void TableEditor::DragPoint::updateCurve(float newCurveValue)
 {
 	normalizedGraphPoint.curve += (newCurveValue * 0.1f);
-	normalizedGraphPoint.curve = jlimit<float>(0.0f, 1.0f, normalizedGraphPoint.curve);
+	normalizedGraphPoint.curve = jlimit<float>(Table::MinCurve, Table::MaxCurve, normalizedGraphPoint.curve);
 }
 
 void TableEditor::DragPoint::setCurve(float newValue)
 {
-	normalizedGraphPoint.curve = jlimit<float>(0.0f, 1.0f, newValue);
+	normalizedGraphPoint.curve = jlimit<float>(Table::MinCurve, Table::MaxCurve, newValue);
 }
 
 float TableEditor::DragPoint::getCurve() const

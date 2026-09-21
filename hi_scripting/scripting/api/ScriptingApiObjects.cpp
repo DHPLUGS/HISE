@@ -2194,7 +2194,7 @@ void ScriptingObjects::ScriptTableData::setTablePointsFromArray(var pointList)
 
 				auto x = jlimit<float>(0.0f, 1.0f, (float)(*gpa)[0]);
 				auto y = jlimit<float>(0.0f, 1.0f, (float)(*gpa)[1]);
-				auto curve = jlimit<float>(0.0f, 1.0f, (float)(*gpa)[2]);
+				auto curve = jlimit<float>(Table::MinCurve, Table::MaxCurve, (float)(*gpa)[2]);
 
 				ngp.add(Table::GraphPoint(x, y, curve));
 			}

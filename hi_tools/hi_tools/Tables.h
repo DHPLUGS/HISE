@@ -144,6 +144,14 @@ public:
 
 	void setTablePoint(int pointIndex, float x, float y, float curve);
 
+	/** APEX: the curve range. 0..1 is the classic quadratic bend; below 0 and above 1 the
+	    segment becomes an exponential that keeps steepening (createPath). */
+	static constexpr float MinCurve = -1.0f;
+	static constexpr float MaxCurve = 2.0f;
+	static constexpr double ExtendedCurveBaseRate = 4.73;   // exponential rate matching the classic maximum
+	static constexpr double ExtendedCurveRateSpan = 40.0;   // added across the extended range
+	static constexpr double ExtendedCurveBlend = 0.25;      // first part of it cross-fades from the corner quadratic
+
 	void reset();
 
 	void addTablePoint(float x, float y, float curve=0.5f);

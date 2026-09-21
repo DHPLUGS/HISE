@@ -114,7 +114,9 @@ namespace hise { using namespace juce;;
 	{
 		const float sanitizedX = jlimit(0.0f, 1.0f, x);
 		const float sanitizedY = jlimit(0.0f, 1.0f, y);
-		const float sanitizedCurve = jlimit(0.0f, 1.0f, curve);
+		// APEX: 0..1 is the classic quadratic curve; -1..0 and 1..2 are the steep
+		// exponential range, see createPath().
+		const float sanitizedCurve = jlimit(Table::MinCurve, Table::MaxCurve, curve);
 
 		{
 			hise::SimpleReadWriteLock::ScopedReadLock sl(graphPointLock);
@@ -456,6 +458,80 @@ void Table::createPath(Path &normalizedPath, bool fillPath, bool addStartEnd) co
 
             if(curve == 0.5)
             {
+                normalizedPath.lineTo(end_x, end_y);
+            }
+            else if (curve < 0.0f || curve > 1.0f)
+            {
+                // APEX: steep segments. A quadratic with its control point on the box corner
+                // (curve 0 / 1) is the hardest bend the classic range can make - about an
+                // exponential of rate 4.73. Past it the segment becomes that exponential, its
+                // rate growing linearly to ~45 (all but a step) at curve -1 / 2. Values inside
+                // 0..1 draw exactly as before. curve > 1 = fast start, curve < 0 = slow start,
+                // the same sense as the classic curve either side of 0.5.
+                //
+                // The two shapes only agree at mid-x, so switching outright made the whole
+                // segment jump when a curve was dragged across the old limit. Over the first
+                // ExtendedCurveBlend of the new range the corner quadratic is cross-faded into
+                // the exponential instead: at the limit it IS the old maximum, so the drag is
+                // continuous. Both are monotonic between the same end points, so is the blend.
+                const float prev_x = graphPoints[i-1].x;
+                const float prev_y = 1.0f - graphPoints[i-1].y;
+
+                const bool fastStart = curve > 1.0f;
+                const double ext = jlimit(0.0, 1.0, (double)(fastStart ? curve - 1.0f : -curve));
+                const double rate = ExtendedCurveBaseRate + ext * ExtendedCurveRateSpan;
+                const double norm = std::exp(rate) - 1.0;
+
+                double w = jlimit(0.0, 1.0, ext / ExtendedCurveBlend);
+                w = w * w * (3.0 - 2.0 * w);
+
+                // slow-start value fraction at x fraction u (fast start is its mirror image)
+                auto slowStart = [&](double u)
+                {
+                    const double r = 1.0 - std::sqrt(jmax(0.0, 1.0 - u));
+                    const double quad = r * r;                                  // corner quadratic
+                    const double expo = (std::exp(rate * u) - 1.0) / norm;
+                    return (1.0 - w) * quad + w * expo;
+                };
+
+                // x positions: even in the exponential's VALUE (keeps the knee smooth however
+                // steep it gets) merged with a coarse even grid for the gentle part.
+                constexpr int NumValueSteps = 48;
+                constexpr int NumGridSteps = 16;
+                double xs[NumValueSteps + NumGridSteps];
+                double ys[NumValueSteps + NumGridSteps];
+                int numX = 0;
+
+                for (int k = 1; k <= NumValueSteps; k++)
+                    xs[numX++] = std::log(1.0 + ((double)k / (double)NumValueSteps) * norm) / rate;
+                for (int k = 1; k < NumGridSteps; k++)
+                    xs[numX++] = (double)k / (double)NumGridSteps;
+
+                std::sort(xs, xs + numX);
+
+                for (int k = 0; k < numX; k++)
+                {
+                    const double u = xs[k];
+                    const double sx = fastStart ? 1.0 - u : u;
+                    const double f = fastStart ? 1.0 - slowStart(u) : slowStart(u);
+                    // fast start runs the mirrored curve backwards, so its points come out in
+                    // descending x - collected below and emitted in order
+                    xs[k] = sx; ys[k] = f;
+                }
+
+                if (fastStart)
+                {
+                    for (int k = numX - 1; k >= 0; k--)
+                        normalizedPath.lineTo(prev_x + (float)xs[k] * (end_x - prev_x),
+                                              prev_y + (float)ys[k] * (end_y - prev_y));
+                }
+                else
+                {
+                    for (int k = 0; k < numX; k++)
+                        normalizedPath.lineTo(prev_x + (float)xs[k] * (end_x - prev_x),
+                                              prev_y + (float)ys[k] * (end_y - prev_y));
+                }
+
                 normalizedPath.lineTo(end_x, end_y);
             }
             else
