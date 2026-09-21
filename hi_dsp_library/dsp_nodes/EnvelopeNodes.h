@@ -1257,6 +1257,18 @@ template <int NV, typename ParameterClass, typename DragHandler=flex_ahdsr_base:
 				counter = 0.0f;
 				thisTime = get<ParameterType::Time>();
 				prevLevel = prevValue;
+
+				// APEX: a release time of 0 used to strand the voice here for good.
+				// calculateNewValue() only advances while thisTime > 0, so the state never
+				// left RELEASE, isActiveState() stayed true and the voice was never freed:
+				// every note leaked one voice until the pool ran dry (notes going silent
+				// after a few bars, then nothing until a preset reload killed the voices).
+				// bump() skips zero-length stages everywhere else - do the same here.
+				if(thisTime <= 0.0f)
+				{
+					bool unused = false;
+					bump(unused);
+				}
 			}
 		}
 
