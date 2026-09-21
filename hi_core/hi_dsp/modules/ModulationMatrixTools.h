@@ -184,6 +184,10 @@ struct Helpers
 			scriptnode::modulation::TargetMode tm;
 			NormalisableRange<double> inputRange;
 			Component::SafePointer<Slider> connectedSlider;
+
+			/** Show the intensity as a plain percentage of the target's range instead of
+			    translating it into the target's units (used by the matrix rows). */
+			bool showAsPercentage = false;
 		};
 
 		IntensityTextConverter(const ConstructData& cd);

@@ -683,7 +683,7 @@ void Helpers::IntensityTextConverter::onAttributeUpdate(Processor*, uint16 index
 
 double Helpers::IntensityTextConverter::getValue(const String& text) const
 {
-	if(data.tm == modulation::TargetMode::Gain)
+	if(data.tm == modulation::TargetMode::Gain || data.showAsPercentage)
 		return ValueToTextConverter::InverterFunctions::NormalizedPercentage(text);
 
 	if(data.p != nullptr)
@@ -707,7 +707,7 @@ String Helpers::IntensityTextConverter::getText(double v) const
 	if(v == 0.0 && showInactive)
 		return "Inactive";
 
-	if(data.tm == modulation::TargetMode::Gain)
+	if(data.tm == modulation::TargetMode::Gain || data.showAsPercentage)
 		return ValueToTextConverter::ConverterFunctions::NormalizedPercentage(v);
 
 	if(data.p != nullptr)

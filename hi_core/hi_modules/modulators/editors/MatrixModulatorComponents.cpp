@@ -797,6 +797,7 @@ void MatrixBase::RowBase::setIntensityConverter(MatrixModulator* mm)
 		auto si = getIntensitySlider(i);
 		cd.connectedSlider = si;
 		cd.tm = getTargetModeForIntensitySlider(i);
+		cd.showAsPercentage = true;
 		customConverters.add(new MatrixIds::Helpers::IntensityTextConverter(cd));
 		customConverters.getLast()->showInactive = true;
 		auto vtc = ValueToTextConverter::createForCustomClass(customConverters.getLast());
@@ -843,6 +844,7 @@ void MatrixBase::RowBase::setIntensityConverter(JavascriptMidiProcessor* jmp, in
 				continue;
 
 			cd.connectedSlider = si;
+			cd.showAsPercentage = true;
 			customConverters.add(new MatrixIds::Helpers::IntensityTextConverter(cd));
 			customConverters.getLast()->showInactive = true;
 			auto vtc = ValueToTextConverter::createForCustomClass(customConverters.getLast());
