@@ -266,7 +266,10 @@ float MatrixModulator::getInactiveModValue() const
 	auto iv = rangeData.outputRange.convertFrom0to1(baseValue.targetValue, false);
 
 	// convert it to bipolar -1 ... 1 to match the applyModulation function
-	if (isBipolar())
+	// APEX: a pitch mod is always bipolar (init() hardwires it), so don't trust the flag
+	// here - it is skipped on restore while the parent Extra chain is still in
+	// CombinedMode (see the mode listener in the constructor).
+	if (isBipolar() || getMode() == Modulation::PitchMode)
 	{
 		iv *= 2.0f;
 		iv -= 1.0f;
@@ -381,6 +384,16 @@ MatrixModulator::MatrixModulator(MainController* mc, const String& id, int voice
 	updateParameterSlots();
 
 	init();
+
+	// APEX: a hardcoded synth creates its Extra chains in CombinedMode and only switches one
+	// to PitchMode in updateModulationProperties(), after the children were restored. A
+	// pitch MatrixModulator in such a chain is therefore constructed and restored as a
+	// unipolar gain modulator (the Bipolar attribute is skipped for GainMode) and keeps
+	// that flag when the chain re-modes it. Bypassed, its inactive value then read
+	// exp2(0.5) instead of exp2(0): APEX's GLOBAL PITCH slot sat a quarter octave up,
+	// +2 octaves after the engine's two squarings, on every preset load (2026-09-22).
+	// Re-run the pitch / pan hardwiring whenever the mode changes.
+	modeBroadcaster.addListener(*this, [](MatrixModulator& m, int) { m.init(); }, false);
 }
 
 MatrixModulator::~MatrixModulator()
