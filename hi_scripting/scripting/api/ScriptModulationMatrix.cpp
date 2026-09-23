@@ -601,6 +601,7 @@ struct ScriptingObjects::ScriptModulationMatrix::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptModulationMatrix, setEditCallback);
 	API_METHOD_WRAPPER_0(ScriptModulationMatrix, getSourceList);
 	API_METHOD_WRAPPER_0(ScriptModulationMatrix, getTargetList);
+	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setTargetDisplayNames);
 	API_METHOD_WRAPPER_2(ScriptModulationMatrix, canConnect);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, clearAllConnections);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setCurrentlySelectedSource);
@@ -636,6 +637,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_CALLBACK_DIAGNOSTIC(editCallback, setEditCallback, 1);
 	ADD_API_METHOD_0(getSourceList);
 	ADD_API_METHOD_0(getTargetList);
+	ADD_API_METHOD_1(setTargetDisplayNames);
 	ADD_API_METHOD_1(getTargetId);
 	ADD_API_METHOD_1(getComponent);
 	ADD_API_METHOD_2(canConnect);
@@ -1019,6 +1021,14 @@ void ScriptModulationMatrix::setDragCallback(var newDragCallback)
 			}
 		}, false);
 	}
+}
+
+void ScriptModulationMatrix::setTargetDisplayNames(var displayNames)
+{
+	if(!displayNames.isObject())
+		reportScriptError("setTargetDisplayNames expects a JSON object with target IDs as keys");
+
+	container->setMatrixTargetDisplayNames(displayNames);
 }
 
 void ScriptModulationMatrix::setMatrixModulationProperties(var newProperties)

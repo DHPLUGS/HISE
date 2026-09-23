@@ -280,6 +280,9 @@ struct ScriptModulationMatrix : public ConstScriptingObject,
 	/** Return a list of all targets. */
 	var getTargetList() const;
 
+	/** Sets the display names for the target list of the matrix table. Keys are target IDs, values are "Folder::Sub::Target" strings that become popup submenus. */
+	void setTargetDisplayNames(var displayNames);
+
 	/** Sets the currently selected source. */
 	void setCurrentlySelectedSource(String sourceId);
 

@@ -450,7 +450,85 @@ void MatrixContent::Row::rebuildItemList(const Identifier& id)
 	if(id == MatrixIds::Intensity)
 		return;
 
+	if(id == MatrixIds::TargetId)
+	{
+		buildTargetLists(items[id], targetIds);
+		return;
+	}
+
 	items[id] = getItemList(id);
+}
+
+void MatrixContent::Row::buildTargetLists(StringArray& displayNames, StringArray& ids) const
+{
+	StringArray flatIds;
+	flatIds.add("No connection");
+	MatrixIds::Helpers::fillModTargetList(getMainController(), flatIds, MatrixIds::Helpers::TargetType::All);
+
+	struct Entry
+	{
+		String id;
+		String displayName;
+		StringArray segments;
+	};
+
+	std::vector<Entry> entries;
+	entries.reserve((size_t)flatIds.size());
+
+	for(const auto& id: flatIds)
+	{
+		Entry e;
+		e.id = id;
+		e.displayName = container != nullptr ? container->getMatrixTargetDisplayName(id) : id;
+		e.segments.addTokens(e.displayName, "::", "");
+		e.segments.removeEmptyStrings();
+
+		if(e.segments.isEmpty())
+			e.segments.add(e.displayName);
+
+		entries.push_back(std::move(e));
+	}
+
+	// PopupMenuParser::flush() numbers a folder's leaves first, then its subfolders, so the flat
+	// array must already be in that order for the combobox index to match the popup item ID.
+	// At the first differing level a leaf sorts before a folder, otherwise natural order.
+	std::stable_sort(entries.begin(), entries.end(), [](const Entry& x, const Entry& y)
+	{
+		auto n = jmin(x.segments.size(), y.segments.size());
+
+		for(int i = 0; i < n; i++)
+		{
+			auto xLeaf = i == x.segments.size() - 1;
+			auto yLeaf = i == y.segments.size() - 1;
+
+			if(xLeaf != yLeaf)
+				return xLeaf;
+
+			auto c = x.segments[i].compareNatural(y.segments[i]);
+
+			if(c != 0)
+				return c < 0;
+		}
+
+		return x.segments.size() < y.segments.size();
+	});
+
+	displayNames.clear();
+	ids.clear();
+
+	for(const auto& e: entries)
+	{
+		if(e.id == "No connection")
+		{
+			displayNames.insert(0, e.displayName);
+			ids.insert(0, e.id);
+		}
+		else
+		{
+			displayNames.add(e.displayName);
+			ids.add(e.id);
+		}
+	}
 }
 
 StringArray MatrixContent::Row::getItemList(const Identifier& id) const
@@ -468,7 +546,9 @@ StringArray MatrixContent::Row::getItemList(const Identifier& id) const
 	}
 	else if(id == MatrixIds::TargetId)
 	{
-		MatrixIds::Helpers::fillModTargetList(getMainController(), items, MatrixIds::Helpers::TargetType::All);
+		StringArray ids;
+		items.clear();
+		buildTargetLists(items, ids);
 	}
 	else
 	{
@@ -522,6 +602,11 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 		auto cb = comboBoxes[id];
 		jassert(cb != nullptr);
 		cb->setSelectedItemIndex(valueToComboBoxIndex(id), dontSendNotification);
+
+		// dontSendNotification skips the SubmenuComboBox updater, so the folder ticks
+		// (the "selection lives in here" dots) must be refreshed by hand.
+		if(id == MatrixIds::TargetId)
+			targetSelector.refreshTickState();
 
 		if(id == MatrixIds::Mode)
 		{
@@ -629,6 +714,11 @@ void MatrixContent::Row::addComponent(Component& c, const Identifier& id)
 		cb->addItemList(items[id], 1);
 		cb->addListener(this);
 		comboBoxes[id] = cb;
+
+		// Turn the "Folder::Sub::Target" strings into popup submenus. Must run after the items
+		// exist: setUseCustomPopup() snapshots the root menu and rebuilds it from the item texts.
+		if(id == MatrixIds::TargetId)
+			targetSelector.setUseCustomPopup(true);
 	}
 }
 
@@ -664,8 +754,9 @@ int MatrixContent::Row::valueToComboBoxIndex(const Identifier& id)
 
 	if(id == MatrixIds::TargetId)
 	{
+		// items[TargetId] holds display names; targetIds runs parallel to it.
 		auto tid = v.toString();
-		return items[id].indexOf(tid);
+		return targetIds.indexOf(tid);
 	}
 
 	if(id == MatrixIds::Mode)
@@ -683,7 +774,7 @@ var MatrixContent::Row::comboBoxIndexToValue(const Identifier& id, int comboBoxI
 		return comboBoxIndex;
 
 	if(id == MatrixIds::TargetId)
-		return getItemList(id)[comboBoxIndex];
+		return targetIds[comboBoxIndex];
 
 	// unconnected = -1
 	return (int)comboBoxIndex - 1;

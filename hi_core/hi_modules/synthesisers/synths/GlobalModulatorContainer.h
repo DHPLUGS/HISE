@@ -693,6 +693,30 @@ public:
 
 	var getMatrixModulationProperties() const { return matrixProperties.toJSON(getMainController()); }
 
+	/** Display names for the target combobox of the matrix table. Keys are target IDs, values are
+	    "Folder::Sub::Target" strings that the table turns into popup submenus. A target without an
+	    entry is listed under its own ID. Set from the script through
+	    ScriptModulationMatrix::setTargetDisplayNames(). */
+	void setMatrixTargetDisplayNames(const var& newNames) { matrixTargetDisplayNames = newNames; }
+
+	String getMatrixTargetDisplayName(const String& targetId) const
+	{
+		if(targetId.isNotEmpty())
+		{
+			if(auto obj = matrixTargetDisplayNames.getDynamicObject())
+			{
+				auto v = obj->getProperty(Identifier(targetId));
+
+				if(v.isString() && v.toString().isNotEmpty())
+					return v.toString();
+			}
+		}
+
+		return targetId;
+	}
+
+	var matrixTargetDisplayNames;
+
 	runtime_target::connection getMatrixModulatorConnection() const { return runtimeSource.createConnection(); }
 
 	void handleRetriggeredNote(ModulatorSynthVoice *voice) override

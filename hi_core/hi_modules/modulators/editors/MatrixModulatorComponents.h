@@ -321,6 +321,11 @@ struct MatrixContent: public MatrixBase
 
 		void rebuildItemList(const Identifier& id);
 		StringArray getItemList(const Identifier& id) const;
+
+		/** Fills the target combobox strings. displayNames holds the "Folder::Sub::Target" strings
+		    (from GlobalModulatorContainer::getMatrixTargetDisplayName) sorted into the order in which
+		    SubmenuComboBox numbers them, ids holds the matching target IDs. */
+		void buildTargetLists(StringArray& displayNames, StringArray& ids) const;
 		int getIndexInTarget() const;
 		void updateValue(const Identifier& id, const var& newValue);
 
@@ -367,11 +372,14 @@ struct MatrixContent: public MatrixBase
 		std::map<Identifier, StringArray> items;
 		std::map<Identifier, ComboBox*> comboBoxes;
 
+		/** Target IDs in the same order as items[MatrixIds::TargetId] (the combobox index order). */
+		StringArray targetIds;
+
 		
 		
 		ModPlotter plotter;
 		ComboBox sourceSelector;
-		ComboBox targetSelector;
+		SubmenuComboBox targetSelector;
 		ComboBox modeSelector;
 		
 		IntensitySlider intensitySlider;
