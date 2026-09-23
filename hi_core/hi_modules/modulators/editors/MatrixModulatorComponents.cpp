@@ -410,6 +410,9 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 
 	targetSelector.setEnabled(targetId.isEmpty());
 
+	// A fresh row has no target yet: show a placeholder instead of an empty box.
+	targetSelector.setTextWhenNothingSelected("--");
+
 	sourceSelector.setTooltip("The modulation source.");
 	targetSelector.setTooltip("The modulation target.");
 	modeSelector.setTooltip("How the modulation source is applied to the target.");
@@ -470,7 +473,13 @@ void MatrixContent::Row::buildTargetLists(StringArray& displayNames, StringArray
 		String id;
 		String displayName;
 		StringArray segments;
+		Array<int> ranks; // per level: index of the path up to that level in the folder order list
 	};
+
+	StringArray order;
+
+	if(container != nullptr)
+		order = container->getMatrixTargetFolderOrder();
 
 	std::vector<Entry> entries;
 	entries.reserve((size_t)flatIds.size());
@@ -486,12 +495,22 @@ void MatrixContent::Row::buildTargetLists(StringArray& displayNames, StringArray
 		if(e.segments.isEmpty())
 			e.segments.add(e.displayName);
 
+		String path;
+
+		for(const auto& s: e.segments)
+		{
+			path = path.isEmpty() ? s : path + "::" + s;
+			auto idx = order.indexOf(path);
+			e.ranks.add(idx == -1 ? std::numeric_limits<int>::max() : idx);
+		}
+
 		entries.push_back(std::move(e));
 	}
 
 	// PopupMenuParser::flush() numbers a folder's leaves first, then its subfolders, so the flat
 	// array must already be in that order for the combobox index to match the popup item ID.
-	// At the first differing level a leaf sorts before a folder, otherwise natural order.
+	// At the first differing level a leaf sorts before a folder; among the same kind the folder
+	// order list decides (unlisted entries last), then natural order.
 	std::stable_sort(entries.begin(), entries.end(), [](const Entry& x, const Entry& y)
 	{
 		auto n = jmin(x.segments.size(), y.segments.size());
@@ -503,6 +522,9 @@ void MatrixContent::Row::buildTargetLists(StringArray& displayNames, StringArray
 
 			if(xLeaf != yLeaf)
 				return xLeaf;
+
+			if(x.ranks[i] != y.ranks[i])
+				return x.ranks[i] < y.ranks[i];
 
 			auto c = x.segments[i].compareNatural(y.segments[i]);
 
@@ -629,18 +651,30 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 			auxIntensitySlider.setActive(isEnabled, this->data, false);
 
 			auxIntensitySlider.setEnabled(isEnabled);
+
+			// "No connection" reads as a plain placeholder in the row (displayText, see the LAF)
+			auxSelector.getProperties().set("displayText", isEnabled ? "" : "--");
+			auxSelector.repaint();
 		}
 		else if (id == MatrixIds::SourceIndex)
 		{
 			auto isEnabled = (int)newValue != -1;
 			intensitySlider.setEnabled(isEnabled);
 			auxSelector.setEnabled(isEnabled);
+			sourceSelector.getProperties().set("displayText", isEnabled ? "" : "--");
+			sourceSelector.repaint();
 			rebuildLayout();
 		}
 		else if (id == MatrixIds::TargetId)
 		{
 			auto newTarget = newValue.toString();
 			auto tt = MatrixIds::Helpers::getTargetType(getMainController(), newTarget);
+
+			// The popup lists short leaf names ("RATE FREE" inside FX > CHORUS > B), but the row
+			// keeps showing the full target ID: the LAF draws the displayText property instead of
+			// the selected item's text, so the JUCE label / item-text logic is not disturbed.
+			targetSelector.getProperties().set("displayText", newTarget);
+			targetSelector.repaint();
 
 			updateIntensityConverter();
 

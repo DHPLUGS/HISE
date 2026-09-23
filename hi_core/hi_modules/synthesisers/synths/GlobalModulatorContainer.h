@@ -717,6 +717,13 @@ public:
 
 	var matrixTargetDisplayNames;
 
+	/** Display-name paths ("OSC 1", "SAMPLER::GRANULATOR", "OSC 1::VOLUME") in the order the matrix
+	    table should list them at their level. Unlisted entries follow the listed ones alphabetically. */
+	void setMatrixTargetFolderOrder(const StringArray& newOrder) { matrixTargetFolderOrder = newOrder; }
+	const StringArray& getMatrixTargetFolderOrder() const { return matrixTargetFolderOrder; }
+
+	StringArray matrixTargetFolderOrder;
+
 	runtime_target::connection getMatrixModulatorConnection() const { return runtimeSource.createConnection(); }
 
 	void handleRetriggeredNote(ModulatorSynthVoice *voice) override

@@ -552,7 +552,18 @@ void StyleSheetLookAndFeel::drawComboBox(Graphics& g, int width, int height, boo
 
 			root.stateWatcher.checkChanges(&cb, ss, state);
 			r.drawBackground(g, cb.getLocalBounds().toFloat(), ss);
-			r.renderText(g, cb.getLocalBounds().toFloat(), cb.getText(), ss);
+
+			// "displayText" property: show a different text than the selected item's
+			// (see ScriptedLookAndFeel::Laf::drawComboBox).
+			auto text = cb.getProperties()["displayText"].toString();
+
+			if(text.isEmpty())
+				text = cb.getText();
+
+			if(text.isEmpty())
+				text = cb.getNumItems() == 0 ? cb.getTextWhenNoChoicesAvailable() : cb.getTextWhenNothingSelected();
+
+			r.renderText(g, cb.getLocalBounds().toFloat(), text, ss);
 			return;
 		}
 	}

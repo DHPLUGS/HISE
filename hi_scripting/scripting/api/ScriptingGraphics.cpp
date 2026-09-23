@@ -4831,6 +4831,15 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int 
 				text = cb.getTextWhenNothingSelected();
 		}
 
+		// A combobox can show a different text than its selected item through the
+		// "displayText" property, eg. the matrix TARGET column shows the full target ID
+		// while its popup lists short names. The item text (and so the JUCE selection
+		// logic, which compares the label text with the item text) stays untouched.
+		auto displayText = cb.getProperties()["displayText"].toString();
+
+		if (displayText.isNotEmpty())
+			text = displayText;
+
 		obj->setProperty(id.text, text);
 		obj->setProperty(id.active, cb.getSelectedId() != 0);
 		obj->setProperty(id.enabled, cb.isEnabled() && cb.getNumItems() > 0);

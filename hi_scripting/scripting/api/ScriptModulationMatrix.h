@@ -283,6 +283,9 @@ struct ScriptModulationMatrix : public ConstScriptingObject,
 	/** Sets the display names for the target list of the matrix table. Keys are target IDs, values are "Folder::Sub::Target" strings that become popup submenus. */
 	void setTargetDisplayNames(var displayNames);
 
+	/** Sets the order of the matrix target list: an array of display-name paths ("OSC 1", "SAMPLER::GRANULATOR", "OSC 1::VOLUME"); unlisted entries follow alphabetically. */
+	void setTargetFolderOrder(var order);
+
 	/** Sets the currently selected source. */
 	void setCurrentlySelectedSource(String sourceId);
 

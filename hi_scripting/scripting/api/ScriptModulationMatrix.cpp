@@ -602,6 +602,7 @@ struct ScriptingObjects::ScriptModulationMatrix::Wrapper
 	API_METHOD_WRAPPER_0(ScriptModulationMatrix, getSourceList);
 	API_METHOD_WRAPPER_0(ScriptModulationMatrix, getTargetList);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setTargetDisplayNames);
+	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setTargetFolderOrder);
 	API_METHOD_WRAPPER_2(ScriptModulationMatrix, canConnect);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, clearAllConnections);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setCurrentlySelectedSource);
@@ -638,6 +639,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_API_METHOD_0(getSourceList);
 	ADD_API_METHOD_0(getTargetList);
 	ADD_API_METHOD_1(setTargetDisplayNames);
+	ADD_API_METHOD_1(setTargetFolderOrder);
 	ADD_API_METHOD_1(getTargetId);
 	ADD_API_METHOD_1(getComponent);
 	ADD_API_METHOD_2(canConnect);
@@ -1029,6 +1031,19 @@ void ScriptModulationMatrix::setTargetDisplayNames(var displayNames)
 		reportScriptError("setTargetDisplayNames expects a JSON object with target IDs as keys");
 
 	container->setMatrixTargetDisplayNames(displayNames);
+}
+
+void ScriptModulationMatrix::setTargetFolderOrder(var order)
+{
+	if(!order.isArray())
+		reportScriptError("setTargetFolderOrder expects an array of display-name paths");
+
+	StringArray sa;
+
+	for(const auto& v: *order.getArray())
+		sa.add(v.toString());
+
+	container->setMatrixTargetFolderOrder(sa);
 }
 
 void ScriptModulationMatrix::setMatrixModulationProperties(var newProperties)
