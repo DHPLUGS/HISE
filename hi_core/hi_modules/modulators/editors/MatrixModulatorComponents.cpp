@@ -292,6 +292,11 @@ MatrixBase::DeleteButton::DeleteButton():
 		if(auto r = findParentComponentOfClass<MatrixContent::Row>())
 		{
 			auto p = r->data.getParent();
+
+			// a virtual (not yet promoted) row has nothing to remove
+			if(!p.isValid())
+				return;
+
 			MatrixIds::Helpers::removeConnection(p, r->um, r->getTargetId(), r->getSourceIndexForIntensitySlider(0));
 		}
 	};
@@ -362,9 +367,20 @@ void MatrixBase::SearchBar::ClearButton::paintButton(Graphics& g, bool shouldDra
 	g.fillPath(icon);
 }
 
+/** The matrix shows intensities as a plain number (50, -25), not "50%": the column is narrow
+    and every value is a percentage anyway. Typing "50%" still parses. */
+static ValueToTextConverter createPlainPercentageConverter()
+{
+	ValueToTextConverter vtc;
+	vtc.active = true;
+	vtc.valueToTextFunction = [](double v) { return String(roundToInt(v * 100.0)); };
+	vtc.textToValueFunction = ValueToTextConverter::InverterFunctions::NormalizedPercentage;
+	return vtc;
+}
+
 MatrixBase::IntensitySlider::IntensitySlider(const Identifier& id):
 	Slider(id.toString()),
-	vtc(ValueToTextConverter::createForMode("NormalizedPercentage"))
+	vtc(createPlainPercentageConverter())
 {
 	setSliderStyle(Slider::SliderStyle::RotaryHorizontalVerticalDrag);
 	setRange(-1.0, 1.0, 0.0);
@@ -422,8 +438,8 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 	deleteButton.setTooltip("Removes the mod connection");
 
 	auxIntensitySlider.setRange(0.0, 1.0, 0.0);
-	auxIntensitySlider.valueFromTextFunction = ValueToTextConverter::createForMode("NormalizedPercentage");
-	auxIntensitySlider.textFromValueFunction = ValueToTextConverter::createForMode("NormalizedPercentage");
+	auxIntensitySlider.valueFromTextFunction = createPlainPercentageConverter();
+	auxIntensitySlider.textFromValueFunction = createPlainPercentageConverter();
 	auxIntensitySlider.updateText();
 	
 	Helpers::setFallbackStyleSheet(*this,           "width:100%;gap:10px;height:100%;margin:5px; display:flex;align-items:center;");
@@ -584,6 +600,10 @@ int MatrixContent::Row::getIndexInTarget() const
 {
 	jassert(data.isValid());
 	auto parent = data.getParent();
+
+	// a virtual row is not in the matrix data yet
+	if(!parent.isValid())
+		return -1;
 
 	int targetIndex = 0;
 
@@ -1339,25 +1359,46 @@ MatrixContent::MatrixContent(MainController* mc, const String& targetId_, bool u
 	addAndMakeVisible(header);
 }
 
+MatrixContent::Row* MatrixContent::createRow(ValueTree v)
+{
+	Component* parent = useViewport ? &rowContent : this;
+
+	auto r = new Row(getMainController(), v, targetId);
+	r->setSliderStyle(sliderStyle);
+
+	parent->addAndMakeVisible(r);
+
+	r->setLookAndFeel(&getLookAndFeel());
+
+	if(auto root = simple_css::CSSRootComponent::find(*this))
+		r->setCSS(root->css);
+
+	rows.add(r);
+	return r;
+}
+
 void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 {
 	if(MatrixIds::Helpers::matchesTarget(v, targetId))
 	{
 		if(wasAdded)
 		{
-			Component* parent = useViewport ? &rowContent : this;
+			Row* existing = nullptr;
 
-			auto r = new Row(getMainController(), v, targetId);
-			r->setSliderStyle(sliderStyle);
+			// a virtual row whose tree was just promoted into the data keeps its component
+			for(auto r: rows)
+			{
+				if(r->data == v)
+				{
+					existing = r;
+					break;
+				}
+			}
 
-			parent->addAndMakeVisible(r);
-
-			r->setLookAndFeel(&getLookAndFeel());
-
-			if(auto root = simple_css::CSSRootComponent::find(*this))
-				r->setCSS(root->css);
-
-			rows.add(r);
+			if(existing != nullptr)
+				existing->isVirtual = false;
+			else
+				createRow(v);
 		}
 		else
 		{
@@ -1371,17 +1412,148 @@ void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 			}
 		}
 
-		for(int i = 0; i < rows.size(); i++)
-			rows[i]->setRowIndex(i);
-
-		if(useViewport)
-			resized();
-		else
-			setSize(getWidth(), getHeightToUse(getHeight()));
-
-		if(resizeFunction)
-			resizeFunction();
+		sortRows();
+		topUpVirtualRows();
+		refreshLayout();
 	}
+}
+
+void MatrixContent::refreshLayout()
+{
+	for(int i = 0; i < rows.size(); i++)
+		rows[i]->setRowIndex(i);
+
+	if(useViewport)
+		resized();
+	else
+		setSize(getWidth(), getHeightToUse(getHeight()));
+
+	if(resizeFunction)
+		resizeFunction();
+}
+
+void MatrixContent::sortRows()
+{
+	// real rows in matrix-data order, then the virtual rows in creation order
+	struct Sorter
+	{
+		Sorter(const ValueTree& d): data(d) {}
+
+		int rank(Row* r) const
+		{
+			if(r->isVirtual)
+				return 1000000 + r->virtualSerial;
+
+			auto idx = data.indexOf(r->data);
+			return idx == -1 ? 500000 : idx;
+		}
+
+		int compareElements(Row* a, Row* b) const
+		{
+			return rank(a) - rank(b);
+		}
+
+		ValueTree data;
+	};
+
+	Sorter s(data);
+	rows.sort(s, true);
+}
+
+void MatrixContent::setMinRows(int numRows)
+{
+	minRows = jmax(0, numRows);
+
+	// The tile property arrives before the component is parented, i.e. before a CSS root and
+	// the tile's look and feel exist. Build the empty rows on the next message loop tick, the
+	// same timing the asynchronous row listener gives real rows.
+	Component::SafePointer<MatrixContent> safeThis(this);
+
+	MessageManager::callAsync([safeThis]()
+	{
+		if(safeThis != nullptr)
+		{
+			safeThis->topUpVirtualRows();
+			safeThis->refreshLayout();
+		}
+	});
+}
+
+void MatrixContent::topUpVirtualRows()
+{
+	if(!data.isValid())
+		return;
+
+	int numReal = 0;
+
+	for(auto r: rows)
+		numReal += r->isVirtual ? 0 : 1;
+
+	// rows = max(minRows, real + 1): the grid never runs out of an empty row once it is on
+	auto wantedVirtual = minRows > 0 ? jmax(minRows - numReal, 1) : 0;
+
+	int numVirtual = rows.size() - numReal;
+
+	while(numVirtual < wantedVirtual)
+	{
+		addVirtualRow();
+		numVirtual++;
+	}
+
+	// virtual rows are always empty (an edited one is promoted at once), so dropping from the end is safe
+	for(int i = rows.size() - 1; i >= 0 && numVirtual > wantedVirtual; i--)
+	{
+		if(rows[i]->isVirtual)
+		{
+			rows.remove(i);
+			numVirtual--;
+		}
+	}
+}
+
+void MatrixContent::addVirtualRow()
+{
+	ValueTree v(MatrixIds::Connection);
+	v.setProperty(MatrixIds::TargetId, targetId, nullptr);
+	v.setProperty(MatrixIds::Mode, (int)modulation::TargetMode::Unipolar, nullptr);   // empty rows start Unipolar
+	v.setProperty(MatrixIds::SourceIndex, -1, nullptr);
+	v.setProperty(MatrixIds::Intensity, 0.0f, nullptr);
+	v.setProperty(MatrixIds::AuxIndex, -1.0, nullptr);
+	v.setProperty(MatrixIds::AuxIntensity, 0.0, nullptr);
+	v.setProperty(MatrixIds::Inverted, false, nullptr);
+
+	auto r = createRow(v);
+	r->isVirtual = true;
+	r->virtualSerial = ++virtualSerialCounter;
+
+	// Synchronous, so the tree is in the data before the row's asynchronous updateValue
+	// (which needs a parent for getIndexInTarget) runs. setCallback() replays the current
+	// values at once, which must not count as an edit (a target-filtered table presets the
+	// TargetId), hence the arming flag.
+	r->promoter.setCallback(v, { MatrixIds::SourceIndex, MatrixIds::TargetId }, valuetree::AsyncMode::Synchronously,
+	                        [this, r, v](const Identifier& id, const var&)
+	{
+		if(r->promoterArmed)
+			promoteVirtualRow(v, id);
+	});
+
+	r->promoterArmed = true;
+}
+
+void MatrixContent::promoteVirtualRow(ValueTree v, const Identifier& id)
+{
+	if(v.getParent().isValid() || !data.isValid())
+		return;
+
+	if(id == MatrixIds::SourceIndex && (int)v[id] == -1)
+		return;
+
+	if(id == MatrixIds::TargetId && (v[id].toString().isEmpty() || v[id].toString() == "No connection"))
+		return;
+
+	// onRowChange() sees the tree already owned by this row and promotes it; the ChildListener is
+	// asynchronous, so the row keeps its virtual flag until then, which is harmless.
+	data.addChild(v, -1, getMainController()->getControlUndoManager());
 }
 
 int MatrixContent::getHeightToUse(int parentHeight) const
@@ -1417,6 +1589,17 @@ void MatrixContent::resized()
 		}
 
 		header.setCSS(root->css);
+
+		// rows built before the CSS root existed (early top-up) get the tile's look and feel
+		// and stylesheet now, like the header above
+		for(auto r: rows)
+		{
+			if(!r->useCSS)
+			{
+				r->setLookAndFeel(&getLookAndFeel());
+				r->setCSS(root->css);
+			}
+		}
 	}
 
 	auto w = useViewport ? b.getWidth() - rowViewport.getScrollBarThickness() : b.getWidth();
@@ -1947,6 +2130,8 @@ var ModulationMatrixPanel::toDynamicObject() const
 {
 	auto obj = ModulationMatrixBasePanel::toDynamicObject();
 
+	obj.getDynamicObject()->setProperty("MinRows", minRows);
+
 	if(auto p = getContent<MatrixBase>())
 	{
 		obj.getDynamicObject()->setProperty("MatrixStyle", p->getMatrixType().toString());
@@ -1985,8 +2170,12 @@ void ModulationMatrixPanel::fromDynamicObject(const var& object)
 		typeId = Identifier("TableMatrix");
 
 	targetId = object["TargetFilter"].toString(); 
+	minRows = (int)object.getProperty("MinRows", 0);
 
 	ModulationMatrixBasePanel::fromDynamicObject(object);
+
+	if(auto mcContent = dynamic_cast<MatrixContent*>(getContent<MatrixBase>()))
+		mcContent->setMinRows(minRows);
 
 	StringArray sa;
 	sa.add("Knob");
@@ -2028,6 +2217,7 @@ Identifier ModulationMatrixPanel::getDefaultablePropertyId(int index) const
 	case SpecialPanelIds::MatrixType: return Identifier("MatrixType");
 	case SpecialPanelIds::SliderType: return Identifier("SliderType");
 	case SpecialPanelIds::TargetFilter: return Identifier("TargetFilter");
+	case SpecialPanelIds::MinRows: return Identifier("MinRows");
 	}
 
 	jassertfalse;
@@ -2043,6 +2233,7 @@ var ModulationMatrixPanel::getDefaultProperty(int index) const
 	case SpecialPanelIds::MatrixType: return var("TableMatrix");
 	case SpecialPanelIds::SliderType: return var("Knob");
 	case SpecialPanelIds::TargetFilter: return var("");
+	case SpecialPanelIds::MinRows: return var(0);
 	}
 
 	return var();

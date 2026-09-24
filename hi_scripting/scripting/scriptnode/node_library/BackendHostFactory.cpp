@@ -354,6 +354,29 @@ bool BackendDllManager::loadDll(bool forceUnload)
 				getMainController()->getNeuralNetworks().registerDllModels(projectDll.get());
 				getMainController()->getNeuralNetworks().refreshCompiledModels();
 #endif
+
+				// The network exporter writes a DLL node with its NV template argument only if
+				// CustomNodeProperties knows the node as polyphonic-capable, and until now that
+				// was learned only when a node got instantiated in the session (the DLL flags it
+				// in StaticLibraryHostFactory::initOpaqueNode). A node that no interpreted network
+				// or open editor instantiated was therefore exported without <NV> and the DLL
+				// build failed (SpectralPhaser after it left the phaser network, 2026-09-23).
+				// Learn it for every node once per DLL load instead, with a throwaway mono
+				// instance: the flag depends only on the registration, not on the poly variant.
+				auto numNodes = projectDll->getNumNodes();
+
+				for(int i = 0; i < numNodes; i++)
+				{
+					scriptnode::OpaqueNode tmp;
+
+					if(projectDll->initOpaqueNode(&tmp, i, false))
+					{
+						if(tmp.canBePolyphonic())
+							cppgen::CustomNodeProperties::addNodeIdManually(Identifier(projectDll->getNodeId(i)), PropertyIds::IsPolyphonic);
+
+						projectDll->deInitOpaqueNode(&tmp);
+					}
+				}
 			}
 
 			if(projectDll != nullptr && (oldDll == nullptr || oldDll->getDllFile() != projectDll->getDllFile()))

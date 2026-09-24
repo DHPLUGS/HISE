@@ -707,7 +707,11 @@ String Helpers::IntensityTextConverter::getText(double v) const
 	if(v == 0.0 && showInactive)
 		return "Inactive";
 
-	if(data.tm == modulation::TargetMode::Gain || data.showAsPercentage)
+	// matrix rows: plain number, no "%" (the intensity column is a percentage by definition)
+	if(data.showAsPercentage)
+		return String(roundToInt(v * 100.0));
+
+	if(data.tm == modulation::TargetMode::Gain)
 		return ValueToTextConverter::ConverterFunctions::NormalizedPercentage(v);
 
 	if(data.p != nullptr)

@@ -369,6 +369,13 @@ struct MatrixContent: public MatrixBase
 		ValueTree data;
 		valuetree::PropertyListener valueUpdater;
 
+		/** A virtual row is bound to a Connection tree that is NOT in the matrix data yet: the table
+		    shows it as an empty row and promotes it into the data on its first source / target edit. */
+		bool isVirtual = false;
+		bool promoterArmed = false;
+		int virtualSerial = 0;
+		valuetree::PropertyListener promoter;
+
 		std::map<Identifier, StringArray> items;
 		std::map<Identifier, ComboBox*> comboBoxes;
 
@@ -506,6 +513,17 @@ struct MatrixContent: public MatrixBase
 	int getHeightToUse(int parentHeight) const;
 	void resized() override;
 
+	/** Pre-populated empty rows: the table always shows max(minRows, real + 1) rows when minRows > 0
+	    (0 = stock behaviour, rows only for existing connections). The empty rows live in the UI only
+	    (see Row::isVirtual); presets and the matrix data never see them. */
+	void setMinRows(int numRows);
+	void topUpVirtualRows();
+	void addVirtualRow();
+	void promoteVirtualRow(ValueTree v, const Identifier& id);
+	void sortRows();
+	void refreshLayout();
+	Row* createRow(ValueTree v);
+
 	void paint(Graphics& g) override;
 
 	Identifier getMatrixType() const override { return "TableMatrix"; }
@@ -527,6 +545,9 @@ struct MatrixContent: public MatrixBase
 	valuetree::ChildListener rowListener;
 	String targetId;
 	std::function<void()> resizeFunction;
+
+	int minRows = 0;
+	int virtualSerialCounter = 0;
 };
 
 
@@ -636,6 +657,7 @@ struct ModulationMatrixPanel: public ModulationMatrixBasePanel
 		SliderType = PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds,
 		MatrixType,
 		TargetFilter,
+		MinRows,
 		numSpecialPanelIds
 	};
 
@@ -650,6 +672,7 @@ struct ModulationMatrixPanel: public ModulationMatrixBasePanel
 
 	Identifier typeId;
 	String targetId;
+	int minRows = 0;
 	Component* createMatrixComponent(const String& targetId) override;
 };
 
