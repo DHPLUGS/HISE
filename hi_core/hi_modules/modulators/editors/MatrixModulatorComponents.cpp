@@ -475,6 +475,12 @@ void MatrixContent::Row::rebuildItemList(const Identifier& id)
 		return;
 	}
 
+	if(id == MatrixIds::SourceIndex || id == MatrixIds::AuxIndex)
+	{
+		buildSourceLists(items[id], sourceIndices);
+		return;
+	}
+
 	items[id] = getItemList(id);
 }
 
@@ -569,6 +575,109 @@ void MatrixContent::Row::buildTargetLists(StringArray& displayNames, StringArray
 	}
 }
 
+void MatrixContent::Row::buildSourceLists(StringArray& displayNames, Array<int>& indices) const
+{
+	StringArray flatNames;
+	MatrixIds::Helpers::fillModSourceList(getMainController(), flatNames);
+
+	struct Entry
+	{
+		int index;
+		String displayName;
+		StringArray segments;
+		Array<int> ranks; // per level: index of the path up to that level in the folder order list
+	};
+
+	StringArray order;
+
+	if(container != nullptr)
+		order = container->getMatrixSourceFolderOrder();
+
+	std::vector<Entry> entries;
+	entries.reserve((size_t)flatNames.size());
+
+	for(int i = 0; i < flatNames.size(); i++)
+	{
+		Entry e;
+		e.index = i;
+		e.displayName = container != nullptr ? container->getMatrixSourceDisplayName(flatNames[i]) : flatNames[i];
+		e.segments.addTokens(e.displayName, "::", "");
+		e.segments.removeEmptyStrings();
+
+		if(e.segments.isEmpty())
+			e.segments.add(e.displayName);
+
+		String path;
+
+		for(const auto& seg: e.segments)
+		{
+			path = path.isEmpty() ? seg : path + "::" + seg;
+			auto idx = order.indexOf(path);
+			e.ranks.add(idx == -1 ? std::numeric_limits<int>::max() : idx);
+		}
+
+		entries.push_back(std::move(e));
+	}
+
+	// As in buildTargetLists, the flat array has to arrive in the order the popup numbers its items,
+	// or the combobox index stops matching the popup item ID. INSIDE a folder that means leaves
+	// before subfolders, because PopupMenuParser::SubInfo::flush() emits items then children. At the
+	// ROOT it means nothing: parseFromStringArray() walks the array and flushes a top folder where
+	// its first member appears, so a folder may sit above a plain entry there. The source list wants
+	// exactly that - LFO / ENV / MACROS first, then VELOCITY and the wheels - so the leaf-first rule
+	// is skipped at level 0 and the folder order list alone decides.
+	std::stable_sort(entries.begin(), entries.end(), [](const Entry& x, const Entry& y)
+	{
+		auto n = jmin(x.segments.size(), y.segments.size());
+
+		for(int i = 0; i < n; i++)
+		{
+			if(i > 0)
+			{
+				auto xLeaf = i == x.segments.size() - 1;
+				auto yLeaf = i == y.segments.size() - 1;
+
+				if(xLeaf != yLeaf)
+					return xLeaf;
+			}
+
+			if(x.ranks[i] != y.ranks[i])
+				return x.ranks[i] < y.ranks[i];
+
+			auto c = x.segments[i].compareNatural(y.segments[i]);
+
+			if(c != 0)
+				return c < 0;
+		}
+
+		return x.segments.size() < y.segments.size();
+	});
+
+	displayNames.clear();
+	indices.clear();
+
+	// "No connection" keeps the first slot; the stored value for it is -1
+	displayNames.add("No connection");
+	indices.add(-1);
+
+	for(const auto& e: entries)
+	{
+		displayNames.add(e.displayName);
+		indices.add(e.index);
+	}
+}
+
+String MatrixContent::Row::getSourceName(int sourceIndex) const
+{
+	if(sourceIndex < 0)
+		return {};
+
+	StringArray flatNames;
+	MatrixIds::Helpers::fillModSourceList(getMainController(), flatNames);
+
+	return flatNames[sourceIndex];
+}
+
 StringArray MatrixContent::Row::getItemList(const Identifier& id) const
 {
 	StringArray items;
@@ -580,7 +689,9 @@ StringArray MatrixContent::Row::getItemList(const Identifier& id) const
 	}
 	else if(id == MatrixIds::SourceIndex || id == MatrixIds::AuxIndex)
 	{
-		MatrixIds::Helpers::fillModSourceList(getMainController(), items);
+		Array<int> indices;
+		items.clear();
+		buildSourceLists(items, indices);
 	}
 	else if(id == MatrixIds::TargetId)
 	{
@@ -672,8 +783,11 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 
 			auxIntensitySlider.setEnabled(isEnabled);
 
-			// "No connection" reads as a plain placeholder in the row (displayText, see the LAF)
-			auxSelector.getProperties().set("displayText", isEnabled ? "" : "--");
+			// "No connection" reads as a plain placeholder in the row (displayText, see the LAF).
+			// Connected, the popup only carries the short leaf ("1" inside ENV), so the row draws
+			// the full source name the same way the target column does.
+			auxSelector.getProperties().set("displayText", isEnabled ? getSourceName((int)newValue) : "--");
+			auxSelector.refreshTickState();
 			auxSelector.repaint();
 		}
 		else if (id == MatrixIds::SourceIndex)
@@ -681,7 +795,8 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 			auto isEnabled = (int)newValue != -1;
 			intensitySlider.setEnabled(isEnabled);
 			auxSelector.setEnabled(isEnabled);
-			sourceSelector.getProperties().set("displayText", isEnabled ? "" : "--");
+			sourceSelector.getProperties().set("displayText", isEnabled ? getSourceName((int)newValue) : "--");
+			sourceSelector.refreshTickState();
 			sourceSelector.repaint();
 			rebuildLayout();
 		}
@@ -771,8 +886,9 @@ void MatrixContent::Row::addComponent(Component& c, const Identifier& id)
 
 		// Turn the "Folder::Sub::Target" strings into popup submenus. Must run after the items
 		// exist: setUseCustomPopup() snapshots the root menu and rebuilds it from the item texts.
-		if(id == MatrixIds::TargetId)
-			targetSelector.setUseCustomPopup(true);
+		// The source and aux lists are foldered the same way (setSourceDisplayNames).
+		if(auto sb = dynamic_cast<SubmenuComboBox*>(cb))
+			sb->setUseCustomPopup(true);
 	}
 }
 
@@ -816,8 +932,9 @@ int MatrixContent::Row::valueToComboBoxIndex(const Identifier& id)
 	if(id == MatrixIds::Mode)
 		return (int)v;
 
-	// unconnected = -1
-	return (int)v + 1;
+	// items[SourceIndex] / [AuxIndex] hold display names; sourceIndices runs parallel to it and
+	// holds -1 for the "No connection" entry, so an unconnected row still lands on index 0.
+	return sourceIndices.indexOf((int)v);
 }
 
 var MatrixContent::Row::comboBoxIndexToValue(const Identifier& id, int comboBoxIndex)
@@ -830,8 +947,8 @@ var MatrixContent::Row::comboBoxIndexToValue(const Identifier& id, int comboBoxI
 	if(id == MatrixIds::TargetId)
 		return targetIds[comboBoxIndex];
 
-	// unconnected = -1
-	return (int)comboBoxIndex - 1;
+	// unconnected = -1 (Array::operator[] would hand back 0 for an out-of-range index)
+	return isPositiveAndBelow(comboBoxIndex, sourceIndices.size()) ? sourceIndices[comboBoxIndex] : -1;
 }
 
 void MatrixContent::Row::resized()

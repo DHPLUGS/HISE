@@ -724,6 +724,35 @@ public:
 
 	StringArray matrixTargetFolderOrder;
 
+	/** The same two for the SOURCE / AUX comboboxes of the matrix table. Keys are source names as
+	    fillModSourceList() reports them, values are "Folder::Sub::Source" paths. A source without an
+	    entry is listed under its own name. Set from the script through
+	    ScriptModulationMatrix::setSourceDisplayNames() / setSourceFolderOrder(). */
+	void setMatrixSourceDisplayNames(const var& newNames) { matrixSourceDisplayNames = newNames; }
+
+	String getMatrixSourceDisplayName(const String& sourceName) const
+	{
+		if(sourceName.isNotEmpty())
+		{
+			if(auto obj = matrixSourceDisplayNames.getDynamicObject())
+			{
+				auto v = obj->getProperty(Identifier(sourceName));
+
+				if(v.isString() && v.toString().isNotEmpty())
+					return v.toString();
+			}
+		}
+
+		return sourceName;
+	}
+
+	var matrixSourceDisplayNames;
+
+	void setMatrixSourceFolderOrder(const StringArray& newOrder) { matrixSourceFolderOrder = newOrder; }
+	const StringArray& getMatrixSourceFolderOrder() const { return matrixSourceFolderOrder; }
+
+	StringArray matrixSourceFolderOrder;
+
 	runtime_target::connection getMatrixModulatorConnection() const { return runtimeSource.createConnection(); }
 
 	void handleRetriggeredNote(ModulatorSynthVoice *voice) override

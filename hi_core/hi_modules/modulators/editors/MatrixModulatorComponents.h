@@ -326,6 +326,16 @@ struct MatrixContent: public MatrixBase
 		    (from GlobalModulatorContainer::getMatrixTargetDisplayName) sorted into the order in which
 		    SubmenuComboBox numbers them, ids holds the matching target IDs. */
 		void buildTargetLists(StringArray& displayNames, StringArray& ids) const;
+
+		/** The same for the source / aux comboboxes. displayNames holds the "Folder::Sub::Source"
+		    strings (from GlobalModulatorContainer::getMatrixSourceDisplayName) in the order
+		    SubmenuComboBox numbers them, indices holds the matching source index (-1 for
+		    "No connection", which stays first). */
+		void buildSourceLists(StringArray& displayNames, Array<int>& indices) const;
+
+		/** The plain source name behind a source index, for the row's displayText (the popup only
+		    shows the short leaf once the sources are foldered). */
+		String getSourceName(int sourceIndex) const;
 		int getIndexInTarget() const;
 		void updateValue(const Identifier& id, const var& newValue);
 
@@ -341,8 +351,10 @@ struct MatrixContent: public MatrixBase
 
 		void updateSearchVisibility(bool shouldBeVisible, const String& searchTerm) override
 		{
-			shouldBeVisible |= sourceSelector.getText().toLowerCase().contains(searchTerm);
-			shouldBeVisible |= auxSelector.getText().toLowerCase().contains(searchTerm);
+			// the selectors show the short leaf once the sources are foldered ("1" inside ENV),
+			// so search the full source name instead
+			shouldBeVisible |= getSourceName((int)data[MatrixIds::SourceIndex]).toLowerCase().contains(searchTerm);
+			shouldBeVisible |= getSourceName((int)data[MatrixIds::AuxIndex]).toLowerCase().contains(searchTerm);
 			RowBase::updateSearchVisibility(shouldBeVisible, searchTerm);
 		}
 
@@ -382,10 +394,13 @@ struct MatrixContent: public MatrixBase
 		/** Target IDs in the same order as items[MatrixIds::TargetId] (the combobox index order). */
 		StringArray targetIds;
 
+		/** Source indices in the same order as items[MatrixIds::SourceIndex] / [AuxIndex]. */
+		Array<int> sourceIndices;
+
 		
 		
 		ModPlotter plotter;
-		ComboBox sourceSelector;
+		SubmenuComboBox sourceSelector;
 		SubmenuComboBox targetSelector;
 		ComboBox modeSelector;
 		
@@ -393,7 +408,7 @@ struct MatrixContent: public MatrixBase
 		IntensitySlider auxIntensitySlider;
 		ToggleButton invertedButton;
 		DeleteButton deleteButton;
-		ComboBox auxSelector;
+		SubmenuComboBox auxSelector;
 		UndoManager* um;
 	};
 
