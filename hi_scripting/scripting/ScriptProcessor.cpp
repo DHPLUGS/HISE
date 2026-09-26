@@ -1640,6 +1640,16 @@ void JavascriptProcessor::shadowParseFile(const String& code, const String& file
 		return;
 	}
 
+	// APEX: the shadow parse swaps every live inline function body for an empty block while it
+	// re-parses (ScopedDiagnosticParse). Until the KillStateHandler is initialised (project still
+	// opening), killVoicesAndCall runs the lambda right here on the calling thread instead of the
+	// scripting thread, so a paint routine running there at the same time calls an empty inline
+	// function, gets undefined back and throws "Unknown function" (MB_Methods.js scaleToFit on
+	// project open). Diagnostics are editor-only, so skip them until the project has loaded; the
+	// next edit or F7 re-runs them.
+	if (!mainController->getKillStateHandler().initialised())
+		return;
+
 	// prevent the last compilation from spamming the console.
 	lastResult = Result::ok();
 
