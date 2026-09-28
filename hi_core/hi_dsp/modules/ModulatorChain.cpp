@@ -948,7 +948,62 @@ void ModulatorChain::ModChainWithBuffer::calculateMonophonicModulationValues(int
 			currentMonoValue = modBuffer.monoValues[startSample_cr];
 		}
 
-		
+		// APEX (HISE_HOLD_MODS_WITHOUT_VOICES): with no voice anywhere, overwrite what was just rendered
+		// with the at-rest value - the initial value times every gain-mode modulator's base value, plus
+		// (CombinedMode) the offset-mode modulators' base values - so every consumer holds still. It has
+		// to happen here, at the source: EffectProcessor::renderAllChains() runs a voice-0 pass after
+		// this one that copies monoValues and the add buffer into the core.extra_mod signal again, so
+		// holding only one consumer let that pass write the free-running LFO back. The EQ_FX and
+		// FILTERS_FX graphs (and sound) followed a connected LFO with no note playing (2026-09-28).
+		// The modulators are still rendered above, so they keep their phase and state.
+		if (numSamples_cr > 0 && c->getMainController()->shouldHoldModsWithoutVoices() &&
+		    c->getMainController()->getNumActiveVoices() == 0)
+		{
+			float gainValue = iv;
+
+			if (c->getMode() == Modulation::Mode::CombinedMode)
+			{
+				float addValue = 0.0f;
+
+				CombinedModIterator<TimeVariantModulator> iter(c);
+
+				while (auto mod = iter.nextWithMode<Modulation::Mode::GainMode>())
+					gainValue *= mod->getInactiveModValue();
+
+				while (auto mod = iter.nextWithMode<Modulation::Mode::OffsetMode>())
+					addValue += mod->getInactiveModValue();
+
+				CombinedModIterator<MonophonicEnvelope> iter2(c);
+
+				while (auto mod = iter2.nextWithMode<Modulation::Mode::GainMode>())
+					gainValue *= mod->getInactiveModValue();
+
+				while (auto mod = iter2.nextWithMode<Modulation::Mode::OffsetMode>())
+					addValue += mod->getInactiveModValue();
+
+				auto ptr = c->addBufferData->getWritePointer(0, false);
+				FloatVectorOperations::fill(ptr + startSample_cr, addValue, numSamples_cr);
+				c->addBufferData->currentTimeVariantAddValue = addValue;
+
+				FloatVectorOperations::fill(modBuffer.monoValues + startSample_cr, gainValue, numSamples_cr);
+				currentMonoValue = gainValue + addValue;
+			}
+			else
+			{
+				ModIterator<TimeVariantModulator> iter(c);
+
+				while (auto mod = iter.next())
+					gainValue *= mod->getInactiveModValue();
+
+				ModIterator<MonophonicEnvelope> iter2(c);
+
+				while (auto mod = iter2.next())
+					gainValue *= mod->getInactiveModValue();
+
+				FloatVectorOperations::fill(modBuffer.monoValues + startSample_cr, gainValue, numSamples_cr);
+				currentMonoValue = gainValue;
+			}
+		}
 
 #if HISE_FREEZE_MONO_MODS_WITHOUT_VOICES
 		if (numSamples_cr > 0)
