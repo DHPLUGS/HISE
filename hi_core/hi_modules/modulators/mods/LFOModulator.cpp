@@ -573,6 +573,13 @@ float LfoModulator::calculateNewValue ()
 			float v1 = currentTable[firstIndex];
 			float v2 = currentTable[nextIndex];
 
+			// The saw jumps from 1 back to 0 at the table seam. Interpolating across it turns
+			// the last table cell (1/512 of every cycle) into a ramp back down through all the
+			// values, which a target that reads the LFO as a phase or position hears as a
+			// glitch once per cycle. Hold the last value instead so the drop is a clean step.
+			if (currentWaveform == Waveform::Saw && nextIndex == 0)
+				v2 = v1;
+
 			const float alpha = float(uptime) - (float)index;
 			const float invAlpha = 1.0f - alpha;
 
