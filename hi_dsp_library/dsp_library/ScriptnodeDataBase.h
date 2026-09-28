@@ -1,7 +1,7 @@
 #pragma once
 namespace ScriptnodeDataBase
 {
-static constexpr int scriptnode_database_datSize = 15504;
+static constexpr int scriptnode_database_datSize = 15500;
 extern const char* scriptnode_database_dat;
 }
 
