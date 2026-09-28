@@ -830,7 +830,20 @@ template <int NV> struct matrix_mod:
 
 	void handleHiseEvent(const HiseEvent& e)
 	{
-		lastVoiceIndex = lastSpecs.voiceIndex->getVoiceIndex();
+		// APEX: only a note-on moves the displayed voice - a note-off, CC or pitch wheel
+		// reaching a releasing voice used to hand the display back to it.
+		if(e.isNoteOn())
+		{
+			lastVoiceIndex = lastSpecs.voiceIndex->getVoiceIndex();
+			samplesWithoutDisplayVoice = 0;
+
+			if(isPositiveAndBelow(lastVoiceIndex, NV))
+			{
+				displayStamp[lastVoiceIndex] = ++nextDisplayStamp;
+				displayHeld[lastVoiceIndex] = true;
+			}
+		}
+
 		sourceMod.handleHiseEvent(e);
 		auxMod.handleHiseEvent(e);
 	}
@@ -850,6 +863,37 @@ template <int NV> struct matrix_mod:
 	{
 		sourceMod.reset();
 		auxMod.reset();
+
+		// APEX: the owner resets a voice when it ends - it no longer counts as held.
+		auto v = lastSpecs.voiceIndex != nullptr ? lastSpecs.voiceIndex->getVoiceIndex() : -1;
+
+		if(isPositiveAndBelow(v, NV))
+			displayHeld[v] = false;
+	}
+
+	// APEX: called by the owner (with the voice set) when a voice's key is released. If the
+	// display follows that voice and other keys are still held, it moves to the newest held
+	// one at once, so the knob dot does not ride the released note's release down. With no
+	// key held it stays, and the last note's release is shown as it fades.
+	void onVoiceReleased()
+	{
+		auto v = lastSpecs.voiceIndex != nullptr ? lastSpecs.voiceIndex->getVoiceIndex() : -1;
+
+		if(!isPositiveAndBelow(v, NV))
+			return;
+
+		displayHeld[v] = false;
+
+		if(v == lastVoiceIndex)
+		{
+			auto h = newestHeldVoice(v);
+
+			if(h != -1)
+			{
+				lastVoiceIndex = h;
+				samplesWithoutDisplayVoice = 0;
+			}
+		}
 	}
 
 	bool handleModulation(double& v)
@@ -865,8 +909,13 @@ template <int NV> struct matrix_mod:
 		auxMod.process(ad);
 		applyModulation(data[0].begin(), sptr, aptr, data.getNumSamples());
 
-		if(plotEnabled && lastSpecs.voiceIndex->getVoiceIndex() == lastVoiceIndex)
+		auto isDisplayVoice = updateDisplayVoice(data.getNumSamples());
+
+		if(plotEnabled && isDisplayVoice)
 			updateBuffer(sptr, data.getNumSamples());
+
+		if(isDisplayVoice)
+			displayValue = sptr[0];
 
 		mv.setModValue(sptr[0]);
 	}
@@ -880,8 +929,13 @@ template <int NV> struct matrix_mod:
 		auxMod.processFrame(ad);
 		applyModulation(data.begin(), sd.begin(), ad.begin(), 1);
 
-		if(plotEnabled)
+		auto isDisplayVoice = updateDisplayVoice(1);
+
+		if(plotEnabled && isDisplayVoice)
 			updateBuffer(sd[0], 1);
+
+		if(isDisplayVoice)
+			displayValue = sd[0];
 
 		mv.setModValue(sd[0]);
 	}
@@ -1044,7 +1098,10 @@ template <int NV> struct matrix_mod:
 
 	float zeroDelta = 0.0f;;
 
-	double getLastModValue() const { return mv.getModValue(); }
+	// APEX: the knob display reads this. mv (the node's modulation output) is written by every
+	// voice, so reading it made the mod dot jump between voices; displayValue follows only the
+	// last started voice.
+	double getLastModValue() const { return displayValue; }
 
 	// APEX: the owner clears this while no voice is active (HISE_HOLD_MODS_WITHOUT_VOICES) so the
 	// matrix plotters stand still between notes; the modulation itself keeps rendering.
@@ -1052,7 +1109,59 @@ template <int NV> struct matrix_mod:
 
 private:
 
+	// APEX: true if the voice being rendered is the one the display follows (plot + knob dot).
+	// A monophonic render (voice index -1) is the only stream, so it always is. If the followed
+	// voice has not rendered for ~100 ms (ended while older notes still play) the next voice to
+	// render takes over, so the display does not freeze. 100 ms because voices render one after
+	// another through a whole host block, so a shorter gap does not mean the voice has gone.
+	bool updateDisplayVoice(int numSamples)
+	{
+		auto thisVoice = lastSpecs.voiceIndex != nullptr ? lastSpecs.voiceIndex->getVoiceIndex() : -1;
+
+		if(thisVoice == -1 || thisVoice == lastVoiceIndex)
+		{
+			samplesWithoutDisplayVoice = 0;
+			return true;
+		}
+
+		samplesWithoutDisplayVoice += numSamples;
+
+		if(samplesWithoutDisplayVoice >= (int)(0.1 * jmax(1.0, lastSpecs.sampleRate)))
+		{
+			// Prefer the newest held voice; with none held, this one.
+			auto h = newestHeldVoice(lastVoiceIndex);
+			lastVoiceIndex = h != -1 ? h : thisVoice;
+			samplesWithoutDisplayVoice = 0;
+			return lastVoiceIndex == thisVoice;
+		}
+
+		return false;
+	}
+
+	// APEX: the voice with the newest note-on whose key is still held, skipping `exclude`; -1 if none.
+	int newestHeldVoice(int exclude) const
+	{
+		int best = -1;
+		uint32 bestStamp = 0;
+
+		for(int i = 0; i < NV; i++)
+		{
+			if(i != exclude && displayHeld[i] && displayStamp[i] > bestStamp)
+			{
+				best = i;
+				bestStamp = displayStamp[i];
+			}
+		}
+
+		return best;
+	}
+
 	int lastVoiceIndex = -1;
+	int samplesWithoutDisplayVoice = 0;
+	double displayValue = 0.0;
+	uint32 displayStamp[NV] = {};
+	bool displayHeld[NV] = {};
+	uint32 nextDisplayStamp = 0;
 
 	modulation::TargetMode tm = modulation::TargetMode::Gain;
 

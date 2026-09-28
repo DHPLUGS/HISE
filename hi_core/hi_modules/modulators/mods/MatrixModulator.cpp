@@ -566,6 +566,16 @@ void MatrixModulator::stopVoice(int voiceIndex)
 	EnvelopeModulator::stopVoice(voiceIndex);
 
 	active[voiceIndex] = false;
+
+	// APEX: tell the connections a key was released so the knob display can move on to the
+	// newest held note instead of following this one's release.
+	if(auto sl = SimpleReadWriteLock::ScopedTryReadLock(matrixLock))
+	{
+		PolyHandler::ScopedVoiceSetter svs(polyHandler, voiceIndex);
+
+		for(auto m: allMods)
+			m->onVoiceReleased();
+	}
 }
 
 void MatrixModulator::reset(int voiceIndex)
