@@ -2031,16 +2031,25 @@ void HiseJavascriptEngine::TokenProvider::addTokens(mcl::TokenCollection::List& 
 
 	#undef X
 
-			for (int i = 0; i < tokens.size(); i++)
+			// Filter in one pass - removing one by one is O(N^2) and stalls the
+			// message thread for tens of seconds on large scripts.
+			mcl::TokenCollection::List filtered;
+			filtered.ensureStorageAllocated(tokens.size());
+
+			for (auto t : tokens)
 			{
-				if (tokens[i]->tokenContent.contains("[") ||
-					tokens[i]->tokenContent.contains("%PARENT%") ||
-					tokens[i]->tokenContent.endsWith(".args") ||
-					tokens[i]->tokenContent.endsWith(".locals"))
+				if (t->tokenContent.contains("[") ||
+					t->tokenContent.contains("%PARENT%") ||
+					t->tokenContent.endsWith(".args") ||
+					t->tokenContent.endsWith(".locals"))
 				{
-					tokens.remove(i--);
+					continue;
 				}
+
+				filtered.add(t);
 			}
+
+			tokens.swapWith(filtered);
 		}
 		else
 		{
