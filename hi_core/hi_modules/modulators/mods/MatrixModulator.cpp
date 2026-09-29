@@ -304,6 +304,27 @@ void MatrixModulator::setValueRange(bool isInputRange, scriptnode::InvertablePar
 	}
 
 	setValueInternal(inputValue);
+
+	if(!isInputRange)
+		unbypassIfLiveValuePathNeeded();
+}
+
+bool MatrixModulator::needsLiveValuePath() const
+{
+	auto r = rangeData.outputRange.getRange();
+	return r.getStart() != 0.0 || r.getEnd() != 1.0;
+}
+
+void MatrixModulator::unbypassIfLiveValuePathNeeded()
+{
+	// APEX: a bypassed MatrixModulator delivers its knob value through getInactiveModValue(),
+	// which maps it through the full output range. The live path does not, so for any output
+	// range other than 0...1 the two disagree: a -1...1 PAN slot read R50 as centre and
+	// C as hard left while bypassed. Such a slot got bypassed whenever its last matrix
+	// connection went away (a preset load clearing the matrix, a deleted row) and the flag
+	// was saved with the project. Keep these slots live instead (2026-09-29).
+	if(isBypassed() && needsLiveValuePath())
+		setBypassed(false, sendNotificationSync);
 }
 
 void MatrixModulator::setValueInternal(float valueWithinInputRange)
@@ -509,6 +530,9 @@ void MatrixModulator::restoreFromValueTree(const ValueTree& v)
 	auto ro = vr.getChildWithName(MatrixIds::OutputRange);
 
 	setRangeData(MatrixIds::Helpers::Properties::RangeData::fromValueTrees(ri, ro));
+
+	// APEX: projects / presets saved while such a slot was auto-bypassed restore it bypassed
+	unbypassIfLiveValuePathNeeded();
 
 #if 0
 	rangeData.fromValueTrees(ri, ro);
@@ -852,6 +876,10 @@ void MatrixModulator::onMatrixChange(const ValueTree& v, bool wasAdded)
 					}
 				}
 			}
+
+			// APEX: see unbypassIfLiveValuePathNeeded()
+			if(needsLiveValuePath())
+				canBeBypassed = false;
 
 			if(canBeBypassed)
 				setBypassed(true, sendNotificationSync);

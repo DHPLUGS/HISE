@@ -187,6 +187,12 @@ private:
 	void setValueRange(bool isInputRange, scriptnode::InvertableParameterRange nr);
 	void setValueInternal(float valueWithinInputRange);
 
+	/** APEX: true if the output range is not 0...1. The bypassed value path
+	    (getInactiveModValue) does not match the live path for such a range, so these
+	    modulators must never sit bypassed. */
+	bool needsLiveValuePath() const;
+	void unbypassIfLiveValuePathNeeded();
+
 	bool onScaleDrag(bool isDown, float delta);
 	void rebuildModList();
 	void onMatrixChange(const ValueTree& v, bool wasAdded);
