@@ -289,6 +289,7 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 		}
 
 		m.addSubMenu("Assign", assignMenu, !sources.isEmpty());
+		m.addSeparator();   // APEX: header | ADD MODULATOR | per-source rows read as three blocks
 
 		idx = 0;
 
@@ -310,7 +311,7 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 
 		int cidx = 0;
 
-		if(gc->customEditCallbacks.size() > 1)
+		if(!gc->customEditCallbacks.isEmpty())   // APEX: was > 1, so a single EDIT item sat inside the rows
 			m.addSeparator();
 
 		for(auto item: gc->customEditCallbacks)
