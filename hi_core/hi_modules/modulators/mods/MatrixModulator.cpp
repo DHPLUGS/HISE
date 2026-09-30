@@ -335,10 +335,22 @@ void MatrixModulator::setValueInternal(float valueWithinInputRange)
 
 	if(auto parentModChain = dynamic_cast<ModulatorChain*>(getParentProcessor(false, false)))
 	{
-		if(isBypassed())
-			parentModChain->updateInitialValueFromChildMods();
-		else
-			parentModChain->setInitialValue(parentModChain->getInitialValue());
+		// APEX: recompute the chain's initial value from EVERY bypassed sibling, whether this
+		// modulator is bypassed or not. The active branch used to call
+		// setInitialValue(getInitialValue()), and Modulation::getInitialValue() is the NEUTRAL
+		// value (1.0 in PitchMode), which setInitialValue() then stores with its "not set" flag -
+		// so writing an ACTIVE slot's value threw away a BYPASSED sibling's contribution.
+		//
+		// Each OSC pitch Extra chain holds three slots: OCTAVE (output range -1.5...2.5) and
+		// FINE TUNE (0.458...0.542) are live because their ranges are not 0...1, while SEMITONES
+		// (exactly 0...1) stays bypassed and therefore delivers its knob value through the
+		// chain's initial value. Re-sending octave or fine after the semitones - which the
+		// post-load pitch re-apply in CustomPresetBrowser.js does in exactly that order - wiped
+		// the semitone offset, so an osc set to +5 st loaded at the root. The same chain layout
+		// (and the same wipe) applies to SUB OCTAVE / SUB PITCH. updateInitialValueFromChildMods()
+		// starts from neutral and folds in only the bypassed children, so an active slot's own
+		// contribution is not double counted here (2026-09-29).
+		parentModChain->updateInitialValueFromChildMods();
 	}
 }
 
