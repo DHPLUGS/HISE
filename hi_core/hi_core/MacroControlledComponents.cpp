@@ -100,6 +100,28 @@ bool MacroControlledObject::checkLearnMode()
 }
 
 
+LookAndFeel* MacroControlledObject::getPopupLookAndFeel(MainController* mc, Component* c)
+{
+	LookAndFeel* plaf = &mc->getGlobalLookAndFeel();
+
+	if(c != nullptr)
+	{
+		auto thisLaf = &c->getLookAndFeel();
+		auto css = dynamic_cast<simple_css::StyleSheetLookAndFeel*>(thisLaf);
+
+		if(css == nullptr)
+		{
+			if(auto pf = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::LafBase*>(thisLaf))
+				css = pf->getStyleSheetLookAndFeel();
+		}
+
+		if(css != nullptr)
+			plaf = css;
+	}
+
+	return plaf;
+}
+
 void MacroControlledObject::enableMidiLearnWithPopup()
 {
 	if (!canBeMidiLearned())
@@ -135,22 +157,8 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 	PopupMenu m;
 
 	auto mc = getProcessor()->getMainController();
-	LookAndFeel* plaf = &mc->getGlobalLookAndFeel();
 
-
-	auto thisLaf = &asComponent()->getLookAndFeel();
-	auto css = dynamic_cast<simple_css::StyleSheetLookAndFeel*>(thisLaf);
-
-	if(css == nullptr)
-	{
-		if(auto pf = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::LafBase*>(thisLaf))
-			css = pf->getStyleSheetLookAndFeel();
-	}
-
-	if(css != nullptr)
-		plaf = css;
-
-	m.setLookAndFeel(plaf);
+	m.setLookAndFeel(getPopupLookAndFeel(mc, asComponent()));
 
 	// add modulation options at the top of the menu, above the CC entries
 	if (modulationData != nullptr)
@@ -1775,7 +1783,11 @@ struct HiSlider::HoverPopup: public Component,
 		if(e.mods.isRightButtonDown() && currentHoverIndex != -1)
 		{
 			PopupMenu m;
-			m.setLookAndFeel(&parent->getLookAndFeel());
+
+			// Not parent->getLookAndFeel(): that is the slider's own local LAF, which draws the
+			// slider but not a menu, so this menu came out in HISE's default style while every other
+			// APEX menu was styled. Same resolution as the knob's own right-click menu.
+			m.setLookAndFeel(MacroControlledObject::getPopupLookAndFeel(parent->getProcessor()->getMainController(), parent.getComponent()));
 
 			auto c = getConnectionData(sourceIndexes[currentHoverIndex]);
 			auto tm = (int)c[MatrixIds::Mode];

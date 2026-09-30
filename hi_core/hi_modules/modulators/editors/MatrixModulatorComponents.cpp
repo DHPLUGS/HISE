@@ -1956,7 +1956,9 @@ void SliderMatrix::Row::handlePopup(const MouseEvent& e)
 		ScopedPointer<LookAndFeel> laf;
 		PopupMenu m;
 
-		m.setLookAndFeel(&getLookAndFeel());
+		// The row's own LookAndFeel draws the matrix, not a menu - resolve the menu's LAF the same
+		// way the knob and dragger menus do so the global popup styling applies here too.
+		m.setLookAndFeel(MacroControlledObject::getPopupLookAndFeel(parent.getMainController(), this));
 
 		auto inverted = (bool)c[MatrixIds::Inverted];
 		auto mode = (int)c[MatrixIds::Mode];
@@ -1967,7 +1969,7 @@ void SliderMatrix::Row::handlePopup(const MouseEvent& e)
 		m.addItem(3, "Unipolar", true, mode == 1);
 		m.addItem(4, "Bipolar", true, mode == 2);
 
-		if(auto r = m.show())
+		if(auto r = PopupLookAndFeel::showAtComponent(m, this, false))
 		{
 			if(r == 1)
 				c.setProperty(MatrixIds::Inverted, !inverted, um);

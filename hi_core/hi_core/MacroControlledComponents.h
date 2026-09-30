@@ -286,6 +286,16 @@ public:
 		//std::function<void(String)> editCallback;
 	};
 
+	/** The LookAndFeel a right-click menu should use: the global one, or the CSS stylesheet LAF
+	    when the component has (or carries) one.
+
+	    APEX: every context menu should go through here. A component's own LookAndFeel is usually
+	    a local scripted LAF that implements only that control's own drawing, and a scripted LAF
+	    does NOT inherit the global one's registered functions - so handing a menu the component's
+	    LAF leaves it in HISE's default style while the rest of the interface is styled. The
+	    modulation dragger's menu did exactly that (2026-09-30). */
+	static LookAndFeel* getPopupLookAndFeel(MainController* mc, Component* c);
+
 	class UndoableControlEvent: public UndoableAction
 	{
 	public:
