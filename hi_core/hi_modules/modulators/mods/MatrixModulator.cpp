@@ -174,16 +174,21 @@ void MatrixModulator::Item::handleScaleDrag(bool isDown, float delta)
 
 void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scriptnode::InvertableParameterRange outputRange, double fullRangeFactor)
 {
-	if(!isActive())
+	if(!isConnected())
 		return;
 
+	// APEX: a bypassed row still reports its RANGE (the knob draws it in the bypass colour)
+	// but contributes nothing to the modulated VALUE - it is out of the render lists.
 	auto v = mod.getLastModValue();
 
 	if(isScale)
 	{
-		mv.scaledValue -= mod.zeroDelta;
-		mv.scaledValue *= v;
-		mv.scaledValue += mod.zeroDelta;
+		if(!bypassed)
+		{
+			mv.scaledValue -= mod.zeroDelta;
+			mv.scaledValue *= v;
+			mv.scaledValue += mod.zeroDelta;
+		}
 
 		if(mod.zeroDelta != 0.0f)
 		{
@@ -210,7 +215,8 @@ void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scrip
 
 		auto thisV = v * factor;
 
-		mv.addValue += thisV;
+		if(!bypassed)
+			mv.addValue += thisV;
 
 		auto minValue = mv.modulationRange.getStart();
 		auto maxValue = mv.modulationRange.getEnd();
@@ -741,17 +747,27 @@ ModulationDisplayValue MatrixModulator::getDisplayValue(double nv, NormalisableR
 	ModulationDisplayValue mv;
 	mv.normalisedValue = nr.convertTo0to1(nv);
 	mv.scaledValue = mv.normalisedValue;
-	mv.modulationActive = !allMods.empty();
-
 	mv.modulationRange = { mv.normalisedValue, mv.normalisedValue };
 
 	auto fullRange = getMode() == Modulation::PitchMode ? 2.0f : 1.0f;
 
+	bool anyConnected = false;
+	bool anyActive = false;
+
 	for (auto i : items)
 	{
 		if (displaySourceIndex == -1 || i->sourceIndex == displaySourceIndex)
+		{
+			anyConnected |= i->isConnected();
+			anyActive |= i->isActive();
 			i->handleDisplayValue(mv, rangeData.outputRange, fullRange);
+		}
 	}
+
+	// APEX: the queried rows count as "active" even when every one is bypassed, so the knob keeps
+	// its ring and dragger; modulationBypassed tells the LAF to draw that ring in the bypass colour.
+	mv.modulationActive = !allMods.empty() || anyConnected;
+	mv.modulationBypassed = anyConnected && !anyActive;
 
 	mv.clipTo0To1();
 

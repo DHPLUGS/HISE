@@ -344,52 +344,65 @@ ModulationDisplayValue ScriptingApi::Content::ScriptSlider::MatrixCableConnectio
 	double min = normValue;
 	double max = normValue;
 
-	mv.modulationActive = !scaleTargets.isEmpty() || !addTargets.isEmpty();
 	mv.normalisedValue = normValue;
-		
-	for(auto s: scaleTargets)
+
+	// APEX: walk every connection, bypassed ones included: they still report their RANGE (the
+	// knob draws it in the bypass colour) but add nothing to the VALUE. Scale rows multiply and
+	// add rows sum into separate fields, so the mixed order does not matter.
+	bool anyMatch = false;
+	bool anyActive = false;
+
+	for(auto t: allTargets)
 	{
-		if(displayIndex == -1 || s->sourceIndex == displayIndex)
+		if(displayIndex != -1 && t->sourceIndex != displayIndex)
+			continue;
+
+		anyMatch = true;
+		anyActive |= !t->bypassed;
+
+		if(t->tm == modulation::TargetMode::Gain)
 		{
-			auto i = s->intensity;
+			auto i = t->intensity;
 
 			min = jmin(min, (1.0f - i) * sv);
 
-			if (s->auxTarget != nullptr)
-				i *= s->auxTarget->getAuxValue();
+			if (t->auxTarget != nullptr)
+				i *= t->auxTarget->getAuxValue();
 
 			auto a = 1.0f - i;
-			normValue *= a + i * s->lastModValue;
+
+			if(!t->bypassed)
+				normValue *= a + i * t->lastModValue;
 		}
-	}
-		
-	mv.scaledValue = normValue;
-
-	for(auto a: addTargets)
-	{
-		if(displayIndex == -1 || a->sourceIndex == displayIndex)
+		else
 		{
-			auto modValue = a->lastModValue;
-			max += a->intensity;
+			auto modValue = t->lastModValue;
+			max += t->intensity;
 
-			if (a->tm == modulation::TargetMode::Bipolar)
+			if (t->tm == modulation::TargetMode::Bipolar)
 			{
 				modValue *= 2.0;
 				modValue -= 1.0;
-				min -= a->intensity;
+				min -= t->intensity;
 			}
 
-			auto thisIntensity = a->intensity;
+			auto thisIntensity = t->intensity;
 
-			if(a->auxTarget != nullptr)
+			if(t->auxTarget != nullptr)
 			{
-				thisIntensity *= a->auxTarget->getAuxValue();
+				thisIntensity *= t->auxTarget->getAuxValue();
 			}
 
 			modValue *= thisIntensity;
-			mv.addValue += modValue;
+
+			if(!t->bypassed)
+				mv.addValue += modValue;
 		}
 	}
+
+	mv.scaledValue = normValue;
+	mv.modulationActive = !scaleTargets.isEmpty() || !addTargets.isEmpty() || anyMatch;
+	mv.modulationBypassed = anyMatch && !anyActive;
 
 	if(min > max)
 		std::swap(min, max);

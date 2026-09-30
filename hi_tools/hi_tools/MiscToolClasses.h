@@ -3032,6 +3032,7 @@ struct ModulationDisplayValue
 			   scaledValue == other.scaledValue &&
 			   addValue == other.addValue &&
 			   modulationActive == other.modulationActive &&
+			   modulationBypassed == other.modulationBypassed &&
 			   modulationRange == other.modulationRange &&
 			   selectedSourceRange == other.selectedSourceRange &&
 			   accumulatedSourceRange == other.accumulatedSourceRange &&
@@ -3051,6 +3052,9 @@ struct ModulationDisplayValue
 	Range<double> selectedSourceRange;
 	Range<double> accumulatedSourceRange;
 	bool modulationActive = false;
+	/** APEX: the queried connections exist but every one of them is bypassed (MatrixIds::Bypassed).
+	    modulationRange still holds their extent so the knob can draw it in the bypass colour. */
+	bool modulationBypassed = false;
 	double lastModValue = 0.0;
 	double accumulatedLiveValue = 0.0;
 
@@ -3071,6 +3075,7 @@ private:
 			scaledValue("scaledValue"),
 			addValue("addValue"),
 			modulationActive("modulationActive"),
+			modulationBypassed("modulationBypassed"),
 			modMinValue("modMinValue"),
 			modMaxValue("modMaxValue"),
 			modSelectedMinValue("modSelectedMinValue"),
@@ -3081,7 +3086,7 @@ private:
 			lastModValue("lastModValue")
 		{};
 
-		const Identifier valueNormalized, scaledValue, addValue, modulationActive,
+		const Identifier valueNormalized, scaledValue, addValue, modulationActive, modulationBypassed,
 						 modMinValue, modMaxValue,
 						 modSelectedMinValue, modSelectedMaxValue,
 						 modAccumulatedMinValue, modAccumulatedMaxValue,
@@ -3103,6 +3108,7 @@ private:
 		v.normalisedValue = set[id.valueNormalized];
 		v.addValue = set[id.addValue];
 		v.modulationActive = set[id.modulationActive];
+		v.modulationBypassed = set[id.modulationBypassed];
 		v.lastModValue = set[id.lastModValue];
 
 		auto minv = (float)set[id.modMinValue];
@@ -3136,6 +3142,7 @@ private:
 		set.set(id.scaledValue, scaledValue);
 		set.set(id.addValue, addValue);
 		set.set(id.modulationActive, modulationActive);
+		set.set(id.modulationBypassed, modulationBypassed);
 		set.set(id.modMinValue, modulationRange.getStart());
 		set.set(id.modMaxValue, modulationRange.getEnd());
 		set.set(id.modSelectedMinValue, selectedSourceRange.getStart());
