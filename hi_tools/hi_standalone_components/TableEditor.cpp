@@ -1304,7 +1304,10 @@ void TableEditor::changePointPosition(int index, float x, float y, bool useUndoM
 
 		updateTouchOverlayPosition();
 
-		updateTable(false); // Only update small tables while dragging
+		// Refresh the lookup table on every drag step (not just on mouse-up) so whatever
+		// reads the table - an LFO, a velocity curve - follows the point live. Curve
+		// bending already does this; the tables are small enough for it to be cheap.
+		updateTable(true);
 		refreshGraph();
 
 		needsRepaint = true;
