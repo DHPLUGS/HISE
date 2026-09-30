@@ -141,6 +141,9 @@ String MatrixBase::getColumnStyleSheet(const Identifier& id)
 	if(id == MatrixIds::Inverted)
 		return "width: 60px;height:48px;";
 
+	if(id == MatrixIds::Bypassed)
+		return "width: 40px;height:48px;";
+
 	if(id == MatrixIds::AuxIndex)
 		return"width: 128px;height:24px;";
 
@@ -409,6 +412,12 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 	StringArray itemList;
 	container = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(getMainController()->getMainSynthChain());
 
+	addComponent(bypassButton, MatrixIds::Bypassed);   // first cell, see getWatchableIds()
+	// The row watcher (Asynchronously) replays only the properties PRESENT on the tree, and Bypassed
+	// is optional (missing = live), so an existing row never hears about it: seed the lamp by hand.
+	// The button text is what the matrix LAF keys its lamp drawing off (Modulation H3.js drawToggleButton).
+	bypassButton.setButtonText("ON");
+	bypassButton.setToggleState(!(bool)data[MatrixIds::Bypassed], dontSendNotification);
 	addComponent(sourceSelector, MatrixIds::SourceIndex);
 	addComponent(targetSelector, MatrixIds::TargetId);
 	addComponent(modeSelector, MatrixIds::Mode);
@@ -429,6 +438,7 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 	// A fresh row has no target yet: show a placeholder instead of an empty box.
 	targetSelector.setTextWhenNothingSelected("--");
 
+	bypassButton.setTooltip("Mutes the connection without removing it.");
 	sourceSelector.setTooltip("The modulation source.");
 	targetSelector.setTooltip("The modulation target.");
 	modeSelector.setTooltip("How the modulation source is applied to the target.");
@@ -749,6 +759,10 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 	else if (id == MatrixIds::Inverted)
 	{
 		invertedButton.setToggleState((bool)newValue, dontSendNotification);
+	}
+	else if (id == MatrixIds::Bypassed)
+	{
+		bypassButton.setToggleState(!(bool)newValue, dontSendNotification);
 	}
 	else
 	{
@@ -1638,6 +1652,7 @@ void MatrixContent::addVirtualRow()
 	v.setProperty(MatrixIds::AuxIndex, -1.0, nullptr);
 	v.setProperty(MatrixIds::AuxIntensity, 0.0, nullptr);
 	v.setProperty(MatrixIds::Inverted, false, nullptr);
+	v.setProperty(MatrixIds::Bypassed, false, nullptr);
 
 	auto r = createRow(v);
 	r->isVirtual = true;
@@ -1963,7 +1978,10 @@ void SliderMatrix::Row::handlePopup(const MouseEvent& e)
 		auto inverted = (bool)c[MatrixIds::Inverted];
 		auto mode = (int)c[MatrixIds::Mode];
 
+		auto bypassed = (bool)c[MatrixIds::Bypassed];
+
 		m.addItem(1, "Invert", true, inverted);
+		m.addItem(5, "Bypass", true, bypassed);
 		m.addSeparator();
 		m.addItem(2, "Scale", true, mode == 0);
 		m.addItem(3, "Unipolar", true, mode == 1);
@@ -1973,6 +1991,8 @@ void SliderMatrix::Row::handlePopup(const MouseEvent& e)
 		{
 			if(r == 1)
 				c.setProperty(MatrixIds::Inverted, !inverted, um);
+			else if(r == 5)
+				c.setProperty(MatrixIds::Bypassed, !bypassed, um);
 			else
 				c.setProperty(MatrixIds::Mode, r-2, um);
 		}

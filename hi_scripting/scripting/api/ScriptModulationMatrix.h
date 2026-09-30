@@ -173,6 +173,7 @@ struct ScriptingApi::Content::ScriptSlider::MatrixCableConnection: public Matrix
 		double intensity;
 		double lastModValue = 0.0;
 		bool inverted = false;
+		bool bypassed = false;   // APEX: MatrixIds::Bypassed - left out of the scale / add lists
 		int sourceIndex;
 		ReferenceCountedObjectPtr<CableType> sourceCable;
 

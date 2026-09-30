@@ -158,7 +158,7 @@ private:
 
 	struct Item
 	{
-		Item(const ValueTree& v, UndoManager* um);
+		Item(MatrixModulator& parent, const ValueTree& v, UndoManager* um);
 		~Item() { mod.disconnect(); }
 
 		void onUpdate(const Identifier& id, const var& newValue);
@@ -166,8 +166,11 @@ private:
 		void handleDisplayValue(ModulationDisplayValue& mv, scriptnode::InvertableParameterRange outputRange, double rangeFactor);
 		void prepare(double sampleRate, int blockSize, scriptnode::PolyHandler& ph);
 		bool isConnected() const noexcept { return sourceIndex != -1; }
+		/** APEX: connected AND not bypassed - the only rows the engine renders. */
+		bool isActive() const noexcept { return isConnected() && !bypassed; }
 		SimpleRingBuffer* getRingBuffer() const;
 
+		MatrixModulator& parent;
 		ValueTree data;
 		valuetree::PropertyListener watcher;
 		ModType mod;
@@ -176,6 +179,7 @@ private:
 		float intensity = 1.0f;
 		float auxIntensity = 0.0f;
 		bool inverted = false;
+		bool bypassed = false;   // APEX: MatrixIds::Bypassed
 		float startIntensity = 1.0f;
 		int sourceIndex = -1;
 		UndoManager* um;

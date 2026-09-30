@@ -87,8 +87,9 @@ Array<Identifier> MatrixModulator::getRangeIds(bool isInput)
 	}
 }
 
-MatrixModulator::Item::Item(const ValueTree& v, UndoManager* um_):
+MatrixModulator::Item::Item(MatrixModulator& parent_, const ValueTree& v, UndoManager* um_):
   displayBuffer(new SimpleRingBuffer()),
+  parent(parent_),
   data(v),
   um(um_)
 {
@@ -141,6 +142,18 @@ void MatrixModulator::Item::onUpdate(const Identifier& id, const var& newValue)
 	{
 		mod.setAuxIndex((double)newValue);
 	}
+	else if (id == MatrixIds::Bypassed)
+	{
+		// APEX: a bypassed connection keeps its data (and its runtime cable) but drops out of
+		// the render lists, which rebuildModList() swaps under the matrix lock.
+		auto shouldBeBypassed = (bool)newValue;
+
+		if(bypassed != shouldBeBypassed)
+		{
+			bypassed = shouldBeBypassed;
+			parent.rebuildModList();
+		}
+	}
 }
 
 void MatrixModulator::Item::handleScaleDrag(bool isDown, float delta)
@@ -161,7 +174,7 @@ void MatrixModulator::Item::handleScaleDrag(bool isDown, float delta)
 
 void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scriptnode::InvertableParameterRange outputRange, double fullRangeFactor)
 {
-	if(!isConnected())
+	if(!isActive())
 		return;
 
 	auto v = mod.getLastModValue();
@@ -773,6 +786,9 @@ void MatrixModulator::rebuildModList()
 
 		for(auto i: items)
 		{
+			if(i->bypassed)
+				continue;
+
 			if(isPositiveAndBelow(i->sourceIndex, mc->getNumChildProcessors()))
 			{
 				auto mod = dynamic_cast<EnvelopeModulator*>(mc->getChildProcessor(i->sourceIndex));
@@ -785,7 +801,7 @@ void MatrixModulator::rebuildModList()
 
 	for(auto i: items)
 	{
-		if(!i->isConnected())
+		if(!i->isActive())
 			continue;
 
 		auto m = &i->mod;
@@ -830,7 +846,7 @@ void MatrixModulator::onMatrixChange(const ValueTree& v, bool wasAdded)
 
 		if(wasAdded)
 		{
-			items.add(new Item(v, getMainController()->getControlUndoManager()));
+			items.add(new Item(*this, v, getMainController()->getControlUndoManager()));
 			items.getLast()->mod.setZeroPosition((double)rangeData.useMidPositionAsZero);
 			items.getLast()->displayBuffer->setGlobalUIUpdater(getMainController()->getGlobalUIUpdater());
 			items.getLast()->prepare(getSampleRate(), getLargestBlockSize(), polyHandler);

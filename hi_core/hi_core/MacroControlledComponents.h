@@ -798,6 +798,7 @@ public:
 
 			bool isHover = false;
 			bool isDown = false;
+			bool bypassed = false;   // APEX: MatrixIds::Bypassed, drawn dimmed
 		};
 
 		struct PositionData

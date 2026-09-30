@@ -257,6 +257,7 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 	static constexpr int MenuOffset = 9000;
 	static constexpr int AssignOffset = 1000;
 	static constexpr int RemoveOffset = 2000;
+	static constexpr int BypassOffset = 2500;   // APEX: per-source Bypass tick, shares idx with Remove
 	static constexpr int SpecialCommandOffset = 3000;
 
 	GlobalContainerMatrixModulationPopupData(GlobalModulatorContainer* gc_, const String& targetId):
@@ -298,6 +299,10 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 			if(isAssigned(s))
 			{
 				assignedSources.add(s);
+
+				// APEX: mute the connection without removing it (MatrixIds::Bypassed)
+				auto c = MatrixIds::Helpers::getConnection(data, sources.indexOf(s), targetId);
+				m.addItem(MenuOffset + BypassOffset + idx, "Bypass " + s, true, (bool)c[MatrixIds::Bypassed]);
 				m.addItem(MenuOffset + RemoveOffset + idx++, "Remove " + s);
 				anyEnabled = true;
 			}
@@ -326,6 +331,23 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 			{
 				result -= SpecialCommandOffset;
 				gc->editCallbackHandler.sendMessage(sendNotificationSync, result, targetId);
+			}
+			else if(result >= BypassOffset)
+			{
+				result -= BypassOffset;
+
+				auto sourceIndex = sources.indexOf(assignedSources[result]);
+				auto c = MatrixIds::Helpers::getConnection(data, sourceIndex, targetId);
+
+				if(c.isValid())
+					c.setProperty(MatrixIds::Bypassed, !(bool)c[MatrixIds::Bypassed], getMainController()->getControlUndoManager());
+
+				// The connection list is unchanged, so no popup rebuild - just dim / undim the disc.
+				if(auto s = dynamic_cast<HiSlider*>(parent))
+				{
+					if(s->currentHoverPopup != nullptr)
+						s->currentHoverPopup->repaint();
+				}
 			}
 			else if(result >= RemoveOffset)
 			{

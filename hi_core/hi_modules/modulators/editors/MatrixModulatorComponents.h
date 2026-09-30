@@ -294,6 +294,7 @@ struct MatrixContent: public MatrixBase
 			for(auto id: MatrixIds::Helpers::getWatchableIds())
 				pn[id] = id.toString();
 
+			pn[MatrixIds::Bypassed] = "On";   // APEX: the lamp is lit when the row is NOT bypassed
 			pn[MatrixIds::SourceIndex] = "Source";
 			pn[MatrixIds::TargetId] = "Target";
 			pn[MatrixIds::AuxIndex] = "Aux";
@@ -365,7 +366,13 @@ struct MatrixContent: public MatrixBase
 		void buttonClicked(Button* b) override
 		{
 			Identifier id(b->getName());
-			data.setProperty(id, b->getToggleState(), um);
+			auto state = b->getToggleState();
+
+			// APEX: the ON lamp shows the inverse of the stored Bypassed flag
+			if(id == MatrixIds::Bypassed)
+				state = !state;
+
+			data.setProperty(id, state, um);
 		}
 
 		int valueToComboBoxIndex(const Identifier& id);
@@ -406,6 +413,7 @@ struct MatrixContent: public MatrixBase
 		
 		IntensitySlider intensitySlider;
 		IntensitySlider auxIntensitySlider;
+		ToggleButton bypassButton;   // APEX: MatrixIds::Bypassed, drawn as an ON lamp
 		ToggleButton invertedButton;
 		DeleteButton deleteButton;
 		SubmenuComboBox auxSelector;

@@ -46,6 +46,7 @@ DECLARE_ID(Mode);
 DECLARE_ID(AuxIndex);
 DECLARE_ID(AuxIntensity);
 DECLARE_ID(Inverted);
+DECLARE_ID(Bypassed);   // APEX: the connection stays in the matrix but is skipped by the engine
 DECLARE_ID(MatrixData);
 
 DECLARE_ID(IsNormalized);
@@ -151,7 +152,8 @@ struct Helpers
 	static StringArray getRangePresetNames();
 	static Properties::RangeData getRangePreset(RangePresets p);
 
-	static Array<Identifier> getWatchableIds() { return { SourceIndex, TargetId, Mode, Inverted, Intensity, AuxIndex, AuxIntensity }; };
+	// APEX: Bypassed comes first because this order is also the matrix table's column order (the ON lamp is the first cell).
+	static Array<Identifier> getWatchableIds() { return { Bypassed, SourceIndex, TargetId, Mode, Inverted, Intensity, AuxIndex, AuxIntensity }; };
 	static ValueTree addConnection(ValueTree& v, MainController* um, const String& targetId, int sourceIndex=-1);
 	static ValueTree getMatrixDataFromGlobalContainer(MainController* mc);
 	static bool removeConnection(ValueTree& data, UndoManager* um, const String& targetId, int sourceIndex);

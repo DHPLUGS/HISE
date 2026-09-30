@@ -5980,6 +5980,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModulationDragBackground(Gr
 			obj->setProperty("hoverMode", (int)dd.targetMode);
 			obj->setProperty("hoverValueIntensity", dd.intensityValue);
 			obj->setProperty("hoverText", dd.labelText);
+			obj->setProperty("hoverBypassed", dd.bypassed);   // APEX: MatrixIds::Bypassed
 		}
 
         if (get()->callWithGraphics(g_, "drawModulationDragBackground", var(obj), s.currentHoverPopup.get()))
@@ -6013,6 +6014,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModulationDragger(Graphics&
 		obj->setProperty("sourceName", dd.sourceName);
 		obj->setProperty("sourceIndex", dd.sourceIndex);
 		obj->setProperty("mode", (int)dd.targetMode);
+		obj->setProperty("bypassed", dd.bypassed);   // APEX: MatrixIds::Bypassed
 
         if (get()->callWithGraphics(g_, "drawModulationDragger", var(obj), s.currentHoverPopup.get()))
             return;
@@ -6043,6 +6045,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModulationLabel(Graphics& g
 		{
 			obj->setProperty("hoverSourceName", dd.sourceName);
 			obj->setProperty("hoverText", dd.labelText);
+			obj->setProperty("hoverBypassed", dd.bypassed);   // APEX: MatrixIds::Bypassed
 		}
 
 		if (get()->callWithGraphics(g_, "drawModulationLabel", var(obj), labelComponent))

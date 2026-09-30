@@ -1079,7 +1079,12 @@ void HiSlider::HoverPopupLookandFeel::drawModulationDragger(Graphics& g, HiSlide
 
 	g.setColour(Colour(0x44000000));
 	g.strokePath(track, stroke);
-	g.setColour(itemColour1.withMultipliedAlpha(obj.isDown ? 1.0f : 0.8f));
+	auto arcAlpha = obj.isDown ? 1.0f : 0.8f;
+
+	if(obj.bypassed)   // APEX: a muted connection
+		arcAlpha *= 0.35f;
+
+	g.setColour(itemColour1.withMultipliedAlpha(arcAlpha));
 	g.strokePath(dragPath, stroke);
 
 #if 0
@@ -1664,7 +1669,9 @@ struct HiSlider::HoverPopup: public Component,
 		{
 			dd.sourceIndex = sourceIndexes[currentHoverIndex];
 			dd.sourceName = sourceNames[currentHoverIndex];
-			dd.targetMode = (scriptnode::modulation::TargetMode)(int)getConnectionData(sourceIndexes[currentHoverIndex])[MatrixIds::Mode];
+			auto hc = getConnectionData(sourceIndexes[currentHoverIndex]);
+			dd.targetMode = (scriptnode::modulation::TargetMode)(int)hc[MatrixIds::Mode];
+			dd.bypassed = (bool)hc[MatrixIds::Bypassed];
 			dd.intensityRange = Range<double>(dd.targetMode == scriptnode::modulation::TargetMode::Gain ? 0.0f : -1.0f, 1.0f);
 			dd.intensityValue = intensityValues[currentHoverIndex];
 
@@ -1685,7 +1692,9 @@ struct HiSlider::HoverPopup: public Component,
 			dd.bounds = dragAreas.getRectangle(i).toFloat();
 			dd.sourceIndex = sourceIndexes[i];
 			dd.sourceName = sourceNames[i];
-			dd.targetMode = (scriptnode::modulation::TargetMode)(int)getConnectionData(sourceIndexes[i])[MatrixIds::Mode];
+			auto c = getConnectionData(sourceIndexes[i]);
+			dd.targetMode = (scriptnode::modulation::TargetMode)(int)c[MatrixIds::Mode];
+			dd.bypassed = (bool)c[MatrixIds::Bypassed];
 			dd.intensityRange = Range<double>(dd.targetMode == scriptnode::modulation::TargetMode::Gain ? 0.0f : -1.0f, 1.0f);
 			dd.intensityValue = intensityValues[i];
 			parent->getHoverPopupLookAndFeel().drawModulationDragger(g, *parent, dd);
@@ -1792,10 +1801,14 @@ struct HiSlider::HoverPopup: public Component,
 			auto c = getConnectionData(sourceIndexes[currentHoverIndex]);
 			auto tm = (int)c[MatrixIds::Mode];
 
-			static constexpr int ModeOffset = 4;
+			static constexpr int ModeOffset = 4;   // 4..6 = Scaled / Unipolar / Bipolar
+			static constexpr int BypassItem = 7;
 
+			// APEX: Bypass leads (mute without removing). "Enter value" (id 2, showEditor()) is gone:
+			// it parks its TextEditor in labelArea, which is empty under the decoupled label, so the
+			// editor opened with zero bounds and the item did nothing visible (2026-09-30).
+			m.addItem(BypassItem, "Bypass", true, c[MatrixIds::Bypassed]);
 			m.addItem(1, "Remove connection");
-			m.addItem(2, "Enter value");
 			m.addSeparator();
 			m.addItem(3, "Inverted", true, c[MatrixIds::Inverted]);
 			m.addItem(ModeOffset, "Scaled", true, tm == 0);
@@ -1821,11 +1834,11 @@ struct HiSlider::HoverPopup: public Component,
 				c.getParent().removeChild(c, um);
 				removeSource(currentHoverIndex);
 				break;
-			case 2:
-				showEditor();
-				break;
 			case 3:
 				c.setProperty(MatrixIds::Inverted, !(bool)c[MatrixIds::Inverted], um);
+				break;
+			case BypassItem:
+				c.setProperty(MatrixIds::Bypassed, !(bool)c[MatrixIds::Bypassed], um);
 				break;
 			default:
 				c.setProperty(MatrixIds::Mode, result - ModeOffset, um);

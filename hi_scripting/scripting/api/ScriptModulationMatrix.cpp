@@ -158,6 +158,13 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::Target::onPrope
 	}
 	if(id == MatrixIds::Inverted)
 		inverted = (bool)newValue;
+	if(id == MatrixIds::Bypassed)
+	{
+		// APEX: same dance as Mode - the knob ring only sums the scale / add lists.
+		SimpleReadWriteLock::ScopedWriteLock sl(parent.listLock);
+		bypassed = (bool)newValue;
+		parent.rebuildTargets();
+	}
 
 	if(id == MatrixIds::AuxIndex)
 	{
@@ -297,6 +304,9 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::rebuildTargets(
 
 	for(auto t: allTargets)
 	{
+		if(t->bypassed)
+			continue;
+
 		if(t->tm == modulation::TargetMode::Gain)
 			newScale.add(t);
 		else
@@ -424,6 +434,10 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::addConnection(c
 	{
 		auto n = new Target(*this, v);
 		allTargets.add(n);
+
+		// APEX: a row loaded with Bypassed set must not enter the render lists
+		if(n->bypassed)
+			return;
 
 		if((int)v[MatrixIds::Mode] == 0)
 			scaleTargets.add(n);
