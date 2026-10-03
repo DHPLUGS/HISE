@@ -300,6 +300,17 @@ public:
 				}
 
 				this->processFrame(frameData);
+
+				// APEX: processFrame() writes into the local frame only. Without the copy back a
+				// one-sample block (a chain sub-block of a single control-rate step, i.e. a note
+				// event within 8 samples of a block edge) kept the unmodulated input, so the
+				// target dropped this source for one step and snapped back = a pop.
+				if(config.shouldProcessSignal())
+				{
+					for(int i = 0; i < NumChannels; i++)
+						data.getRawChannelPointers()[i][0] = frameData[i];
+				}
+
 				return;
 			}
 		}
