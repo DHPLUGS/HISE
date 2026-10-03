@@ -1041,18 +1041,30 @@ void ModulatorChain::ModChainWithBuffer::calculateMonophonicModulationValues(int
 		}
 	}
 
-	if(c->runtimeTargetSource.isEnabled() && !c->polyManager.isAnyVoicePlaying())
+	if(c->runtimeTargetSource.isEnabled())
 	{
-		int startSample_cr = startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
-		int numSamples_cr = numSamples / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
-
-		auto useSignal = c->hasActiveTimeVariantMods() || c->hasActiveMonoEnvelopes();
-		auto staticSignal = lastInitialMonoValue;
-
+		// APEX: the signal size has to follow EVERY block, not only the voiceless ones. A
+		// core.extra_mod receiver reads the signal from its own uptime and wraps back to 0 only
+		// when uptime reaches this size, so while a voice played through a host block size
+		// change (live playback in Logic / Ableton hands over varying sizes) the size stayed
+		// at the last voiceless block, the receiver stopped wrapping at the block boundary and
+		// read the modulation from the wrong point in time - a jump in pan / filter / volume on
+		// every size change. Fixed sizes (offline bounce, the HISE IDE) never showed it
+		// (2026-09-30).
 		auto tf = c->getMainController()->getBufferSizeForCurrentBlock() / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
 
 		c->runtimeTargetSource.updateThisBlockSize(tf);
-		c->runtimeTargetSource.copyModulationValues(useSignal ? modBuffer.monoValues : nullptr, staticSignal, startSample_cr, numSamples_cr);
+
+		if(!c->polyManager.isAnyVoicePlaying())
+		{
+			int startSample_cr = startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+			int numSamples_cr = numSamples / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+
+			auto useSignal = c->hasActiveTimeVariantMods() || c->hasActiveMonoEnvelopes();
+			auto staticSignal = lastInitialMonoValue;
+
+			c->runtimeTargetSource.copyModulationValues(useSignal ? modBuffer.monoValues : nullptr, staticSignal, startSample_cr, numSamples_cr);
+		}
 	}
 }
 
