@@ -648,7 +648,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ConstScriptingObject(p, 0),
 	ControlledObject(p->getMainController_()),
 	connectionCallback(p, nullptr, var(), 3),
-	editCallback(p, nullptr, var(), 1),
+	editCallback(p, nullptr, var(), 2),
 	um(getMainController()->getControlUndoManager()),
 	sourceSelectionCallback(getScriptProcessor(), this, var(), 1),
 	dragCallback(getScriptProcessor(), this, {}, 3) 
@@ -664,7 +664,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_TYPED_API_METHOD_1(setConnectionCallback, VarTypeChecker::Function);
 	ADD_CALLBACK_DIAGNOSTIC(connectionCallback, setConnectionCallback, 0);
 	ADD_TYPED_API_METHOD_2(setEditCallback, VarTypeChecker::ComplexType, VarTypeChecker::Function);
-	ADD_CALLBACK_DIAGNOSTIC(editCallback, setEditCallback, 1);
+	ADD_CALLBACK_DIAGNOSTIC(editCallback, setEditCallback, 2);
 	ADD_API_METHOD_0(getSourceList);
 	ADD_API_METHOD_0(getTargetList);
 	ADD_API_METHOD_1(setTargetDisplayNames);
@@ -939,7 +939,7 @@ void ScriptModulationMatrix::setEditCallback(var menuItems, var editFunction)
 
 	if(HiseJavascriptEngine::isJavascriptFunction(editFunction) && !items.isEmpty())
 	{
-		editCallback = WeakCallbackHolder(getScriptProcessor(), this, editFunction, 1);
+		editCallback = WeakCallbackHolder(getScriptProcessor(), this, editFunction, 2);
 		editCallback.incRefCount();
 		editCallback.setThisObject(this);
 
