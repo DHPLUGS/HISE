@@ -1872,8 +1872,16 @@ private:
 		double ic1eq[NUM_MAX_CHANNELS] = {};
 		double ic2eq[NUM_MAX_CHANNELS] = {};
 
+		// APEX: glide endpoints (g, k, mix). The coefficients above hold the start values
+		// until processSamples() ramps them to the target across the next block.
+		double sg = 0.0, sk = 1.0, sm0 = 0.0, sm1 = 0.0, sm2 = 1.0;
+		double tg = 0.0, tk = 1.0, tm0 = 0.0, tm1 = 0.0, tm2 = 1.0;
+
 		void resetState();
 		void computeA(double g, double k);
+		void setTarget(double g, double k, double newM0, double newM1, double newM2, bool snap, bool keepStart);
+		void interpolate(double t);
+		void snapToTarget();
 		// Processes one sample (clean Cytomic; drive is applied pre-filter).
 		inline double tick(double in, int ch);
 	};
@@ -1881,9 +1889,16 @@ private:
 	// Resolve the mode into base type + cascade section Qs (mirrors svf).
 	void configureStages(double sampleRate, double frequency, double q, double gain);
 	static void getMix(FilterType baseType, double k, double& m0, double& m1, double& m2);
+	void snapAllStages();
 
 	FilterType type = LP;
 	int numStages = 1;
+
+	// APEX: coefficient glide state. rampPending = a new target is waiting for the next
+	// processSamples() call; snapNext = the next target is applied without a glide
+	// (after reset / type change, so a new voice or mode never sweeps in from stale values).
+	bool rampPending = false;
+	bool snapNext = true;
 	PreFilterDrive driveStage;   // Serum-style pre-filter drive (shared circuit)
 
 	Stage stages[MAX_STAGES];

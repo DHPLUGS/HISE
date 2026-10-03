@@ -6071,6 +6071,37 @@ void ApexFilterSubType::Stage::computeA(double g, double k)
 	a2 = g * a1;
 }
 
+void ApexFilterSubType::Stage::setTarget(double g, double k, double newM0, double newM1, double newM2,
+	bool snap, bool keepStart)
+{
+	// keepStart: a target that is replaced before the block consumed it keeps the glide's
+	// original start, so the next block still ramps from what was last actually played.
+	if (!keepStart)
+	{
+		sg = tg; sk = tk; sm0 = tm0; sm1 = tm1; sm2 = tm2;
+	}
+
+	tg = g; tk = k; tm0 = newM0; tm1 = newM1; tm2 = newM2;
+
+	if (snap)
+		snapToTarget();
+}
+
+void ApexFilterSubType::Stage::interpolate(double t)
+{
+	computeA(sg + (tg - sg) * t, sk + (tk - sk) * t);
+	m0 = sm0 + (tm0 - sm0) * t;
+	m1 = sm1 + (tm1 - sm1) * t;
+	m2 = sm2 + (tm2 - sm2) * t;
+}
+
+void ApexFilterSubType::Stage::snapToTarget()
+{
+	sg = tg; sk = tk; sm0 = tm0; sm1 = tm1; sm2 = tm2;
+	computeA(tg, tk);
+	m0 = tm0; m1 = tm1; m2 = tm2;
+}
+
 double ApexFilterSubType::Stage::tick(double in, int ch)
 {
 	const double v3 = in - ic2eq[ch];
@@ -6121,7 +6152,13 @@ Array<hise::FilterHelpers::CoefficientType> ApexFilterSubType::getCoefficientTyp
 
 void ApexFilterSubType::setType(int t)
 {
-	type = (FilterType)jlimit(0, (int)numTypes - 1, t);
+	const auto newType = (FilterType)jlimit(0, (int)numTypes - 1, t);
+
+	// A mode change swaps the output mix and the stage count, so never glide across it.
+	if (newType != type)
+		snapNext = true;
+
+	type = newType;
 }
 
 void ApexFilterSubType::setDrive(double newDrive)
@@ -6133,6 +6170,19 @@ void ApexFilterSubType::reset(int /*numChannels*/)
 {
 	for (auto& s : stages)
 		s.resetState();
+
+	// Cleared state = a fresh start (voice start, prepare): finish any glide now and apply
+	// the next coefficient update directly.
+	snapAllStages();
+	snapNext = true;
+}
+
+void ApexFilterSubType::snapAllStages()
+{
+	for (auto& s : stages)
+		s.snapToTarget();
+
+	rampPending = false;
 }
 
 // Cytomic output mix (m0,m1,m2) for a single base type, k = 1/Q.
@@ -6158,9 +6208,23 @@ void ApexFilterSubType::configureStages(double sampleRate, double frequency, dou
 
 	const double g = std::tan((frequency / sampleRate) * double_Pi);
 
+	// APEX: the new values become a glide target that processSamples() reaches by the end of
+	// its next block (see there), unless this is the first update after a reset / mode change.
+	FilterType base = LP; int sections = 1; const double* qTable = nullptr; bool butter = true;
+
+	if (type == Morph)
+		sections = 1;
+	else
+		resolveApexCascade(type, base, sections, qTable, butter);
+
+	const bool snap = snapNext || sections != numStages;
+	const bool keepStart = rampPending && !snap;
+	numStages = sections;
+	snapNext = false;
+	rampPending = !snap;
+
 	if (type == Morph)
 	{
-		numStages = 1;
 		// Gain (dB) repurposed as morph position, sweeping LP -> BP -> HP -> Notch.
 		const double gainDb = Decibels::gainToDecibels(jmax((float)gain, 1.0e-6f));
 		morphPos = jlimit(0.0, 1.0, (gainDb + 18.0) / 36.0);
@@ -6170,14 +6234,9 @@ void ApexFilterSubType::configureStages(double sampleRate, double frequency, dou
 		if (mt <= 1.0)      { const double s = mt;       m0 = 0.0; m1 = s;              m2 = 1.0 - s; }
 		else if (mt <= 2.0) { const double s = mt - 1.0; m0 = s;   m1 = (1.0 - s) - k*s; m2 = -s; }
 		else                { const double s = mt - 2.0; m0 = 1.0; m1 = -k;             m2 = -(1.0 - s); }
-		stages[0].m0 = m0; stages[0].m1 = m1; stages[0].m2 = m2;
-		stages[0].computeA(g, k);
+		stages[0].setTarget(g, k, m0, m1, m2, snap, keepStart);
 		return;
 	}
-
-	FilterType base; int sections; const double* qTable; bool butter;
-	resolveApexCascade(type, base, sections, qTable, butter);
-	numStages = sections;
 
 	for (int s = 0; s < sections; ++s)
 	{
@@ -6185,8 +6244,7 @@ void ApexFilterSubType::configureStages(double sampleRate, double frequency, dou
 		const double k  = 1.0 / jmax(0.0001, sq);
 		double m0, m1, m2;
 		getMix(base, k, m0, m1, m2);
-		stages[s].m0 = m0; stages[s].m1 = m1; stages[s].m2 = m2;
-		stages[s].computeA(g, k);
+		stages[s].setTarget(g, k, m0, m1, m2, snap, keepStart);
 	}
 }
 
@@ -6199,6 +6257,38 @@ void ApexFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 {
 	const int numChannels = buffer.getNumChannels();
 	const PreFilterDrive pd = driveStage;
+
+	// APEX: coefficients arrive once per render call (every 64 samples inside a fix64_block).
+	// Stepping them there made fast cutoff sweeps click at every block edge - worst on a
+	// high-pass far above the note, whose output is the small difference of two large states.
+	// So glide g, k and the output mix per sample from the last applied values to the new
+	// target across this block. Channels are processed one after another, so each channel
+	// recomputes the same per-sample coefficients from the block position.
+	if (rampPending && numSamples > 0)
+	{
+		const double inv = 1.0 / (double)numSamples;
+
+		for (int c = 0; c < numChannels; ++c)
+		{
+			float* data = buffer.getWritePointer(c, startSample);
+			for (int i = 0; i < numSamples; ++i)
+			{
+				const double t = (double)(i + 1) * inv;
+				double v = (double)data[i];
+				if (!std::isfinite(v)) v = 0.0;
+				v = pd.drive(v);
+				for (int s = 0; s < numStages; ++s)
+				{
+					stages[s].interpolate(t);
+					v = stages[s].tick(v, c);
+				}
+				data[i] = (float)pd.compensate(v);
+			}
+		}
+
+		snapAllStages();
+		return;
+	}
 
 	for (int c = 0; c < numChannels; ++c)
 	{
@@ -6218,6 +6308,11 @@ void ApexFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 void ApexFilterSubType::processFrame(float* frameData, int numChannels)
 {
 	const PreFilterDrive pd = driveStage;
+
+	// Frame processing has no block length to glide across: apply a pending target directly
+	// (the previous behaviour).
+	if (rampPending)
+		snapAllStages();
 
 	for (int c = 0; c < numChannels; ++c)
 	{
