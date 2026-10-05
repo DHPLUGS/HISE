@@ -903,6 +903,20 @@ void ScriptModulationMatrix::fromBase64(String b64)
 
 void ScriptModulationMatrix::clearAllConnections(String targetId)
 {
+	// APEX: callSuspended kills every voice, so don't go there when nothing is connected to
+	// this target. The FX rack clears every target of an effect it removes - without this,
+	// removing any effect cut every held note even with no modulation on it.
+	{
+		auto md = container->getMatrixModulatorData();
+		auto anyConnected = false;
+
+		for (auto c : md)
+			anyConnected |= MatrixIds::Helpers::matchesTarget(c, targetId);
+
+		if (!anyConnected)
+			return;
+	}
+
 	callSuspended([targetId](ScriptModulationMatrix& m)
 	{
 		auto md = m.container->getMatrixModulatorData();

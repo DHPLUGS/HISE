@@ -3891,6 +3891,19 @@ var ScriptingObjects::ScriptingSlotFX::setEffect(String effectName)
     {
 		auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
 
+		// APEX: a bypassed HardcodedMasterFX is skipped by the effect chain, its node swap runs
+		// under the effect's own write lock and the global cable / global mod connections lock
+		// themselves, so loading a network into it does not need every voice killed. The FX
+		// rack lazy-loads each effect while it is still bypassed - without this, adding an
+		// effect to the rack cut every held note.
+		auto hm = dynamic_cast<HardcodedMasterFX*>(slot);
+
+		if (hm != nullptr && hm->isBypassed())
+		{
+			slot->setEffect(effectName, false);
+			return new ScriptingEffect(getScriptProcessor(), dynamic_cast<EffectProcessor*>(slot->getCurrentEffect()));
+		}
+
 		{
 			SuspendHelpers::ScopedTicket ticket(slotFX->getMainController());
 
