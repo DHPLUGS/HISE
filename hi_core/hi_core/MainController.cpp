@@ -1702,6 +1702,32 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 	if (auto oc = currentOutputConditioner.load(std::memory_order_relaxed))
 		oc(this, buffer);
 
+#if !HISE_MIDIFX_PLUGIN
+	// Last line of defence: a single NaN / Inf sample handed to the host can take
+	// the whole CoreAudio device down (system audio dead until the plugin is
+	// removed). If anything upstream produced one, output silence for this block.
+	// Bit test rather than std::isfinite so it survives fast-math builds.
+	{
+		bool nonFinite = false;
+
+		for (int c = 0; c < buffer.getNumChannels() && !nonFinite; c++)
+		{
+			auto bits = reinterpret_cast<const uint32*>(buffer.getReadPointer(c));
+			uint32 worst = 0;
+
+			// branch-free so the loop vectorises: a float is Inf/NaN when all
+			// eight exponent bits are set
+			for (int i = 0; i < buffer.getNumSamples(); i++)
+				worst |= (uint32)((bits[i] & 0x7f800000u) == 0x7f800000u);
+
+			nonFinite = worst != 0;
+		}
+
+		if (nonFinite)
+			buffer.clear();
+	}
+#endif
+
 #if ENABLE_CPU_MEASUREMENT
 	stopCpuBenchmark();
 #endif
