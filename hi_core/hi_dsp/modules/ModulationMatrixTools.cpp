@@ -58,6 +58,9 @@ var Helpers::Properties::RangeData::toJSON() const
 	obj->setProperty("mode", converter);
 	obj->setProperty(UseMidPositionAsZero, useMidPositionAsZero);
 
+	if(logInput)
+		obj->setProperty(LogInput, true);
+
 	return var(obj.get());
 }
 
@@ -69,6 +72,7 @@ Helpers::Properties::RangeData Helpers::Properties::RangeData::fromValueTrees(co
 	rd.outputRange = scriptnode::RangeHelpers::getDoubleRange(ro, IDSET);
 	rd.useMidPositionAsZero = (bool)ro[UseMidPositionAsZero];
 	rd.converter = ri[TextConverter].toString();
+	rd.logInput = (bool)ri[LogInput];
 	return rd;
 }
 
@@ -77,6 +81,12 @@ void Helpers::Properties::RangeData::writeToValueTrees(ValueTree& ri, ValueTree&
 	scriptnode::RangeHelpers::storeDoubleRange(ri, inputRange, nullptr, IDSET);
 	scriptnode::RangeHelpers::storeDoubleRange(ro, outputRange, nullptr, IDSET);
 	ri.setProperty(TextConverter, converter, nullptr);
+
+	if(logInput)
+		ri.setProperty(LogInput, true, nullptr);
+	else
+		ri.removeProperty(LogInput, nullptr);
+
 	ro.setProperty(UseMidPositionAsZero, useMidPositionAsZero, nullptr);
 }
 
@@ -97,6 +107,7 @@ Helpers::Properties::RangeData Helpers::Properties::RangeData::fromJSON(const va
 
 	rd.useMidPositionAsZero = obj.getProperty(UseMidPositionAsZero, false);
 	rd.converter = obj.getProperty("mode", "");
+	rd.logInput = (bool)obj.getProperty(LogInput, false);
 
 	rd.inputRange = scriptnode::RangeHelpers::getDoubleRange(obj.getProperty(InputRange, {}), IDSET);
 	rd.outputRange = scriptnode::RangeHelpers::getDoubleRange(obj.getProperty(OutputRange, {}), IDSET);

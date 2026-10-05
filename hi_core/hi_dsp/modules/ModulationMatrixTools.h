@@ -56,6 +56,7 @@ DECLARE_ID(InputRange);
 DECLARE_ID(OutputRange);
 DECLARE_ID(TextConverter);
 DECLARE_ID(UseMidPositionAsZero);
+DECLARE_ID(LogInput); // APEX: see Properties::RangeData::logInput
 
 DECLARE_ID(DefaultInitValues);
 DECLARE_ID(SelectableSources);
@@ -131,6 +132,13 @@ struct Helpers
 			String rangePreset;
 			String converter;
 			bool useMidPositionAsZero = false;
+
+			// APEX: opt-in (InputRange property "LogInput"). The modulation is then added on a
+			// logarithmic scale between the input range's min and max (even in octaves for a
+			// frequency) instead of on the skewed knob position. Off by default, in which case
+			// nothing about the modulator changes.
+			bool logInput = false;
+
 			scriptnode::InvertableParameterRange inputRange;
 			scriptnode::InvertableParameterRange outputRange;
 		};

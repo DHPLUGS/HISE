@@ -191,6 +191,11 @@ private:
 	void setValueRange(bool isInputRange, scriptnode::InvertableParameterRange nr);
 	void setValueInternal(float valueWithinInputRange);
 
+	// APEX: LogInput (see MatrixIds::Helpers::Properties::RangeData::logInput).
+	bool isLogInput() const;
+	float valueToLogNorm(double valueWithinInputRange) const;
+	float logNormToInputNorm(float logNorm) const;
+
 	/** APEX: true if the output range is not 0...1. The bypassed value path
 	    (getInactiveModValue) does not match the live path for such a range, so these
 	    modulators must never sit bypassed. */

@@ -67,7 +67,8 @@ Array<Identifier> MatrixModulator::getRangeIds(bool isInput)
 			Identifier("max"),
 			Identifier("stepSize"),
 			Identifier("middlePosition"),
-			MatrixIds::TextConverter
+			MatrixIds::TextConverter,
+			MatrixIds::LogInput
 		});
 
 		return ip;
@@ -282,7 +283,11 @@ void MatrixModulator::onModulationDrop(int parameterIndex, int modulationSourceI
 float MatrixModulator::getInactiveModValue() const
 {
 
-	auto iv = rangeData.outputRange.convertFrom0to1(baseValue.targetValue, false);
+	// APEX: with LogInput the base value is a position on the log scale, the output range
+	// still expects the input range's own (skewed) position.
+	auto baseNorm = isLogInput() ? logNormToInputNorm(baseValue.targetValue) : baseValue.targetValue;
+
+	auto iv = rangeData.outputRange.convertFrom0to1(baseNorm, false);
 
 	// convert it to bipolar -1 ... 1 to match the applyModulation function
 	// APEX: a pitch mod is always bipolar (init() hardwires it), so don't trust the flag
@@ -346,10 +351,37 @@ void MatrixModulator::unbypassIfLiveValuePathNeeded()
 		setBypassed(false, sendNotificationSync);
 }
 
+bool MatrixModulator::isLogInput() const
+{
+	if(!rangeData.logInput)
+		return false;
+
+	auto r = rangeData.inputRange.rng;
+	return r.start > 0.0 && r.end > r.start;
+}
+
+float MatrixModulator::valueToLogNorm(double valueWithinInputRange) const
+{
+	auto r = rangeData.inputRange.rng;
+	auto v = jlimit(r.start, r.end, valueWithinInputRange);
+	return (float)(std::log(v / r.start) / std::log(r.end / r.start));
+}
+
+float MatrixModulator::logNormToInputNorm(float logNorm) const
+{
+	auto r = rangeData.inputRange.rng;
+	auto v = r.start * std::exp((double)jlimit(0.0f, 1.0f, logNorm) * std::log(r.end / r.start));
+	return (float)rangeData.inputRange.convertTo0to1(v, false);
+}
+
 void MatrixModulator::setValueInternal(float valueWithinInputRange)
 {
 	inputValue = valueWithinInputRange;
-	auto norm = rangeData.inputRange.convertTo0to1(valueWithinInputRange, false);
+
+	// APEX: LogInput keeps the base value (and therefore every connection that is added to
+	// it) on a logarithmic scale; calculateBlock() converts back before the output range.
+	auto norm = isLogInput() ? valueToLogNorm(valueWithinInputRange)
+	                         : (float)rangeData.inputRange.convertTo0to1(valueWithinInputRange, false);
 	baseValue.set(norm);
 
 	if(auto parentModChain = dynamic_cast<ModulatorChain*>(getParentProcessor(false, false)))
@@ -369,6 +401,7 @@ void MatrixModulator::setValueInternal(float valueWithinInputRange)
 		// (and the same wipe) applies to SUB OCTAVE / SUB PITCH. updateInitialValueFromChildMods()
 		// starts from neutral and folds in only the bypassed children, so an active slot's own
 		// contribution is not double counted here (2026-09-29).
+
 		parentModChain->updateInitialValueFromChildMods();
 	}
 }
@@ -730,6 +763,16 @@ void MatrixModulator::calculateBlock(int startSample, int numSamples)
 		}
 	}
 
+	// APEX: LogInput - the sum above lives on the log scale (base + connections, so a
+	// connection moves the value by the same number of octaves wherever the base sits).
+	// Bring it back to the input range's own position, which is what the output range and
+	// everything downstream were set up for.
+	if(isLogInput())
+	{
+		for(int i = 0; i < numSamples; i++)
+			ptr[i] = logNormToInputNorm(ptr[i]);
+	}
+
 	if(rangeData.outputRange.isNonDefault())
 	{
 		ModBufferExpansion::applySkewFactor(ptr, numSamples, rangeData.outputRange.rng);
@@ -744,8 +787,12 @@ void MatrixModulator::processorChanged(EventType, Processor* p)
 
 ModulationDisplayValue MatrixModulator::getDisplayValue(double nv, NormalisableRange<double> nr) const
 {
+	// APEX: LogInput - run the same bookkeeping on the log scale, then map the results onto
+	// the slider's own range below so the ring and the live value sit where the sound is.
+	const bool logDisplay = isLogInput();
+
 	ModulationDisplayValue mv;
-	mv.normalisedValue = nr.convertTo0to1(nv);
+	mv.normalisedValue = logDisplay ? (double)valueToLogNorm(nv) : nr.convertTo0to1(nv);
 	mv.scaledValue = mv.normalisedValue;
 	mv.modulationRange = { mv.normalisedValue, mv.normalisedValue };
 
@@ -768,6 +815,28 @@ ModulationDisplayValue MatrixModulator::getDisplayValue(double nv, NormalisableR
 	// its ring and dragger; modulationBypassed tells the LAF to draw that ring in the bypass colour.
 	mv.modulationActive = !allMods.empty() || anyConnected;
 	mv.modulationBypassed = anyConnected && !anyActive;
+
+	if(logDisplay)
+	{
+		auto ir = rangeData.inputRange.rng;
+		auto ratio = std::log(ir.end / ir.start);
+
+		auto toSlider = [&](double logNorm)
+		{
+			auto v = ir.start * std::exp(jlimit(0.0, 1.0, logNorm) * ratio);
+			return nr.convertTo0to1(nr.snapToLegalValue(v));
+		};
+
+		auto scaled = toSlider(mv.scaledValue);
+		auto live = toSlider(mv.scaledValue + mv.addValue);
+		auto rStart = toSlider(mv.modulationRange.getStart());
+		auto rEnd = toSlider(mv.modulationRange.getEnd());
+
+		mv.normalisedValue = nr.convertTo0to1(nr.snapToLegalValue(nv));
+		mv.scaledValue = scaled;
+		mv.addValue = live - scaled;
+		mv.modulationRange = { jmin(rStart, rEnd), jmax(rStart, rEnd) };
+	}
 
 	mv.clipTo0To1();
 
@@ -1034,6 +1103,11 @@ void MatrixModulator::onRangeUpdate(const Identifier& id, const var& newValue, b
 	{
 		if(id == MatrixIds::TextConverter)
 			rangeData.converter = newValue.toString();
+		else if(id == MatrixIds::LogInput)
+		{
+			rangeData.logInput = (bool)newValue;
+			setValueInternal(inputValue);
+		}
 		else
 			setValueRange(true, r);
 	}
