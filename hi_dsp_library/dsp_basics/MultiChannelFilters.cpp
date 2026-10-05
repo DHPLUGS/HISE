@@ -6192,7 +6192,10 @@ void ApexFilterSubType::getMix(FilterType baseType, double k, double& m0, double
 	{
 	case LP:      m0 = 0.0; m1 = 0.0;      m2 = 1.0;  break;
 	case HP:      m0 = 1.0; m1 = -k;       m2 = -1.0; break;
-	case BP:      m0 = 0.0; m1 = 1.0;      m2 = 0.0;  break;
+	// APEX: constant-peak band pass (peak = unity at any Q, so Q only narrows the band).
+	// m1 = 1 made the peak equal Q per stage: BP 12 ran -6 dB at Q 0.5 and +15 dB at Q 6,
+	// BP 24 the square of that. Scaling by k = 1/Q pins every stage's peak at 0 dB.
+	case BP:      m0 = 0.0; m1 = k;        m2 = 0.0;  break;
 	case NOTCH:   m0 = 1.0; m1 = -k;       m2 = 0.0;  break;
 	case ALLPASS: m0 = 1.0; m1 = -2.0 * k; m2 = 0.0;  break;
 	default:      m0 = 0.0; m1 = 0.0;      m2 = 1.0;  break;
