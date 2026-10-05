@@ -59,6 +59,9 @@ public:
 
 	void checkRelease() override;
 
+	/** APEX: also frees the envelope slots of this voice's event, see EnvelopeData::resetIfOwner(). */
+	void resetVoice() override;
+
 };
 
 template <class ModulatorType> class GlobalModulatorDataBase: public scriptnode::modulation::Host
@@ -256,6 +259,7 @@ public:
 		{
 			isClear[i] = ClearState::Reset;
 			thisBlockSize[i] = 0;
+			slotEventId[i] = 0;
 		}
 
 		prepareToPlay(samplesPerBlock);
@@ -406,6 +410,27 @@ public:
 		jassert(voiceIndex != -1);
 
 		isClear[voiceIndex] = ClearState::Playing;
+		slotEventId[voiceIndex] = voiceEvent.getEventId();
+	}
+
+	/** APEX: frees the slot at once if this event still owns it. For a container voice that is
+	    reset without running its envelopes out (stolen at the voice limit, force-killed, all notes
+	    off): checkRelease() never gets to clear the slot then, so it stayed Playing with a frozen
+	    buffer and the synth voice of that note hung on the last envelope value (stuck note). The
+	    owner check keeps a newer note that took the slot over (event id + NUM_POLYPHONIC_VOICES)
+	    untouched. Monophonic envelopes share slot 0 between all voices and are left alone. */
+	void resetIfOwner(const HiseEvent& voiceEvent)
+	{
+		if(getModulator()->isInMonophonicMode())
+			return;
+
+		auto voiceIndex = getIndexForEvent(voiceEvent);
+
+		if(voiceIndex != -1 && slotEventId[voiceIndex] == voiceEvent.getEventId())
+		{
+			isClear[voiceIndex] = ClearState::Reset;
+			thisBlockSize[voiceIndex] = 0;
+		}
 	}
 
 	/** Check if clear was called and return true if it's still playing.
@@ -468,6 +493,7 @@ private:
 	int thisBlockSize[NUM_POLYPHONIC_VOICES];
 
 	ClearState isClear[NUM_POLYPHONIC_VOICES];
+	uint16 slotEventId[NUM_POLYPHONIC_VOICES];
 };
 
 class GlobalModulatorData

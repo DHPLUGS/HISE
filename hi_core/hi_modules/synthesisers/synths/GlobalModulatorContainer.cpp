@@ -770,6 +770,16 @@ void GlobalModulatorContainerVoice::calculateBlock(int startSample, int numSampl
 #endif
 }
 
+void GlobalModulatorContainerVoice::resetVoice()
+{
+	auto gc = static_cast<GlobalModulatorContainer*>(getOwnerSynth());
+
+	for (auto& e : gc->envelopeData)
+		e.resetIfOwner(getCurrentHiseEvent());
+
+	ModulatorSynthVoice::resetVoice();
+}
+
 void GlobalModulatorContainerVoice::checkRelease()
 {
 	auto gc = static_cast<GlobalModulatorContainer*>(getOwnerSynth());
