@@ -167,8 +167,14 @@ public:
 				changed = true;
 			}
 
+			// APEX: only bypass the effects dropped from the order. Un-bypassing every kept one
+			// switched on all ~51 APEX FX rack modules at once until the script re-bypassed the
+			// unused ones - kept effects now keep whatever bypass state their owner gave them.
 			for(auto fx: *source)
-				fx->setBypassed(!target->contains(fx), sendNotificationAsync);
+			{
+				if(!target->contains(fx))
+					fx->setBypassed(true, sendNotificationAsync);
+			}
 		}
 		else
 		{
