@@ -1631,6 +1631,17 @@ struct HiSlider::HoverPopup: public Component,
 					{
 						auto sourceIndex = sourceIndexes[i];
 						auto cd = sc->createIntensityConverter(sourceIndex);
+
+						// No matrix connection yet: the interface designer has just rebuilt the script
+						// components and the script has not been recompiled. cd.p is null then and the
+						// converter ctor dereferences it. Drop the label texts (every use checks the size)
+						// until the next compile rebuilds the popup.
+						if(cd.p.get() == nullptr)
+						{
+							labelConverters.clear();
+							break;
+						}
+
 						cd.connectedSlider = parent.getComponent();
 						cd.tm = (scriptnode::modulation::TargetMode)(int)getConnectionData(sourceIndex)[MatrixIds::Mode];
 						labelConverters.add(new MatrixIds::Helpers::IntensityTextConverter(cd));
