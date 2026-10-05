@@ -919,6 +919,10 @@ public:
 	double sampleRate = 0.0;
 	int smoothingMs = 0;
 	int prevIndex = -1;
+
+	// Set by setIndex(), consumed on the audio thread: clears the incoming child's frozen state.
+	std::atomic<bool> resetIncoming { false };
+	void resetIncomingIfNeeded();
 };
 
 class SingleSampleBlockX : public SerialNode

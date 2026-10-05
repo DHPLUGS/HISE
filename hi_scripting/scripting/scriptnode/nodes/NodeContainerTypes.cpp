@@ -663,6 +663,19 @@ void BranchNode::setIndex(double s)
 	}
 
 	currentIndex = newIndex;
+	resetIncoming.store(true);
+}
+
+void BranchNode::resetIncomingIfNeeded()
+{
+	// The children that are not selected are not processed, so their state (reverb tails,
+	// delay lines, filters) is frozen at the moment they were switched away. Clear the
+	// incoming child so it does not resume where it left off.
+	if (resetIncoming.exchange(false))
+	{
+		if (auto n = nodes[currentIndex])
+			n->reset();
+	}
 }
 
 void BranchNode::prepare(PrepareSpecs ps)
@@ -695,6 +708,8 @@ void BranchNode::handleHiseEvent(HiseEvent& e)
 
 void BranchNode::processFrame(FrameType& data)
 {
+	resetIncomingIfNeeded();
+
 	if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != currentIndex)
 	{
 		float copy[NUM_MAX_CHANNELS];
@@ -728,6 +743,8 @@ void BranchNode::process(ProcessDataDyn& d)
 {
 	if(isBypassed())
 		return;
+
+	resetIncomingIfNeeded();
 
 	if (fadeRamper.isActive() && prevIndex >= 0 && prevIndex != currentIndex && fadeBuffer.begin() != nullptr)
 	{

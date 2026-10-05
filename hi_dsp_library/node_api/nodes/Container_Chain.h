@@ -401,6 +401,14 @@ private:
 
 		if (idx != lastIndex)
 		{
+			// The children that are not selected are not processed, so their state (reverb
+			// tails, delay lines, filters) is frozen at the moment they were switched away.
+			// Clear the incoming child so it does not resume where it left off.
+			switch(idx)
+			{
+				CASE_16(reset, );
+			}
+
 			if (smoothingMs > 0)
 			{
 				prevIndex = lastIndex;
