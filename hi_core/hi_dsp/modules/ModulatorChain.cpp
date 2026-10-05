@@ -1028,9 +1028,66 @@ void ModulatorChain::ModChainWithBuffer::calculateMonophonicModulationValues(int
 		if(!c->hasActivePolyMods())
 		{
 			auto iv = c->getInitialValueInternal();
-			smoothConstantInitialValue(modBuffer.monoValues + startSample_cr, numSamples_cr, iv, lastInitialMonoValue);
 
-			lastInitialMonoValue = iv;
+			// APEX: a knob without a matrix connection reaches its parameter through the initial
+			// value (its MatrixModulator is bypassed), and the one-block ramp below is read by the
+			// consumer once per block, so the parameter jumped on every knob message. When the
+			// modulator asked for it (requestInitialValueGlide, on a value change while a voice
+			// plays) run the same linear glide its SmoothingTime gives a connected slot. Nothing
+			// changes without a request: preset loads, voiceless changes and the first block keep
+			// the one-block ramp, and a settled chain costs the same fill as before (2026-10-05).
+			if(initialGlideSamplesLeft > 0 || c->initialValueGlidePending.load(std::memory_order_relaxed))
+			{
+				if(c->getMainController()->getNumActiveVoices() == 0)
+				{
+					c->initialValueGlidePending.store(false);
+					initialGlideSamplesLeft = 0;
+				}
+				else if(iv != initialGlideTarget)
+				{
+					// a new target: start from wherever the last block ended. The request stays
+					// pending until the value it announced has actually arrived.
+					const auto glideMs = (double)c->initialValueGlideMs.load();
+					const auto sr = c->getSampleRate() / (double)HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
+
+					c->initialValueGlidePending.store(false);
+
+					initialGlideSamplesLeft = jmax(0, roundToInt(glideMs * 0.001 * sr));
+					initialGlideTarget = iv;
+
+					if(initialGlideSamplesLeft > 0)
+						initialGlideDelta = (iv - lastInitialMonoValue) / (float)initialGlideSamplesLeft;
+				}
+			}
+
+			if(initialGlideSamplesLeft > 0 && iv == initialGlideTarget)
+			{
+				auto d = modBuffer.monoValues + startSample_cr;
+				auto v = lastInitialMonoValue;
+
+				for(int i = 0; i < numSamples_cr; i++)
+				{
+					if(initialGlideSamplesLeft > 0)
+					{
+						v += initialGlideDelta;
+
+						if(--initialGlideSamplesLeft == 0)
+							v = iv;
+					}
+
+					d[i] = v;
+				}
+
+				lastInitialMonoValue = v;
+			}
+			else
+			{
+				initialGlideSamplesLeft = 0;
+				initialGlideTarget = iv;
+				smoothConstantInitialValue(modBuffer.monoValues + startSample_cr, numSamples_cr, iv, lastInitialMonoValue);
+
+				lastInitialMonoValue = iv;
+			}
 		}
 		else
 		{

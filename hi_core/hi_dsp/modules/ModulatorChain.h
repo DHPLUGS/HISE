@@ -360,6 +360,11 @@ public:
 		float currentMonoValue = 1.0f;
 		float lastConstantVoiceValue = 1.0f;
 		float lastInitialMonoValue = 0.0f;
+
+		// APEX: glide of the initial value, see ModulatorChain::requestInitialValueGlide()
+		float initialGlideTarget = 0.0f;
+		float initialGlideDelta = 0.0f;
+		int initialGlideSamplesLeft = 0;
 		float currentConstantVoiceValues[NUM_POLYPHONIC_VOICES];
 		float currentRampValues[NUM_POLYPHONIC_VOICES];
 
@@ -551,6 +556,20 @@ public:
 
 	/** Call this whenever a bypassed mod is supposed to update the initial value of the mod chain. */
 	void updateInitialValueFromChildMods();
+
+	/** APEX: asks the chain to glide to its next initial value over the given time instead of
+	    jumping there. A bypassed MatrixModulator (one without a matrix connection) delivers its
+	    knob value through the initial value, which skips its own SmoothingTime, so a knob moved
+	    while a note plays sounded stepped. Called before the initial value is updated; picked up
+	    in ModChainWithBuffer::calculateMonophonicModulationValues(). Pass 0 to cancel. */
+	void requestInitialValueGlide(float glideTimeMs)
+	{
+		initialValueGlideMs.store(glideTimeMs);
+		initialValueGlidePending.store(glideTimeMs > 0.0f);
+	}
+
+	std::atomic<float> initialValueGlideMs { 0.0f };
+	std::atomic<bool> initialValueGlidePending { false };
 
 	void changeChildModulatorMode(Processor* childMod, Modulation::Mode newMode, bool isBipolar)
 	{

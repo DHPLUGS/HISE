@@ -376,6 +376,7 @@ float MatrixModulator::logNormToInputNorm(float logNorm) const
 
 void MatrixModulator::setValueInternal(float valueWithinInputRange)
 {
+	const bool valueChanged = inputValue != valueWithinInputRange;
 	inputValue = valueWithinInputRange;
 
 	// APEX: LogInput keeps the base value (and therefore every connection that is added to
@@ -401,6 +402,13 @@ void MatrixModulator::setValueInternal(float valueWithinInputRange)
 		// (and the same wipe) applies to SUB OCTAVE / SUB PITCH. updateInitialValueFromChildMods()
 		// starts from neutral and folds in only the bypassed children, so an active slot's own
 		// contribution is not double counted here (2026-09-29).
+
+		// APEX: bypassed (no matrix connection), the value reaches the target through the
+		// chain's initial value and never sees baseValue's smoothing, so let the chain glide
+		// to it over the same SmoothingTime. Only for a real change while a voice plays.
+		if(isBypassed() && valueChanged && smoothingTime > 0.0f &&
+		   getMainController()->getNumActiveVoices() > 0)
+			parentModChain->requestInitialValueGlide(smoothingTime);
 
 		parentModChain->updateInitialValueFromChildMods();
 	}
