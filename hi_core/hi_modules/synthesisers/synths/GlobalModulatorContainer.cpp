@@ -321,6 +321,18 @@ struct GlobalContainerMatrixModulationPopupData: public MacroControlledObject::M
 		}
 	}
 
+	/** APEX: with a script edit callback registered (ScriptModulationMatrix.setEditCallback), a
+	    right-click fires its first entry at once instead of showing the menu: the script's
+	    modulation window replaces the Assign / Bypass / Remove items and carries MIDI learn. */
+	bool openEditor(MacroControlledObject* parent) override
+	{
+		if(gc->customEditCallbacks.isEmpty())
+			return false;
+
+		gc->editCallbackHandler.sendMessage(sendNotificationSync, 0, targetId);
+		return true;
+	}
+
 	/** Override this method and perform the result if matching and return true if consumed. */
 	bool onPopupMenuResult(MacroControlledObject* parent, int result) override
 	{

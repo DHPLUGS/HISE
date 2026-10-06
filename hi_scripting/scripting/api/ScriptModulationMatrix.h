@@ -254,6 +254,33 @@ struct ScriptModulationMatrix : public ConstScriptingObject,
 	/** Get the component reference for the given modulation target ID. */
 	var getComponent(String targetId);
 
+	/** Returns the MIDI CC number mapped to the target's control, or -1. */
+	int getMidiController(String targetId);
+
+	/** Arms (true) or disarms (false) MIDI learn for the target's control: the next CC moved is mapped to it. */
+	void setMidiLearn(String targetId, bool shouldLearn);
+
+	/** Returns true while MIDI learn is armed for the target's control. */
+	bool isMidiLearnActive(String targetId);
+
+	/** Removes the MIDI CC mapping of the target's control. */
+	void removeMidiController(String targetId);
+
+	// APEX: the (interface processor, automation index, range, converter) tuple the MIDI automation
+	// handler keys a control by, resolved from a modulation target id the way the control's own
+	// right-click menu did it (MacroControlledObject::enableMidiLearnWithPopup).
+	struct AutomationTarget
+	{
+		Processor* processor = nullptr;
+		int index = -1;
+		NormalisableRange<double> range;
+		ValueToTextConverter converter;
+
+		bool isValid() const { return processor != nullptr && index != -1; }
+	};
+
+	AutomationTarget getAutomationTarget(const String& targetId);
+
     /** Returns a JSON object with the visualisation data for the given modulation target. */
     var getModulationDisplayData(String targetId);
 

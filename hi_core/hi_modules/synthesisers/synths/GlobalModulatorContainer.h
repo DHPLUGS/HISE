@@ -808,6 +808,7 @@ public:
 		Drop,
 		Hover,
 		DisabledHover,
+		RightClick,   // APEX: a source dragger was right-clicked; the targetId argument carries the dragger's bounds in interface coordinates ("x y w h")
 		numDragActions
 	};
 

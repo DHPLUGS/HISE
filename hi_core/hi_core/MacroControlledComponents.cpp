@@ -127,6 +127,11 @@ void MacroControlledObject::enableMidiLearnWithPopup()
 	if (!canBeMidiLearned())
 		return;
 
+	// APEX: a modulation target opens the script's modulation window straight away (the window
+	// carries MIDI learn itself); everything else keeps the menu
+	if (modulationData != nullptr && modulationData->openEditor(this))
+		return;
+
 #if USE_BACKEND
 	auto isOnHiseModuleUI = dynamic_cast<Component*>(this)->findParentComponentOfClass<ProcessorEditorBody>() != nullptr;
 #else

@@ -397,7 +397,7 @@ MatrixBase::IntensitySlider::IntensitySlider(const Identifier& id):
 	};
 }
 
-MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& targetId):
+MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& targetId, int sourceFilter):
   RowBase(mc),
   data(rowData),
   um(mc->getControlUndoManager()),
@@ -434,6 +434,7 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 	addFlexItem(deleteButton);
 
 	targetSelector.setEnabled(targetId.isEmpty());
+	sourceSelector.setEnabled(sourceFilter == -1);
 
 	// A fresh row has no target yet: show a placeholder instead of an empty box.
 	targetSelector.setTextWhenNothingSelected("--");
@@ -877,6 +878,7 @@ void MatrixContent::Row::addComponent(Component& c, const Identifier& id)
 {
 	c.setName(id.toString());
 	c.getProperties().set("id", c.getName().toLowerCase());
+	c.setComponentID(id.toString());   // APEX: a scripted LAF sees it as obj.id, eg. to tell the AUX box from the SOURCE box
 	addFlexItem(c);
 	Helpers::setFallbackStyleSheet(c, getColumnStyleSheet(id));
 	GlobalHiseLookAndFeel::setDefaultColours(c);
@@ -1195,10 +1197,28 @@ MatrixContent::Controller::ModulationDragger::ModulationDragger(const String& na
 void MatrixContent::Controller::ModulationDragger::mouseDown(const MouseEvent& e)
 {
 	auto sourceIndex = findParentComponentOfClass<Controller>()->draggers.indexOf(this);
+	auto chain = findParentComponentOfClass<Controller>()->getMainController()->getMainSynthChain();
+
+	// APEX: a right-click is the script's (it opens the per-source connection popup), so it must not
+	// start a drag or move the selected source. The bounds travel in the targetId slot, in the
+	// interface's coordinates so the script can place the popup beside the dragger.
+	if(e.mods.isPopupMenu())
+	{
+		if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
+		{
+			auto b = getLocalBounds();
+
+			if(auto sc = findParentComponentOfClass<ScriptContentComponent>())
+				b = sc->getLocalArea(this, b);
+
+			gc->sendDragMessage(sourceIndex, String(b.getX()) + " " + String(b.getY()) + " " + String(b.getWidth()) + " " + String(b.getHeight()),
+			                    GlobalModulatorContainer::DragAction::RightClick);
+		}
+
+		return;
+	}
 
 	MatrixIds::Helpers::startDragging(this, sourceIndex);
-
-	auto chain = findParentComponentOfClass<Controller>()->getMainController()->getMainSynthChain();
 
 	if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
 	{
@@ -1211,6 +1231,9 @@ void MatrixContent::Controller::ModulationDragger::mouseDown(const MouseEvent& e
 
 void MatrixContent::Controller::ModulationDragger::mouseUp(const MouseEvent& event)
 {
+	if(event.mods.isPopupMenu())
+		return;   // see mouseDown: no drag was started, and prevSourceIndex is stale
+
 	MatrixIds::Helpers::stopDragging(this);
 
 	if(!event.mouseWasDraggedSinceMouseDown())
@@ -1474,11 +1497,19 @@ void MatrixContent::Controller::initLaf(Component* p)
 	}
 }
 
-MatrixContent::MatrixContent(MainController* mc, const String& targetId_, bool useViewport_):
+MatrixContent::MatrixContent(MainController* mc, const String& targetId_, bool useViewport_, const String& sourceId_):
 	MatrixBase(mc),
 	targetId(targetId_),
 	data(MatrixIds::Helpers::getMatrixDataFromGlobalContainer(mc))
 {
+	// The source filter arrives as a name (what scripts and the tile data use); rows store the index.
+	if(sourceId_.isNotEmpty())
+	{
+		StringArray sourceNames;
+		MatrixIds::Helpers::fillModSourceList(mc, sourceNames);
+		sourceFilter = sourceNames.indexOf(sourceId_);
+	}
+
 	addAndMakeVisible(searchBar);
 	setUseViewport(useViewport_);
 
@@ -1494,23 +1525,54 @@ MatrixContent::Row* MatrixContent::createRow(ValueTree v)
 {
 	Component* parent = useViewport ? &rowContent : this;
 
-	auto r = new Row(getMainController(), v, targetId);
+	auto r = new Row(getMainController(), v, targetId, sourceFilter);
 	r->setSliderStyle(sliderStyle);
 
 	parent->addAndMakeVisible(r);
 
 	r->setLookAndFeel(&getLookAndFeel());
 
+	// only once the tile's stylesheet is registered for this content (see hasStyleSheet()); an
+	// earlier row is picked up by resized()
 	if(auto root = simple_css::CSSRootComponent::find(*this))
-		r->setCSS(root->css);
+	{
+		if(hasStyleSheet(*root))
+			r->setCSS(root->css);
+	}
 
 	rows.add(r);
 	return r;
 }
 
+bool MatrixContent::hasStyleSheet(simple_css::CSSRootComponent& root) const
+{
+	// APEX: a scripted tile registers its CSS (CSSLaf, ScriptingGraphics.cpp) on the content
+	// component AFTER the content is created and laid out: FloatingTile::setContent() sizes the
+	// new content at once, the wrapper creates the look and feel afterwards. StyleSheet::Collection
+	// caches every lookup per component, and a component with an element style (the header, its
+	// titles, the search bar) resolves to a fallback-only sheet rather than nothing, so a lookup
+	// made before the registration sticks: the header kept its stock layout and the search bar its
+	// stock height on every tile rebuilt with setContentData(). This component has no element
+	// style, so its own lookup is null (and not cached) until the tile's collection is there.
+	return root.css.getForComponent(const_cast<MatrixContent*>(this)) != nullptr;
+}
+
+void MatrixContent::lookAndFeelChanged()
+{
+	// the tile's look and feel (and with it the stylesheet collection) arrives after the first
+	// layout, see hasStyleSheet(); lay out again now that it is there
+	if(!getLocalBounds().isEmpty())
+		resized();
+}
+
+bool MatrixContent::matchesSource(const ValueTree& v) const
+{
+	return sourceFilter == -1 || (int)v[MatrixIds::SourceIndex] == sourceFilter;
+}
+
 void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 {
-	if(MatrixIds::Helpers::matchesTarget(v, targetId))
+	if(MatrixIds::Helpers::matchesTarget(v, targetId) && matchesSource(v))
 	{
 		if(wasAdded)
 		{
@@ -1647,7 +1709,7 @@ void MatrixContent::addVirtualRow()
 	ValueTree v(MatrixIds::Connection);
 	v.setProperty(MatrixIds::TargetId, targetId, nullptr);
 	v.setProperty(MatrixIds::Mode, (int)modulation::TargetMode::Unipolar, nullptr);   // empty rows start Unipolar
-	v.setProperty(MatrixIds::SourceIndex, -1, nullptr);
+	v.setProperty(MatrixIds::SourceIndex, sourceFilter, nullptr);   // a source-filtered table presets the source, the way a target-filtered one presets the TargetId
 	v.setProperty(MatrixIds::Intensity, 0.0f, nullptr);
 	v.setProperty(MatrixIds::AuxIndex, -1.0, nullptr);
 	v.setProperty(MatrixIds::AuxIntensity, 0.0, nullptr);
@@ -1713,12 +1775,17 @@ void MatrixContent::resized()
 
 	if(auto root = simple_css::CSSRootComponent::find(*this))
 	{
-		if(auto ss = root->css.getForComponent(this))
-		{
-			auto ma = ss->getArea(b.toFloat(), { simple_css::PropertyKey("margin", 0)});
-			auto pd = ss->getArea(ma, { simple_css::PropertyKey("padding", 0)});
-			b = pd.toNearestInt();
-		}
+		auto ss = root->css.getForComponent(this);
+
+		// no stylesheet for this content yet: every lookup made now would cache a fallback-only
+		// sheet for good (see hasStyleSheet()). lookAndFeelChanged() and the asynchronous row
+		// top-up lay out again once the tile's collection is registered.
+		if(ss == nullptr)
+			return;
+
+		auto ma = ss->getArea(b.toFloat(), { simple_css::PropertyKey("margin", 0)});
+		auto pd = ss->getArea(ma, { simple_css::PropertyKey("padding", 0)});
+		b = pd.toNearestInt();
 
 		header.setCSS(root->css);
 
@@ -2308,7 +2375,8 @@ void ModulationMatrixPanel::fromDynamicObject(const var& object)
 	else
 		typeId = Identifier("TableMatrix");
 
-	targetId = object["TargetFilter"].toString(); 
+	targetId = object["TargetFilter"].toString();
+	sourceId = object["SourceFilter"].toString();
 	minRows = (int)object.getProperty("MinRows", 0);
 
 	ModulationMatrixBasePanel::fromDynamicObject(object);
@@ -2357,6 +2425,7 @@ Identifier ModulationMatrixPanel::getDefaultablePropertyId(int index) const
 	case SpecialPanelIds::SliderType: return Identifier("SliderType");
 	case SpecialPanelIds::TargetFilter: return Identifier("TargetFilter");
 	case SpecialPanelIds::MinRows: return Identifier("MinRows");
+	case SpecialPanelIds::SourceFilter: return Identifier("SourceFilter");
 	}
 
 	jassertfalse;
@@ -2373,6 +2442,7 @@ var ModulationMatrixPanel::getDefaultProperty(int index) const
 	case SpecialPanelIds::SliderType: return var("Knob");
 	case SpecialPanelIds::TargetFilter: return var("");
 	case SpecialPanelIds::MinRows: return var(0);
+	case SpecialPanelIds::SourceFilter: return var("");
 	}
 
 	return var();
@@ -2388,7 +2458,7 @@ Component* ModulationMatrixPanel::createMatrixComponent(const String& processorI
 	if(typeId == Identifier("SliderMatrix"))
 		return new SliderMatrix(getMainController(), targetId);
 	else
-		return new MatrixContent(getMainController(), targetId, true);	
+		return new MatrixContent(getMainController(), targetId, true, sourceId);
 }
 
 ModulationMatrixControlPanel::ModulationMatrixControlPanel(FloatingTile* parent):

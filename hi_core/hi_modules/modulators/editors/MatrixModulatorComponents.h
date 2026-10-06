@@ -314,8 +314,8 @@ struct MatrixContent: public MatrixBase
 				public ComboBox::Listener,
 				public ButtonListener
 	{
-		Row(MainController* mc, ValueTree rowData, const String& targetId);
-		
+		Row(MainController* mc, ValueTree rowData, const String& targetId, int sourceFilter = -1);
+
 		WeakReference<GlobalModulatorContainer> container;
 
 		void lookAndFeelChanged() override;
@@ -530,11 +530,16 @@ struct MatrixContent: public MatrixBase
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Controller);
 	};
 
-	MatrixContent(MainController* mc, const String& targetId_, bool useViewport_);
+	MatrixContent(MainController* mc, const String& targetId_, bool useViewport_, const String& sourceId_ = String());
 
 	void onRowChange(ValueTree v, bool wasAdded);
+	bool matchesSource(const ValueTree& v) const;
 	int getHeightToUse(int parentHeight) const;
 	void resized() override;
+	void lookAndFeelChanged() override;
+
+	/** APEX: true once the tile's stylesheet collection is registered for this content. */
+	bool hasStyleSheet(simple_css::CSSRootComponent& root) const;
 
 	/** Pre-populated empty rows: the table always shows max(minRows, real + 1) rows when minRows > 0
 	    (0 = stock behaviour, rows only for existing connections). The empty rows live in the UI only
@@ -567,6 +572,7 @@ struct MatrixContent: public MatrixBase
 	ValueTree data;
 	valuetree::ChildListener rowListener;
 	String targetId;
+	int sourceFilter = -1;   // APEX: source index the table is filtered to, -1 = all (see ModulationMatrixPanel::SourceFilter)
 	std::function<void()> resizeFunction;
 
 	int minRows = 0;
@@ -681,6 +687,7 @@ struct ModulationMatrixPanel: public ModulationMatrixBasePanel
 		MatrixType,
 		TargetFilter,
 		MinRows,
+		SourceFilter,   // APEX: a source name; the table then shows only that source's connections (mirror of TargetFilter)
 		numSpecialPanelIds
 	};
 
@@ -695,6 +702,7 @@ struct ModulationMatrixPanel: public ModulationMatrixBasePanel
 
 	Identifier typeId;
 	String targetId;
+	String sourceId;
 	int minRows = 0;
 	Component* createMatrixComponent(const String& targetId) override;
 };

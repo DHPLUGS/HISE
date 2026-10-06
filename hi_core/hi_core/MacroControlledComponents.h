@@ -278,6 +278,10 @@ public:
 		/** Override this method and perform the result if matching and return true if consumed. */
 		virtual bool onPopupMenuResult(MacroControlledObject* parentComponent, int result) = 0;
 
+		/** APEX: a right-click on the control opens an editor instead of the popup menu. Return true
+		    when it did; the menu (MIDI learn, macro items) is then not shown at all. */
+		virtual bool openEditor(MacroControlledObject* parentComponent) { return false; }
+
 		String targetId;
 		
 		//std::function<bool(int, bool)> queryFunction;

@@ -642,6 +642,10 @@ struct ScriptingObjects::ScriptModulationMatrix::Wrapper
 	API_METHOD_WRAPPER_0(ScriptModulationMatrix, getMatrixModulationProperties);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setDragCallback);
 	API_METHOD_WRAPPER_1(ScriptModulationMatrix, getModulationDisplayData);
+	API_METHOD_WRAPPER_1(ScriptModulationMatrix, getMidiController);
+	API_VOID_METHOD_WRAPPER_2(ScriptModulationMatrix, setMidiLearn);
+	API_METHOD_WRAPPER_1(ScriptModulationMatrix, isMidiLearnActive);
+	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, removeMidiController);
 };
 
 ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p, const String& cid) :
@@ -688,6 +692,10 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_API_METHOD_3(getConnectionProperty);
 	ADD_API_METHOD_4(setConnectionProperty);
 	ADD_API_METHOD_1(getModulationDisplayData);
+	ADD_API_METHOD_1(getMidiController);
+	ADD_API_METHOD_2(setMidiLearn);
+	ADD_API_METHOD_1(isMidiLearnActive);
+	ADD_API_METHOD_1(removeMidiController);
 
 	getScriptProcessor()->getMainController_()->getUserPresetHandler().addStateManager(this);
 
@@ -811,6 +819,96 @@ var ScriptModulationMatrix::getComponent(String targetId)
 	}
 
 	return var();
+}
+
+ScriptModulationMatrix::AutomationTarget ScriptModulationMatrix::getAutomationTarget(const String& targetId)
+{
+	AutomationTarget t;
+
+	auto sc = dynamic_cast<ScriptingApi::Content::ScriptComponent*>(getComponent(targetId).getObject());
+
+	if(sc == nullptr)
+		return t;
+
+	t.processor = dynamic_cast<Processor*>(getScriptProcessor());
+	t.index = getScriptProcessor()->getScriptingContent()->getComponentIndex(sc);
+
+	// a custom automation model keys by the automationId property (MacroControlledObject::getAutomationIndex)
+	auto autoId = sc->getScriptObjectProperty(ScriptingApi::Content::ScriptComponent::automationId).toString();
+
+	if(autoId.isNotEmpty())
+		t.index = getMainController()->getUserPresetHandler().getCustomAutomationIndex(Identifier(autoId));
+
+	if(auto s = dynamic_cast<ScriptingApi::Content::ScriptSlider*>(sc))
+	{
+		// the slider's range as SliderWrapper::updateSliderRange() builds it
+		double min = s->getScriptObjectProperty(ScriptingApi::Content::ScriptComponent::min);
+		double max = s->getScriptObjectProperty(ScriptingApi::Content::ScriptComponent::max);
+		double step = s->getScriptObjectProperty(ScriptingApi::Content::ScriptSlider::stepSize);
+		auto mid = s->getScriptObjectProperty(ScriptingApi::Content::ScriptSlider::middlePosition);
+
+		if(min < max && step >= 0.0)
+		{
+			t.range = NormalisableRange<double>(min, max, step);
+
+			if(ApiHelpers::shouldApplyMidPoint(min, max, mid))
+				t.range.setSkewForCentre((double)mid);
+		}
+
+		t.converter = s->getValueToTextConverter();
+	}
+
+	return t;
+}
+
+int ScriptModulationMatrix::getMidiController(String targetId)
+{
+	auto t = getAutomationTarget(targetId);
+
+	if(!t.isValid())
+		return -1;
+
+	auto handler = getMainController()->getMacroManager().getMidiControlAutomationHandler();
+	auto k = handler->getMidiControllerNumber(t.processor, t.index);
+
+	return k.isValid() ? (int)k.ccNumber : -1;
+}
+
+void ScriptModulationMatrix::setMidiLearn(String targetId, bool shouldLearn)
+{
+	auto t = getAutomationTarget(targetId);
+
+	if(!t.isValid())
+		return;
+
+	auto handler = getMainController()->getMacroManager().getMidiControlAutomationHandler();
+
+	if(shouldLearn)
+		handler->addMidiControlledParameter(t.processor, t.index, t.range, t.converter, -1);
+	else if(handler->isLearningActive(t.processor, t.index))
+		handler->deactivateMidiLearning();
+}
+
+bool ScriptModulationMatrix::isMidiLearnActive(String targetId)
+{
+	auto t = getAutomationTarget(targetId);
+
+	if(!t.isValid())
+		return false;
+
+	auto handler = getMainController()->getMacroManager().getMidiControlAutomationHandler();
+	return handler->isLearningActive(t.processor, t.index);
+}
+
+void ScriptModulationMatrix::removeMidiController(String targetId)
+{
+	auto t = getAutomationTarget(targetId);
+
+	if(!t.isValid())
+		return;
+
+	auto handler = getMainController()->getMacroManager().getMidiControlAutomationHandler();
+	handler->removeMidiControlledParameter(t.processor, t.index, sendNotificationAsync);
 }
 
 var ScriptModulationMatrix::getModulationDisplayData (String targetId)
@@ -1056,7 +1154,8 @@ void ScriptModulationMatrix::setDragCallback(var newDragCallback)
 					"DragStart",
 					"Drop",
 					"Hover",
-					"DisabledHover"
+					"DisabledHover",
+					"RightClick"
 				});
 
 				var args[3];

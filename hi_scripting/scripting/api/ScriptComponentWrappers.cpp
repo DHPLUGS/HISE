@@ -3151,8 +3151,16 @@ void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent(int pr
 	PROPERTY_CASE::ScriptFloatingTile::Properties::FontSize:
 	PROPERTY_CASE::ScriptFloatingTile::Properties::Data :
 	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType:
+	{
         ft->setContent(sft->getContentData());
+
+        // APEX: a CSS look and feel is bound to the content it was created for (CSSLaf registers its
+        // stylesheet collection on that component), so a rebuilt content (setContentData) needs a
+        // fresh one. Release first so updateLookAndFeel() recreates it; the old object outlives the
+        // swap so no component ever points at a deleted LAF.
+        ScopedPointer<LookAndFeel> previousLaf(localLookAndFeel.release());
         updateLookAndFeel();
+	}
         if (auto* tile = dynamic_cast<FloatingTile*>(component.get())) tile->setOpaque(GET_OBJECT_COLOUR(bgColour).isOpaque()); break;
 	}
 
