@@ -1344,6 +1344,11 @@ HardcodedSwappableEffect::DataWithListener::DataWithListener(HardcodedSwappableE
 
 		af->registerXYZProvider("SFZ",
 			[mc]() { return static_cast<MultiChannelAudioBuffer::XYZProviderBase*>(new hise::XYZSFZProvider(mc)); });
+
+#if HISE_APEX_BANK_FORMAT
+		af->registerXYZProvider("Bank",
+			[mc]() { return static_cast<MultiChannelAudioBuffer::XYZProviderBase*>(new hise::XYZBankProvider(mc)); });
+#endif
 	}
 }
 

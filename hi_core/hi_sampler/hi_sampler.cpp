@@ -41,6 +41,11 @@
 #include "sampler/ModulatorSampler.cpp"
 
 #include "sampler/MultiSampleDataProviders.cpp"
+
+#if HISE_APEX_BANK_FORMAT
+#include "sampler/ApexBankProvider.cpp"
+#endif
+
 #include "sampler/SfzImporter.cpp"
 
 #if USE_BACKEND || HI_ENABLE_EXPANSION_EDITING

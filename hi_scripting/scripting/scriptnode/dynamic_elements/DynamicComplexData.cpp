@@ -264,6 +264,11 @@ void dynamic::audiofile::initialise(ObjectWithValueTree* n)
 	internalData->registerXYZProvider("SFZ",
 		[mc]() { return static_cast<MultiChannelAudioBuffer::XYZProviderBase*>(new hise::XYZSFZProvider(mc)); });
 
+#if HISE_APEX_BANK_FORMAT
+	internalData->registerXYZProvider("Bank",
+		[mc]() { return static_cast<MultiChannelAudioBuffer::XYZProviderBase*>(new hise::XYZBankProvider(mc)); });
+#endif
+
 	dynamicT<hise::MultiChannelAudioBuffer>::initialise(n);
 
 	allowRangeChange = true;

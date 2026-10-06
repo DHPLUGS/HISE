@@ -78,6 +78,11 @@ END_JUCE_MODULE_DECLARATION
 #include "sampler/SfzImporter.h"
 #include "sampler/MultiSampleDataProviders.h"
 
+#if HISE_APEX_BANK_FORMAT
+#include "sampler/ApexBankCipher.h"
+#include "sampler/ApexBankProvider.h"
+#endif
+
 #if USE_BACKEND || HI_ENABLE_EXPANSION_EDITING
 #include "sampler/SampleImporter.h"
 

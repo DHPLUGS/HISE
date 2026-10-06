@@ -488,6 +488,20 @@ OpenGL should be enabled by default or not.
 #define HISE_USER_PRESETS_IN_MUSIC_FOLDER 0
 #endif
 
+/** Config: HISE_APEX_BANK_FORMAT
+
+    If enabled, audio slots that can load a sample map (the "SampleMap" and "SFZ" XYZ providers)
+    can also load a bank: one encrypted file holding a sample map and its monolith audio, found
+    in the sample folder rather than in the project's sample map pool. See XYZBankProvider.
+
+    It only adds a provider for references starting with {XYZ::Bank}; loading sample maps and
+    monoliths is unchanged. Always available in the HISE IDE. In an exported plugin it is off
+    unless the project turns it on in its extra definitions.
+*/
+#ifndef HISE_APEX_BANK_FORMAT
+#define HISE_APEX_BANK_FORMAT USE_BACKEND
+#endif
+
 /** Config: ENABLE_STARTUP_LOGGER
 
 If this is enabled, compiled plugins will write a startup log to the desktop for debugging purposes
