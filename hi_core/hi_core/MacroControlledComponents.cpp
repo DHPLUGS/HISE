@@ -1807,6 +1807,18 @@ struct HiSlider::HoverPopup: public Component,
 
 		if(e.mods.isRightButtonDown() && currentHoverIndex != -1)
 		{
+			// APEX: with a script editor registered (ScriptModulationMatrix.setEditCallback) the
+			// right-click hands this one connection to the script's modulation window instead of
+			// the menu below; the script hears it through the drag callback as "RightClickConnection".
+			if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(parent->getProcessor()->getMainController()->getMainSynthChain()))
+			{
+				if(!gc->customEditCallbacks.isEmpty())
+				{
+					gc->sendDragMessage(sourceIndexes[currentHoverIndex], targetId, GlobalModulatorContainer::DragAction::RightClickConnection);
+					return;
+				}
+			}
+
 			PopupMenu m;
 
 			// Not parent->getLookAndFeel(): that is the slider's own local LAF, which draws the

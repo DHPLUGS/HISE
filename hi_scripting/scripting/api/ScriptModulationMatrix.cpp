@@ -1155,7 +1155,8 @@ void ScriptModulationMatrix::setDragCallback(var newDragCallback)
 					"Drop",
 					"Hover",
 					"DisabledHover",
-					"RightClick"
+					"RightClick",
+					"RightClickConnection"
 				});
 
 				var args[3];

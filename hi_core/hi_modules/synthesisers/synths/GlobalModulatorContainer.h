@@ -809,6 +809,7 @@ public:
 		Hover,
 		DisabledHover,
 		RightClick,   // APEX: a source dragger was right-clicked; the targetId argument carries the dragger's bounds in interface coordinates ("x y w h")
+		RightClickConnection,   // APEX: a connection's arc segment on a knob's hover ring was right-clicked (source + real target id)
 		numDragActions
 	};
 
