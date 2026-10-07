@@ -1190,6 +1190,15 @@ Result StyleSheet::Collection::performAtRules(DataProvider* d)
                     ss->setCustomFonts(customFonts);
                 }
             }
+
+            // Sheets handed out before the @font-face rules ran (e.g. a ModulationMatrixController
+            // that resolves its draggers in initLaf) are cached copies: give them the fonts too,
+            // otherwise they keep falling back to the default font for good.
+            for(auto& cm: cachedMaps)
+            {
+                if(cm.second != nullptr)
+                    cm.second->setCustomFonts(customFonts);
+            }
         }
         
         return Result::ok();
@@ -1242,6 +1251,13 @@ Result StyleSheet::Collection::performAtRules(DataProvider* d)
 		for(auto s: list)
 		{
 			s->setCustomFonts(customFonts);
+		}
+
+		// see the isolated branch above: cached sheets need the fonts as well
+		for(auto& cm: cachedMaps)
+		{
+			if(cm.second != nullptr)
+				cm.second->setCustomFonts(customFonts);
 		}
 	}
 
