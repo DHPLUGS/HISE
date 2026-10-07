@@ -105,9 +105,10 @@ hise::ProcessorMetadata LfoModulator::createMetadata()
 			.withDefault(0.0f))
 		.withParameter(Par(Delay)
 			.withId("Delay")
-			.withDescription("Delay after each key press before the LFO starts (and fades in)")
+			.withDescription("Delay after each key press before the LFO starts (and fades in). Follows TempoSync: a tempo list position when synced (negative = none), ms when free")
 			.withSliderMode(HiSlider::Time, Range(0.0, 3000.0, 0.0).withCentreSkew(500.0))
-			.withDefault(0.0f))
+			.withDefault(0.0f)
+			.withTempoSyncMode(TempoSync))
 		.withModulation(Mod(IntensityChain)
 			.withId("LFO Intensity Mod")
 			.withDescription("Modulates the intensity of the LFO output")
@@ -335,7 +336,7 @@ float LfoModulator::getAttribute(int parameter_index) const
     case Parameters::IgnoreNoteOn:
         return ignoreNoteOn ? 1.0f : 0.0f;
 	case Parameters::Delay:
-		return delayTime;
+		return tempoSync ? (float)delayTempo : delayTime;
 	default:
 		jassertfalse;
 		return 0.0f;
@@ -372,6 +373,7 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
 	case Parameters::TempoSync:
 		tempoSync = newValue >= 0.5f;
 		CHECK_COPY_AND_RETURN_15(this);
+		updateDelaySamples();
 		break;
 	case Parameters::SmoothingTime:
 		smoothingTime = newValue;
@@ -424,7 +426,11 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
 
         break;
 	case Parameters::Delay:
-		delayTime = jmax(0.0f, newValue);
+		if (tempoSync)
+			delayTempo = newValue < 0.0f ? -1 : jmin(TempoSyncer::getNumTempos() - 1, (int)newValue);
+		else
+			delayTime = jmax(0.0f, newValue);
+
 		updateDelaySamples();
 		// Shortening the delay while one is pending applies straight away; lengthening
 		// only affects the next trigger (so a knob sweep can't re-silence a running LFO).

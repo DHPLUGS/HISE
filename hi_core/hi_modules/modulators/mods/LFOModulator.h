@@ -175,6 +175,7 @@ public:
 	void tempoChanged(double /*newTempo*/) override
 	{
 		calcAngleDelta();
+		updateDelaySamples();
 		debugToConsole(this, "NewTempo");
 	};
 
@@ -284,10 +285,17 @@ private:
 	}
 
 	/** APEX: the delay is counted in control-rate samples (calculateNewValue runs once per
-	    control-rate sample), so recompute whenever the time or the control rate changes. */
+	    control-rate sample), so recompute whenever the time, the tempo or the control rate
+	    changes. Like Frequency, the Delay attribute follows TempoSync: a list position when
+	    synced (negative = no delay), milliseconds when free. */
 	void updateDelaySamples()
 	{
-		delaySamples = roundToInt((double)delayTime * 0.001 * getControlRate());
+		double ms = (double)delayTime;
+
+		if (tempoSync)
+			ms = delayTempo < 0 ? 0.0 : (double)TempoSyncer::getTempoInMilliSecondsAt(getMainController()->getBpm(), delayTempo);
+
+		delaySamples = roundToInt(ms * 0.001 * getControlRate());
 	}
 
     void resetPhase();
@@ -363,6 +371,7 @@ private:
 	/** APEX: onset delay. While delaySamplesLeft > 0 the fade-in value stays at 0 (= no
 	    modulation) and the phase is held at its reset position. Default 0 = stock behaviour. */
 	float delayTime = 0.0f;
+	int delayTempo = -1;     // list position when tempoSync, -1 = none
 	int delaySamples = 0;
 	int delaySamplesLeft = 0;
 
