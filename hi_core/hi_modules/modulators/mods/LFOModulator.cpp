@@ -745,8 +745,12 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 		// indices per control-rate sample and already includes frequency modulation.
 		const double cyclesPerSecond = angleDelta * getControlRate() / (double)SAMPLE_LOOKUP_TABLE_SIZE;
 
+		// While the onset delay is pending the phase is parked, so report a rate of 0: the
+		// ruler then waits on the reset position instead of extrapolating ahead of the audio.
+		const bool advancing = isLooped && delaySamplesLeft == 0;
+
 		table->publishPlayhead(isLooped ? (double)newInputValue : 1.0,
-		                       isLooped ? cyclesPerSecond : 0.0,
+		                       advancing ? cyclesPerSecond : 0.0,
 		                       loopEnabled,
 		                       phaseResetCounter,
 		                       keysPressed > 0);   // gate the playhead to notes being held
