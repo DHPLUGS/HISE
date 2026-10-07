@@ -1641,7 +1641,7 @@ double ScriptingApi::Engine::getSamplesForMilliSeconds(double milliSeconds) cons
 
 String ScriptingApi::Engine::getTempoName(int tempoIndex)
 {
-	return hise::TempoSyncer::getTempoName(tempoIndex);
+	return hise::TempoSyncer::getTempoNameAt(tempoIndex);
 }
 
 double ScriptingApi::Engine::getQuarterBeatsForSamples(double samples)
@@ -2611,7 +2611,7 @@ void ScriptingApi::Engine::showMessage(String message)
 	getProcessor()->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomInformation, message);
 }
 
-double ScriptingApi::Engine::getMilliSecondsForTempo(int tempoIndex) const { return (double)TempoSyncer::getTempoInMilliSeconds(getHostBpm(), (TempoSyncer::Tempo)tempoIndex); }
+double ScriptingApi::Engine::getMilliSecondsForTempo(int tempoIndex) const { return (double)TempoSyncer::getTempoInMilliSecondsAt(getHostBpm(), tempoIndex); }
 
 void ScriptingApi::Engine::openWebsite(String url)
 {
@@ -8667,14 +8667,13 @@ void ScriptingApi::TransportHandler::setOnBypass(var f)
 
 void ScriptingApi::TransportHandler::setEnableGrid(bool shouldBeEnabled, int tempoFactor)
 {
-	if (isPositiveAndBelow(tempoFactor, (int)TempoSyncer::numTempos))
+	if (isPositiveAndBelow(tempoFactor, TempoSyncer::getNumTempos()))
 	{
-		auto t = (TempoSyncer::Tempo)tempoFactor;
-		getMainController()->getMasterClock().setClockGrid(shouldBeEnabled, t);
+		getMainController()->getMasterClock().setClockGrid(shouldBeEnabled, tempoFactor);
 	}
 	else
 	{
-		reportScriptError("Illegal tempo value. Use 1-18");
+		reportScriptError("Illegal tempo value. Use 0-" + String(TempoSyncer::getNumTempos() - 1));
 	}
 }
 
@@ -8762,7 +8761,7 @@ double ScriptingApi::TransportHandler::getGridLengthInSamples() const
 {
 	auto bpm = getMainController()->getBpm();
 	auto gridSpeed = getMainController()->getMasterClock().getCurrentClockGrid();
-	auto tf = TempoSyncer::getTempoFactor(gridSpeed);
+	auto tf = TempoSyncer::getTempoFactorAt(gridSpeed);
 	auto sr = getMainController()->getMainSynthChain()->getSampleRate();
 	tf *= (float)localGridMultiplier;
 	return TempoSyncer::getTempoInSamples(bpm, sr, tf);

@@ -763,6 +763,11 @@ void BackendProcessor::projectChanged(const File& /*newRootDirectory*/)
 void BackendProcessor::refreshExpansionType()
 {
 	getSettingsObject().refreshProjectData();
+
+	// One HISE build edits projects that were exported with different tempo lists, so the
+	// list follows the project. This runs at startup (the restored project is set before
+	// this processor listens for project changes) and on every project switch.
+	TempoSyncer::setActiveList(TempoSyncer::getListFromDefinitions(getSettingsObject().getExtraDefinitionsAsObject()));
 	auto expType = dynamic_cast<GlobalSettingManager*>(this)->getSettingsObject().getSetting(HiseSettings::Project::ExpansionType).toString();
 
 	if (expType == "Disabled")

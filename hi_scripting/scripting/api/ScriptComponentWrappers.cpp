@@ -673,7 +673,7 @@ void ScriptCreatedComponentWrappers::SliderWrapper::updateSliderRange(ScriptingA
 	if (sc->m == HiSlider::Mode::TempoSync)
 	{
         min = jmax(min, 0.0);
-        max = jmin(max, (double)((int)TempoSyncer::Tempo::numTempos-1));
+        max = jmin(max, (double)(TempoSyncer::getNumTempos()-1));
         
 		s->setMode(HiSlider::Mode::TempoSync, NormalisableRange<double>((double)min, (double)max, 1.0));
 		return;
@@ -812,6 +812,7 @@ void ScriptCreatedComponentWrappers::SliderWrapper::updateComponent(int property
 		PROPERTY_CASE::ScriptComponent::tooltip :		s->setTooltip(GET_SCRIPT_PROPERTY(tooltip)); break;
 		PROPERTY_CASE::ScriptSlider::enableMidiLearn:   s->setCanBeMidiLearned(newValue); break;
 		PROPERTY_CASE::ScriptSlider::sendValueOnDrag:   s->setSendValueOnDrag((bool)newValue); break;
+		PROPERTY_CASE::ScriptSlider::tempoFamilyLock:   s->setTempoFamilyLock((bool)newValue); break;
 		PROPERTY_CASE::ScriptComponent::bgColour:
 		PROPERTY_CASE::ScriptComponent::itemColour :
 		PROPERTY_CASE::ScriptComponent::itemColour2 :

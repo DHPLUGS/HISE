@@ -49,7 +49,7 @@ hise::ProcessorMetadata LfoModulator::createMetadata()
 			.withDescription("The modulation frequency")
 			.withSliderMode(HiSlider::Frequency, Range(0.01, 40.0, 0.0).withCentreSkew(10.0))
 			.withDynamicDefault([](const Processor* p){
-				return dynamic_cast<const LfoModulator*>(p)->tempoSync ? (float)TempoSyncer::Eighth : 3.0f;
+				return dynamic_cast<const LfoModulator*>(p)->tempoSync ? (float)TempoSyncer::getNearestIndex(TempoSyncer::Eighth) : 3.0f;
 			 })
 			.withDefault(3.0f)
 			.withTempoSyncMode(TempoSync))
@@ -103,6 +103,11 @@ hise::ProcessorMetadata LfoModulator::createMetadata()
 			.withDescription("Free run mode - does not reset the LFO phase on note on")
 			.asToggle()
 			.withDefault(0.0f))
+		.withParameter(Par(Delay)
+			.withId("Delay")
+			.withDescription("Delay after each key press before the LFO starts (and fades in)")
+			.withSliderMode(HiSlider::Time, Range(0.0, 3000.0, 0.0).withCentreSkew(500.0))
+			.withDefault(0.0f))
 		.withModulation(Mod(IntensityChain)
 			.withId("LFO Intensity Mod")
 			.withDescription("Modulates the intensity of the LFO output")
@@ -134,7 +139,7 @@ LfoModulator::LfoModulator(MainController *mc, const String &id, Modulation::Mod
 	currentWaveform((Waveform)(int)getDefaultValue(WaveFormType)),
 	currentTable(nullptr),
 	currentRandomValue(1.0f),
-	currentTempo(TempoSyncer::Eighth),
+	currentTempo(TempoSyncer::getNearestIndex(TempoSyncer::Eighth)),
 	legato(getDefaultValue(Legato) >= 0.5f),
 	loopEnabled(getDefaultValue(LoopEnabled) >= 0.5f),
 	tempoSync(getDefaultValue(TempoSync) >= 0.5f),
@@ -206,7 +211,7 @@ LfoModulator::LfoModulator(MainController *mc, const String &id, Modulation::Mod
 			{
 				auto freq = (int)t->getAttribute(LfoModulator::Parameters::Frequency);
 
-				return Table::getDefaultTextValue(input) + " of " + TempoSyncer::getTempoName(freq);
+				return Table::getDefaultTextValue(input) + " of " + TempoSyncer::getTempoNameAt(freq);
 			}
 			else
 			{
@@ -252,6 +257,7 @@ void LfoModulator::restoreFromValueTree(const ValueTree &v)
 	loadAttributeWithDefault(PhaseOffset);
 	loadAttributeWithDefault(SyncToMasterClock);
     loadAttributeWithDefault(IgnoreNoteOn);
+	loadAttributeWithDefault(Delay);
 
 	loadAttribute(SmoothingTime, "SmoothingTime");
 
@@ -277,8 +283,8 @@ juce::ValueTree LfoModulator::exportAsValueTree() const
 	saveAttribute(PhaseOffset, "PhaseOffset");
 	saveAttribute(SyncToMasterClock, "SyncToMasterClock");
     saveAttribute(IgnoreNoteOn, "IgnoreNoteOn");
-    
-    
+	saveAttribute(Delay, "Delay");
+
 	saveTable(getTableUnchecked(0), "CustomWaveform");
 
 	v.setProperty("StepData", getSliderPackDataUnchecked(0)->toBase64(), nullptr);
@@ -328,7 +334,9 @@ float LfoModulator::getAttribute(int parameter_index) const
 		return syncToMasterClock ? 1.0f : 0.0f;
     case Parameters::IgnoreNoteOn:
         return ignoreNoteOn ? 1.0f : 0.0f;
-	default: 
+	case Parameters::Delay:
+		return delayTime;
+	default:
 		jassertfalse;
 		return 0.0f;
 	}
@@ -342,7 +350,7 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
 	case Parameters::Frequency:
 		if(tempoSync)
 		{
-			currentTempo = (TempoSyncer::Tempo)(int)(newValue);
+			currentTempo = jlimit(0, TempoSyncer::getNumTempos() - 1, (int)newValue);
 		}
 		else
 		{
@@ -413,10 +421,17 @@ void LfoModulator::setInternalAttribute (int parameter_index, float newValue)
         // for re-syncing the LFO somehow
         if(ignoreNoteOn)
             resetPhase();
-            
+
         break;
-            
-	default: 
+	case Parameters::Delay:
+		delayTime = jmax(0.0f, newValue);
+		updateDelaySamples();
+		// Shortening the delay while one is pending applies straight away; lengthening
+		// only affects the next trigger (so a knob sweep can't re-silence a running LFO).
+		delaySamplesLeft = jmin(delaySamplesLeft, delaySamples);
+		break;
+
+	default:
 		jassertfalse;
 	}
 }
@@ -587,7 +602,16 @@ float LfoModulator::calculateNewValue ()
 		}
 	}
 
-	if(attack != 0.0f || attackValue < 1.0f) attackValue = attackBase + attackValue * attackCoef;
+	// APEX onset delay: the fade-in value stays at 0 (= the mode's rest value below) and the
+	// phase is held, so the waveform starts from its reset phase exactly when the fade-in begins.
+	const bool delaying = delaySamplesLeft > 0;
+
+	if (delaying)
+	{
+		--delaySamplesLeft;
+		attackValue = 0.0f;
+	}
+	else if(attack != 0.0f || attackValue < 1.0f) attackValue = attackBase + attackValue * attackCoef;
 	else attackValue = 1.0f;
 
 	attackValue = CONSTRAIN_TO_0_1(attackValue);
@@ -618,8 +642,9 @@ float LfoModulator::calculateNewValue ()
 	
 	currentValue = smoother.smooth(newValue);
 
-	uptime += (angleDelta);
-	
+	if (!delaying)
+		uptime += (angleDelta);
+
 	return currentValue;
 }
 
@@ -637,6 +662,7 @@ void LfoModulator::prepareToPlay(double sampleRate, int samplesPerBlock)
 			mb.prepareToPlay(sampleRate, samplesPerBlock);
 
 		setAttackRate(attack);
+		updateDelaySamples();
 
 		calcAngleDelta();
 		smoother.prepareToPlay(getControlRate());
@@ -670,7 +696,7 @@ void LfoModulator::resyncInternal(double ppqPosition)
     if(!loopEnabled)
         return;
 
-    auto cycleLength = (double)TempoSyncer::getTempoFactor(currentTempo);
+    auto cycleLength = (double)TempoSyncer::getTempoFactorAt(currentTempo);
     
     auto ppqOffset = hmath::fmod(ppqPosition, cycleLength);
     
@@ -691,7 +717,7 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 	if (syncToMasterClock && tempoSync)
 	{
 		auto startPPQ = getMainController()->getMasterClock().getPPQPos(numSamples - startSample);
-		auto cycleLength = (double)TempoSyncer::getTempoFactor(currentTempo);
+		auto cycleLength = (double)TempoSyncer::getTempoFactorAt(currentTempo);
 
 		auto uptimeNorm = startPPQ / cycleLength;
 
@@ -876,7 +902,7 @@ void LfoModulator::calcAngleDelta()
 {
 	const double sr = getControlRate();
 
-	const float frequencyToUse = tempoSync ? TempoSyncer::getTempoInHertz(getMainController()->getBpm(), currentTempo) :
+	const float frequencyToUse = tempoSync ? TempoSyncer::getTempoInHertzAt(getMainController()->getBpm(), currentTempo) :
 		frequency;
 
 	const float cyclesPerSecond = frequencyToUse * frequencyModulationValue;

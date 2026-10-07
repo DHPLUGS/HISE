@@ -78,9 +78,19 @@ UNPROCESSED_END
 
 PreprocessorDataBase::PreprocessorDataBase()
 {
+	data["HISE_TEMPO_LIST"] = Entry()
+		.withCategory(Category::AudioProcessing)
+		.withBrief("Selects which ordering of note values every tempo-synced parameter stores its index against.")
+		.withDescriptionLine("Every TempoSync slider, the LFO / Delay / Arpeggiator tempo parameters, the scriptnode tempo_sync nodes and the `Engine.getTempoName` / `getMilliSecondsForTempo` scripting APIs store a tempo as a position in a list of note values. This flag picks the list: 0 = stock (1/1 .. 1/64T, 19 values), 1 = extended (8/1 .. 1/64T, 24 values, what HISE_USE_EXTENDED_TEMPO_VALUES gives), 2 = extended with 16/1 and 12/1 in front (26 values), 3 = every straight, dotted and triplet value from 16/1 to 1/64 sorted by length, dotted spelled \"1/4.\" (33 values).")
+		.withDescriptionLine("> A stored index means something else under another list, so the exported plugin, the project's network dll (ExtraDefinitionsNetworkDll) and the presets must all agree. The HISE app itself switches to the open project's list when the project loads, so one HISE build can edit projects that use different lists.")
+		.withDefault(0)
+		.withValue(HISE_TEMPO_LIST)
+		.withCrossReference(LinkType::Module, "Arpeggiator", "its Tempo parameter is a position in the selected list")
+		.withCrossReference(LinkType::ScriptingApi, "Engine", "tempoIndex arguments on getTempoName / getMilliSecondsForTempo index the selected list");
+
 	data["HISE_USE_EXTENDED_TEMPO_VALUES"] = Entry()
 		.withCategory(Category::AudioProcessing)
-		.withBrief("Adds longer tempo divisions (up to eight bars) to every tempo-synced parameter in the project.")
+		.withBrief("Adds longer tempo divisions (up to eight bars) to every tempo-synced parameter in the project. Legacy alias for HISE_TEMPO_LIST=1.")
 		.withDescriptionLine("The built-in tempo list that feeds every TempoSync slider, the arpeggiator's Tempo parameter and the `Engine.getTempoInMilliSeconds` / `TransportHandler` scripting APIs only goes up to a whole note by default. Enabling this flag prepends five longer values (EightBar, SixBar, FourBar, ThreeBar, TwoBars) to the front of the list, which is useful for slowly evolving ambient patches or long arpeggiator phrases.")
 		.withDescriptionLine("> Turning this on shifts every existing tempo index by 5, so any user preset that stored a tempo as an integer index before the change will map to a different note value after recompiling. The flag must be set consistently for both the HISE build and the exported plugin, otherwise stored indices will not round-trip.")
 		.withDefault(0)

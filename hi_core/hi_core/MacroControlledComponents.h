@@ -763,7 +763,7 @@ public:
 		Frequency = 0, ///< Range 20 - 20 000, Suffix "Hz", Midpoint: 1.5kHz
 		Decibel, ///< Range -100 - 0, Suffix "dB", Midpoint -18dB
 		Time, ///< Range 0 - 20 000, Suffix "ms", Midpoint 1000ms
-		TempoSync, ///< Range 0 - numTempos, @see TempoSyncer
+		TempoSync, ///< Range 0 - getNumTempos()-1 (a position in the active tempo list), @see TempoSyncer
 		Linear, ///< Range min - max
 		Discrete, ///< Range min - max, Stepsize integer
 		Pan, ///< 100L - 100R, Stepsize integer
@@ -925,6 +925,14 @@ public:
 	/** Overrides the slider method to set the value from the Tempo names */
 	double getValueFromText(const String &text) override;;
 
+	/** TempoSync mode only: the knob keeps its full range (so the stored value, the DAW text
+	    and the presets are plain list positions) but dragging, the wheel and the keys only
+	    land on positions of the same family (straight / dotted / triplet) as the current
+	    value. Set the value directly to change family. */
+	void setTempoFamilyLock(bool shouldLock) { tempoFamilyLock = shouldLock; }
+
+	double snapValue(double attemptedValue, DragMode dragMode) override;
+
 	void setLookAndFeelOwned(LookAndFeel *fslaf);
 
 	static double getSkewFactorFromMidPoint(double minimum, double maximum, double midPoint);
@@ -1022,6 +1030,7 @@ private:
 	bool sendValueOnDrag = true;
 	String getModeSuffix() const;;
 	Mode mode;
+	bool tempoFamilyLock = false;
 	double modeValues[numModes];
 	double dragStartValue = 0.0f;
 	ScopedPointer<LookAndFeel> laf;

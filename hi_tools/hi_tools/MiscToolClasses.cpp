@@ -2202,10 +2202,168 @@ void SafeChangeListener::handlePooledMessage(PooledUIUpdater::Broadcaster* b)
 	changeListenerCallback(dynamic_cast<SafeChangeBroadcaster*>(b));
 }
 
-TempoSyncer::TempoString TempoSyncer::tempoNames[numTempos];
+TempoSyncer::TempoString TempoSyncer::tempoNames[numTempoIds];
 
-float TempoSyncer::tempoFactors[numTempos];
+float TempoSyncer::tempoFactors[numTempoIds];
 
+TempoSyncer::ListData TempoSyncer::lists[(int)List::numLists];
+
+std::atomic<int> TempoSyncer::activeList { HISE_TEMPO_LIST };
+
+// ===== list-position API =====
+
+int TempoSyncer::getNumTempos()
+{
+	return active().numTempos;
+}
+
+TempoSyncer::Tempo TempoSyncer::getTempoAt(int index)
+{
+	auto& l = active();
+	jassert(isPositiveAndBelow(index, l.numTempos));
+	return l.ids[jlimit(0, l.numTempos - 1, index)];
+}
+
+int TempoSyncer::indexOf(Tempo t)
+{
+	auto& l = active();
+
+	for (int i = 0; i < l.numTempos; i++)
+	{
+		if (l.ids[i] == t)
+			return i;
+	}
+
+	return -1;
+}
+
+int TempoSyncer::getNearestIndex(Tempo t)
+{
+	auto index = indexOf(t);
+
+	if (index != -1)
+		return index;
+
+	// the ids are ordered by length, so the nearest id in the list is the nearest length
+	auto& l = active();
+	int best = 0;
+	int bestDistance = std::numeric_limits<int>::max();
+
+	for (int i = 0; i < l.numTempos; i++)
+	{
+		auto distance = std::abs((int)l.ids[i] - (int)t);
+
+		if (distance < bestDistance)
+		{
+			bestDistance = distance;
+			best = i;
+		}
+	}
+
+	return best;
+}
+
+float TempoSyncer::getTempoFactorAt(int index)
+{
+	return getTempoFactor(getTempoAt(index));
+}
+
+double TempoSyncer::getTempoInSamplesAt(double hostTempoBpm, double sampleRate, int index)
+{
+	return getTempoInSamples(hostTempoBpm, sampleRate, getTempoFactorAt(index));
+}
+
+float TempoSyncer::getTempoInMilliSecondsAt(double hostTempoBpm, int index)
+{
+	return getTempoInMilliSeconds(hostTempoBpm, getTempoAt(index));
+}
+
+float TempoSyncer::getTempoInHertzAt(double hostTempoBpm, int index)
+{
+	return getTempoInHertz(hostTempoBpm, getTempoAt(index));
+}
+
+String TempoSyncer::getTempoNameAt(int index)
+{
+	auto& l = active();
+	jassert(index < l.numTempos);
+	return isPositiveAndBelow(index, l.numTempos) ? l.names[index] : "Invalid";
+}
+
+int TempoSyncer::getTempoFamilyAt(int index)
+{
+	auto& l = active();
+
+	if (!isPositiveAndBelow(index, l.numTempos))
+		return 0;
+
+	auto n = l.names[index];
+	auto last = n[strlen(n) - 1];
+
+	return last == 'T' ? 2 : ((last == 'D' || last == '.') ? 1 : 0);
+}
+
+juce::StringArray TempoSyncer::getTempoNames()
+{
+	auto& l = active();
+
+	StringArray sa;
+
+	for (int i = 0; i < l.numTempos; i++)
+		sa.add(l.names[i]);
+	
+	return sa;
+}
+
+int TempoSyncer::getTempoIndex(const String &t)
+{
+	auto& l = active();
+
+	for (int i = 0; i < l.numTempos; i++)
+	{
+		if (strcmp(t.getCharPointer().getAddress(), l.names[i]) == 0)
+			return i;
+	}
+
+	// a list that spells dotted values "1/4." still answers to the HISE spelling "1/4D"
+	if (t.endsWithChar('D'))
+		return getTempoIndex(t.dropLastCharacters(1) + ".");
+
+	jassertfalse;
+	return getNearestIndex(Tempo::Quarter);
+}
+
+int TempoSyncer::getTempoIndexForTime(double currentBpm, double milliSeconds)
+{
+	float max = 200000.0f;
+	int index = -1;
+
+	for (int i = 0; i < getNumTempos(); i++)
+	{
+		const float thisDelta = fabsf(getTempoInMilliSecondsAt((float)currentBpm, i) - (float)milliSeconds);
+
+		if (thisDelta < max)
+		{
+			max = thisDelta;
+			index = i;
+		}
+	}
+
+	if (index >= 0)
+		return index;
+
+	// Fallback Dummy
+	return getNearestIndex(Tempo::Quarter);
+}
+
+// ===== canonical API =====
+
+float TempoSyncer::getTempoFactor(Tempo t)
+{
+	active();
+	jassert(t < numTempoIds);
+	return t < numTempoIds ? tempoFactors[(int)t] : tempoFactors[(int)Tempo::Quarter];
+}
 
 double TempoSyncer::getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor)
 {
@@ -2218,15 +2376,6 @@ double TempoSyncer::getTempoInSamples(double hostTempoBpm, double sampleRate, fl
 double TempoSyncer::getTempoInSamples(double hostTempoBpm, double sampleRate, Tempo t)
 {
 	return getTempoInSamples(hostTempoBpm, sampleRate, getTempoFactor(t));
-}
-
-juce::StringArray TempoSyncer::getTempoNames()
-{
-	StringArray sa;
-	for (int i = 0; i < numTempos; i++)
-		sa.add(tempoNames[i]);
-	
-	return sa;
 }
 
 float TempoSyncer::getTempoInMilliSeconds(double hostTempoBpm, Tempo t)
@@ -2246,46 +2395,14 @@ float TempoSyncer::getTempoInHertz(double hostTempoBpm, Tempo t)
 	return 1.0f / seconds;
 }
 
-String TempoSyncer::getTempoName(int t)
+String TempoSyncer::getTempoName(Tempo t)
 {
-	jassert(t < numTempos);
-	return t < numTempos ? tempoNames[t] : "Invalid";
+	active();
+	jassert(t < numTempoIds);
+	return t < numTempoIds ? tempoNames[(int)t] : "Invalid";
 }
 
-hise::TempoSyncer::Tempo TempoSyncer::getTempoIndexForTime(double currentBpm, double milliSeconds)
-{
-	float max = 200000.0f;
-	int index = -1;
-
-	for (int i = 0; i < numTempos; i++)
-	{
-		const float thisDelta = fabsf(getTempoInMilliSeconds((float)currentBpm, (Tempo)i) - (float)milliSeconds);
-
-		if (thisDelta < max)
-		{
-			max = thisDelta;
-			index = i;
-		}
-	}
-
-	if (index >= 0)
-		return (Tempo)index;
-
-	// Fallback Dummy
-	return Tempo::Quarter;
-}
-
-hise::TempoSyncer::Tempo TempoSyncer::getTempoIndex(const String &t)
-{
-	for (int i = 0; i < numTempos; i++)
-	{
-		if(strcmp(t.getCharPointer().getAddress(), tempoNames[i]) == 0)
-			return (Tempo)i;
-	}
-	
-	jassertfalse;
-	return Tempo::Quarter;
-}
+// ===== list selection =====
 
 void TempoSyncer::initTempoData()
 {
@@ -2295,42 +2412,131 @@ void TempoSyncer::initTempoData()
 		tempoFactors[t] = value;
 	};
 
-#if HISE_USE_EXTENDED_TEMPO_VALUES
-#if HISE_USE_16_BAR_TEMPO
+	// the ids, in length order
+	setTempo(SixteenBarDuet, "16/1D", 4.0f * 16.0f * 1.5f);
 	setTempo(SixteenBar, "16/1", 4.0f * 16.0f);
 	setTempo(TwelveBar, "12/1", 4.0f * 12.0f);
-#endif
+	setTempo(SixteenBarTriplet, "16/1T", 4.0f * 16.0f * 2.0f / 3.0f);
 	setTempo(EightBar, "8/1", 4.0f * 8.0f);
 	setTempo(SixBar, "6/1", 4.0f * 6.0f);
+	setTempo(EightBarTriplet, "8/1T", 4.0f * 8.0f * 2.0f / 3.0f);
 	setTempo(FourBar, "4/1", 4.0f * 4.0f);
 	setTempo(ThreeBar, "3/1", 4.0f * 3.0f);
+	setTempo(FourBarTriplet, "4/1T", 4.0f * 4.0f * 2.0f / 3.0f);
 	setTempo(TwoBars, "2/1", 4.0f * 2.0f);
-#endif
+	setTempo(WholeDuet, "1/1D", 4.0f * 1.5f);
+	setTempo(TwoBarsTriplet, "2/1T", 4.0f * 2.0f * 2.0f / 3.0f);
 	setTempo(Whole, "1/1", 4.0f);
 	setTempo(HalfDuet, "1/2D", 2.0f * 1.5f);
+	setTempo(WholeTriplet, "1/1T", 4.0f * 2.0f / 3.0f);
 	setTempo(Half, "1/2", 2.0f);
-	setTempo(HalfTriplet, "1/2T", 4.0f / 3.0f);
 	setTempo(QuarterDuet, "1/4D", 1.0f * 1.5f);
+	setTempo(HalfTriplet, "1/2T", 4.0f / 3.0f);
 	setTempo(Quarter, "1/4", 1.0f);
-	setTempo(QuarterTriplet, "1/4T", 2.0f / 3.0f);
 	setTempo(EighthDuet, "1/8D", 0.5f * 1.5f);
+	setTempo(QuarterTriplet, "1/4T", 2.0f / 3.0f);
 	setTempo(Eighth, "1/8", 0.5f);
-	setTempo(EighthTriplet, "1/8T", 1.0f / 3.0f);
 	setTempo(SixteenthDuet, "1/16D", 0.25f * 1.5f);
+	setTempo(EighthTriplet, "1/8T", 1.0f / 3.0f);
 	setTempo(Sixteenth, "1/16", 0.25f);
-	setTempo(SixteenthTriplet, "1/16T", 0.5f / 3.0f);
 	setTempo(ThirtyTwoDuet, "1/32D", 0.125f * 1.5f);
+	setTempo(SixteenthTriplet, "1/16T", 0.5f / 3.0f);
 	setTempo(ThirtyTwo, "1/32", 0.125f);
-	setTempo(ThirtyTwoTriplet, "1/32T", 0.25f / 3.0f);
 	setTempo(SixtyForthDuet, "1/64D", 0.125f * 0.5f * 1.5f);
+	setTempo(ThirtyTwoTriplet, "1/32T", 0.25f / 3.0f);
 	setTempo(SixtyForth, "1/64", 0.125f * 0.5f);
 	setTempo(SixtyForthTriplet, "1/64T", 0.125f / 3.0f);
+
+	// the lists. The first three are HISE's historical orderings (stock, extended, 16-bar)
+	// and must never change, since every stored index of those projects depends on them.
+	auto setList = [](List list, std::initializer_list<Tempo> ids, bool dottedAsPoint)
+	{
+		auto& l = lists[(int)list];
+		l.numTempos = 0;
+
+		for (auto t : ids)
+		{
+			auto i = l.numTempos++;
+			l.ids[i] = t;
+			strcpy(l.names[i], tempoNames[t]);
+
+			if (dottedAsPoint)
+			{
+				auto len = strlen(l.names[i]);
+
+				if (len > 0 && l.names[i][len - 1] == 'D')
+					l.names[i][len - 1] = '.';
+			}
+		}
+	};
+
+	setList(List::Stock, { Whole, HalfDuet, Half, HalfTriplet, QuarterDuet, Quarter, QuarterTriplet,
+	                       EighthDuet, Eighth, EighthTriplet, SixteenthDuet, Sixteenth, SixteenthTriplet,
+	                       ThirtyTwoDuet, ThirtyTwo, ThirtyTwoTriplet, SixtyForthDuet, SixtyForth, SixtyForthTriplet }, false);
+
+	setList(List::Extended, { EightBar, SixBar, FourBar, ThreeBar, TwoBars,
+	                          Whole, HalfDuet, Half, HalfTriplet, QuarterDuet, Quarter, QuarterTriplet,
+	                          EighthDuet, Eighth, EighthTriplet, SixteenthDuet, Sixteenth, SixteenthTriplet,
+	                          ThirtyTwoDuet, ThirtyTwo, ThirtyTwoTriplet, SixtyForthDuet, SixtyForth, SixtyForthTriplet }, false);
+
+	setList(List::Extended16Bar, { SixteenBar, TwelveBar, EightBar, SixBar, FourBar, ThreeBar, TwoBars,
+	                               Whole, HalfDuet, Half, HalfTriplet, QuarterDuet, Quarter, QuarterTriplet,
+	                               EighthDuet, Eighth, EighthTriplet, SixteenthDuet, Sixteenth, SixteenthTriplet,
+	                               ThirtyTwoDuet, ThirtyTwo, ThirtyTwoTriplet, SixtyForthDuet, SixtyForth, SixtyForthTriplet }, false);
+
+	{
+		// every id, longest first = the enum order
+		auto& l = lists[(int)List::Apex];
+		l.numTempos = 0;
+
+		for (int i = 0; i < (int)numTempoIds; i++)
+		{
+			l.ids[i] = (Tempo)i;
+			strcpy(l.names[i], tempoNames[i]);
+			auto len = strlen(l.names[i]);
+
+			if (l.names[i][len - 1] == 'D')
+				l.names[i][len - 1] = '.';
+
+			l.numTempos++;
+		}
+	}
+
+	activeList.store(jlimit(0, (int)List::numLists - 1, (int)HISE_TEMPO_LIST));
 }
 
-float TempoSyncer::getTempoFactor(Tempo t)
+void TempoSyncer::setActiveList(List newList)
 {
-	jassert(t < numTempos);
-	return t < numTempos ? tempoFactors[(int)t] : tempoFactors[(int)Tempo::Quarter];
+	activeList.store(jlimit(0, (int)List::numLists - 1, (int)newList));
+}
+
+TempoSyncer::List TempoSyncer::getActiveList()
+{
+	return (List)activeList.load();
+}
+
+TempoSyncer::List TempoSyncer::getListFromDefinitions(const var& extraDefinitions)
+{
+	if (auto obj = extraDefinitions.getDynamicObject())
+	{
+		// a bare "-DFLAG" lands here with an empty value, which the compiler treats as 1
+		auto isSet = [obj](const char* name)
+		{
+			if (!obj->hasProperty(Identifier(name)))
+				return false;
+
+			auto v = obj->getProperty(Identifier(name)).toString().trim();
+			return v.isEmpty() || v.getIntValue() != 0;
+		};
+
+		if (obj->hasProperty("HISE_TEMPO_LIST"))
+			return (List)jlimit(0, (int)List::numLists - 1, obj->getProperty("HISE_TEMPO_LIST").toString().getIntValue());
+
+		if (isSet("HISE_USE_EXTENDED_TEMPO_VALUES"))
+			return isSet("HISE_USE_16_BAR_TEMPO") ? List::Extended16Bar : List::Extended;
+	}
+
+	return List::Stock;
 }
 
 void MasterClock::setNextGridIsFirst()
@@ -2506,7 +2712,7 @@ MasterClock::GridInfo MasterClock::updateFromExternalPlayHead(const AudioPlayHea
 
 		if (currentState == State::ExternalClockPlay && gridEnabled)
 		{
-			auto multiplier = (double)TempoSyncer::getTempoFactor(clockGrid);
+			auto multiplier = (double)TempoSyncer::getTempoFactorAt(clockGrid);
 
 			auto gridPos = std::fmod(info.ppqPosition, multiplier);
 
@@ -2547,7 +2753,7 @@ MasterClock::GridInfo MasterClock::updateFromExternalPlayHead(const AudioPlayHea
 		auto numSamplesInPPQ = (double)numSamples / quarterInSamples;
 		auto ppqBefore = info.ppqPosition;
 		auto ppqAfter = ppqBefore + numSamplesInPPQ;
-		auto multiplier = (double)TempoSyncer::getTempoFactor(clockGrid);
+		auto multiplier = (double)TempoSyncer::getTempoFactorAt(clockGrid);
 
 		auto p1 = (ppqBefore / multiplier);
 		auto p2 = (ppqAfter / multiplier);
@@ -2622,7 +2828,7 @@ void MasterClock::setLinkBpmToSyncMode(bool should)
 	linkBpmToSync = should;
 }
 
-TempoSyncer::Tempo MasterClock::getCurrentClockGrid() const
+int MasterClock::getCurrentClockGrid() const
 { return clockGrid; }
 
 bool MasterClock::allowExternalSync() const
@@ -2655,10 +2861,10 @@ bool MasterClock::shouldCreateInternalInfo(const AudioPlayHead::CurrentPositionI
 	return true;
 }
 
-void MasterClock::setClockGrid(bool enableGrid, TempoSyncer::Tempo t)
+void MasterClock::setClockGrid(bool enableGrid, int tempoIndex)
 {
 	gridEnabled = enableGrid;
-	clockGrid = t;
+	clockGrid = tempoIndex;
 	updateGridDelta();
 }
 
@@ -2678,7 +2884,7 @@ double MasterClock::getPPQPos(int timestampFromNow) const
 void MasterClock::reset()
 {
 	gridEnabled = false;
-	clockGrid = TempoSyncer::numTempos;
+	clockGrid = -1;
 	currentSyncMode = SyncModes::Inactive;
         
 	uptime = 0;
@@ -2707,7 +2913,7 @@ void MasterClock::updateGridDelta()
 {
 	if (gridEnabled)
 	{
-		gridDelta = TempoSyncer::getTempoInSamples(bpm, sampleRate, clockGrid);
+		gridDelta = TempoSyncer::getTempoInSamplesAt(bpm, sampleRate, clockGrid);
 	}
 }
 

@@ -2185,8 +2185,17 @@ private:
 *	All methods are static and it holds no data, so you have to get the host bpm before
 *	you can use this class.
 *
-*	You can use the slider mode TempoSync, which automatically maps the slider values
-*	to the tempo indexes and shows the corresponding text representation.
+*	There are two kinds of tempo value, and they are deliberately different C++ types:
+*
+*	- `Tempo` is a stable id for a note value (Quarter is always a quarter note). Use it
+*	  for musical constants in code, eg. "samples per quarter".
+*	- a list position (plain `int`) is what sliders, presets, scripts and node parameters
+*	  store. It indexes the ACTIVE tempo list, which is one of a few fixed orderings
+*	  (`List`). The functions that take a position end in "At".
+*
+*	The active list is chosen at compile time with HISE_TEMPO_LIST (see hi_tools.h) and,
+*	in the HISE app, switched at runtime to the open project's setting so that one build
+*	of HISE can edit projects that were exported with different lists.
 *
 *	If the supplied hostTempo is invalid (= 0.0), a default tempo of 120.0 is used.
 */
@@ -2194,86 +2203,158 @@ class TempoSyncer
 {
 public:
 
-	/** The note values. */
+	/** The note values. Stable ids, ordered by length (longest first), so the full list is
+	    the enum order. Do not use these as stored indices: use indexOf() / getTempoAt(). */
 	enum Tempo
 	{
-#if HISE_USE_EXTENDED_TEMPO_VALUES
-#if HISE_USE_16_BAR_TEMPO
-		// LFO-EQ preset compatibility: its legacy HISE build had these two prepended,
-		// so all its stored tempo indices assume SixteenBar == 0.
-		SixteenBar = 0, ///< sixteen bars (16/1)
-		TwelveBar, ///< twelve bars (12/1)
-		EightBar,
-#else
-		EightBar = 0,
-#endif
-		SixBar,
-		FourBar,
-		ThreeBar,
-		TwoBars,
-		Whole,
-#else
-		Whole = 0, ///< a whole note (1/1)
-#endif
+		SixteenBarDuet = 0, ///< 24 bars (16/1D)
+		SixteenBar, ///< sixteen bars (16/1)
+		TwelveBar, ///< twelve bars (12/1 = 8/1D)
+		SixteenBarTriplet, ///< 16/1T
+		EightBar, ///< eight bars (8/1)
+		SixBar, ///< six bars (6/1 = 4/1D)
+		EightBarTriplet, ///< 8/1T
+		FourBar, ///< four bars (4/1)
+		ThreeBar, ///< three bars (3/1 = 2/1D)
+		FourBarTriplet, ///< 4/1T
+		TwoBars, ///< two bars (2/1)
+		WholeDuet, ///< a dotted whole note (1/1D)
+		TwoBarsTriplet, ///< 2/1T
+		Whole, ///< a whole note (1/1)
 		HalfDuet, ///< a half note duole (1/2D)
+		WholeTriplet, ///< a whole note triplet (1/1T)
 		Half, ///< a half note (1/2)
-		HalfTriplet, ///< a half triplet note (1/2T)
 		QuarterDuet, ///< a quarter note duole (1/4D)
+		HalfTriplet, ///< a half triplet note (1/2T)
 		Quarter, ///< a quarter note (1/4)
-		QuarterTriplet, ///< a quarter triplet note (1/4T)
 		EighthDuet, ///< a eight note duole (1/8D)
+		QuarterTriplet, ///< a quarter triplet note (1/4T)
 		Eighth, ///< a eighth note (1/8)
-		EighthTriplet, ///< a eighth triplet note (1/8T)
 		SixteenthDuet, ///< a sixteenth duole (1/16D)
+		EighthTriplet, ///< a eighth triplet note (1/8T)
 		Sixteenth, ///< a sixteenth note (1/16)
-		SixteenthTriplet, ///< a sixteenth triplet (1/16T)
 		ThirtyTwoDuet, ///< a 32th duole (1/32D)
+		SixteenthTriplet, ///< a sixteenth triplet (1/16T)
 		ThirtyTwo, ///< a 32th note (1/32)
-		ThirtyTwoTriplet, ///< a 32th triplet (1/32T)
 		SixtyForthDuet, ///< a 64th duole (1/64D)
+		ThirtyTwoTriplet, ///< a 32th triplet (1/32T)
 		SixtyForth, ///< a 64th note (1/64)
-		SixtyForthTriplet, ///> a 64th triplet 1/64T)
-		numTempos
+		SixtyForthTriplet, ///< a 64th triplet 1/64T)
+		numTempoIds
 	};
 
-	/** Returns the sample amount for the specified tempo. */
-	static double getTempoInSamples(double hostTempoBpm, double sampleRate, Tempo t);;
+	/** The orderings a project can store its tempo indices against. The numbers are the
+	    HISE_TEMPO_LIST values. Never reorder an existing list: stored indices depend on it. */
+	enum class List
+	{
+		Stock = 0, ///< 1/1 .. 1/64T (19), stock HISE
+		Extended, ///< 8/1 .. 1/64T (24), HISE_USE_EXTENDED_TEMPO_VALUES
+		Extended16Bar, ///< 16/1, 12/1, 8/1 .. 1/64T (26), + HISE_USE_16_BAR_TEMPO (LFO-EQ)
+		Apex, ///< every value, longest first, dotted spelled "1/4." (33)
+		numLists
+	};
 
-	static double getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor);
+	// ===== list-position API: what sliders, presets, scripts and node parameters store =====
 
-	static StringArray getTempoNames();;
+	/** The number of entries in the active list. */
+	static int getNumTempos();
 
-	/** Returns the time for the specified tempo in milliseconds. */
-	static float getTempoInMilliSeconds(double hostTempoBpm, Tempo t);;
+	/** The note value at a position of the active list (clamped). */
+	static Tempo getTempoAt(int index);
 
-	/** Returns the tempo as frequency (in Hertz). */
-	static float getTempoInHertz(double hostTempoBpm, Tempo t);
+	/** The position of a note value in the active list, or -1 if the list doesn't have it. */
+	static int indexOf(Tempo t);
 
-	/** Returns the name of the tempo with the index 't'. */
-	static String getTempoName(int t);;
+	/** The position of a note value in the active list, or of the closest one by length. */
+	static int getNearestIndex(Tempo t);
 
-	/** Returns the next Tempo index for the given time.
+	static float getTempoFactorAt(int index);
+
+	static double getTempoInSamplesAt(double hostTempoBpm, double sampleRate, int index);
+
+	static float getTempoInMilliSecondsAt(double hostTempoBpm, int index);
+
+	static float getTempoInHertzAt(double hostTempoBpm, int index);
+
+	/** Returns the name of the tempo at the given position of the active list. */
+	static String getTempoNameAt(int index);
+
+	/** 0 = straight, 1 = dotted, 2 = triplet, for the tempo at the given position of the active list. */
+	static int getTempoFamilyAt(int index);
+
+	/** The names of the active list, in order. */
+	static StringArray getTempoNames();
+
+	/** Returns the position of the tempo with the name 't' in the active list (the quarter
+	    note if there is no such name). */
+	static int getTempoIndex(const String &t);
+
+	/** Returns the position in the active list whose length is closest to the given time.
 	*
 	*	This is not a super fast operation, but it helps with dealing between the
 	*	two realms.
 	*/
-	static Tempo getTempoIndexForTime(double currentBpm, double milliSeconds);
+	static int getTempoIndexForTime(double currentBpm, double milliSeconds);
 
-	/** Returns the index of the tempo with the name 't'. */
-	static Tempo getTempoIndex(const String &t);;
+	// ===== canonical API: musical constants in code =====
 
-	/** Fills the internal arrays. Call this on application start. */
+	static float getTempoFactor(Tempo t);
+
+	/** Returns the sample amount for the specified tempo. */
+	static double getTempoInSamples(double hostTempoBpm, double sampleRate, Tempo t);
+
+	static double getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor);
+
+	/** Returns the time for the specified tempo in milliseconds. */
+	static float getTempoInMilliSeconds(double hostTempoBpm, Tempo t);
+
+	/** Returns the tempo as frequency (in Hertz). */
+	static float getTempoInHertz(double hostTempoBpm, Tempo t);
+
+	static String getTempoName(Tempo t);
+
+	// ===== list selection =====
+
+	/** Fills the internal arrays and activates the compile-time list (HISE_TEMPO_LIST).
+	    Call this on application start. */
 	static void initTempoData();
 
-	static float getTempoFactor(Tempo t);;
+	/** Switches the active list. The HISE app calls this when a project is opened. A stored
+	    index means something else afterwards, so everything that holds one must be reloaded. */
+	static void setActiveList(List newList);
+
+	static List getActiveList();
+
+	/** Picks the list from a project's extra definitions (the object form, see
+	    HiseSettings::Data::getExtraDefinitionsAsObject): HISE_TEMPO_LIST wins, otherwise the
+	    two legacy flags, otherwise the stock list. */
+	static List getListFromDefinitions(const var& extraDefinitions);
 
 private:
 
 	using TempoString = char[6];
 
-	static TempoString tempoNames[numTempos];
-	static float tempoFactors[numTempos];
+	struct ListData
+	{
+		int numTempos = 0;
+		Tempo ids[(int)numTempoIds];
+		TempoString names[(int)numTempoIds];
+	};
 
+	/** The tables are filled by initTempoData() from the MainController constructor, but a few
+	    processor metadata tables and member initialisers ask for defaults before that. */
+	static const ListData& active()
+	{
+		if (lists[(int)List::Stock].numTempos == 0)
+			initTempoData();
+
+		return lists[activeList.load()];
+	}
+
+	static TempoString tempoNames[numTempoIds];
+	static float tempoFactors[numTempoIds];
+	static ListData lists[(int)List::numLists];
+	static std::atomic<int> activeList;
 };
 
 struct MasterClock
@@ -2332,7 +2413,8 @@ struct MasterClock
 
 	void setLinkBpmToSyncMode(bool should);
 
-	TempoSyncer::Tempo getCurrentClockGrid() const;
+	/** The grid as a position in the active tempo list, or -1 when there is no grid. */
+	int getCurrentClockGrid() const;
 
 	bool allowExternalSync() const;
 
@@ -2340,7 +2422,7 @@ struct MasterClock
 
 	bool shouldCreateInternalInfo(const AudioPlayHead::CurrentPositionInfo& externalInfo) const;
 
-	void setClockGrid(bool enableGrid, TempoSyncer::Tempo t);
+	void setClockGrid(bool enableGrid, int tempoIndex);
 
 	bool isGridEnabled() const;
 
@@ -2363,7 +2445,7 @@ private:
 	bool shouldPreferInternal() const;
 
 	bool gridEnabled = false;
-	TempoSyncer::Tempo clockGrid = TempoSyncer::numTempos;
+	int clockGrid = -1;
 
 	SyncModes currentSyncMode = SyncModes::Inactive;
 	
@@ -3190,7 +3272,7 @@ struct ValueToTextConverter
 
 		static String TempoSync(double v)
 		{
-			return TempoSyncer::getTempoName(roundToInt(v));
+			return TempoSyncer::getTempoNameAt(roundToInt(v));
 		}
 
 		static String Decibel(double v)

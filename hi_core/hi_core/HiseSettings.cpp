@@ -1528,6 +1528,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 	else if (id == Project::ExtraDefinitionsOSX || id == Project::ExtraDefinitionsWindows || id == Project::ExtraDefinitionsLinux)
 	{
 		mc->clearExtraDefinitionCache();
+		TempoSyncer::setActiveList(TempoSyncer::getListFromDefinitions(getExtraDefinitionsAsObject()));
 		mc->rebuildPluginParameters();
 		auto chain = mc->getMainSynthChain();
 		chain->prepareToPlay(chain->getSampleRate(), chain->getLargestBlockSize());

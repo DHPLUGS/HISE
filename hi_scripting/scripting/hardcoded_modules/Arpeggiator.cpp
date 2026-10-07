@@ -76,8 +76,8 @@ hise::ProcessorMetadata Arpeggiator::createMetadata()
 			.withId("Tempo")
 			.withDescription("Arpeggiator speed as a tempo-synced note value")
 			.withSliderMode(HiSlider::TempoSync,
-				Range(0.0, (double)TempoSyncer::Tempo::numTempos - 1.0, 1.0))
-			.withDefault((float)TempoSyncer::Tempo::Sixteenth))
+				Range(0.0, (double)TempoSyncer::getNumTempos() - 1.0, 1.0))
+			.withDefault((float)TempoSyncer::getNearestIndex(TempoSyncer::Sixteenth)))
 		.withParameter(Par(7)
 			.withId("Direction")
 			.withDescription("Playback direction for the arpeggiator")
@@ -400,7 +400,7 @@ void Arpeggiator::onInit()
 
 	stepSkipSlider->setValue(1);
 	sequenceComboBox->setValue(1);
-	speedKnob->setValue((int)TempoSyncer::Tempo::Sixteenth); 
+	speedKnob->setValue(TempoSyncer::getNearestIndex(TempoSyncer::Sixteenth)); 
 	resetButton->setValue(0);
 	numStepSlider->setValue(4);
 	currentStepSlider->setValue(0);
@@ -913,7 +913,7 @@ void Arpeggiator::calcTimeInterval()
 	BPM = Engine.getHostBpm();
 	BPS = BPM / 60.0;
 
-	auto t = TempoSyncer::getTempoInMilliSeconds(BPM, (TempoSyncer::Tempo)(int)speedKnob->getValue()) * 0.001;
+	auto t = TempoSyncer::getTempoInMilliSecondsAt(BPM, (int)speedKnob->getValue()) * 0.001;
 	
 	timeInterval = jmax<double>(minTimerTime, t);
 }

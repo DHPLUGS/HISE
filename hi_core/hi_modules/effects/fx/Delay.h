@@ -72,8 +72,8 @@ public:
 	{
 		if(tempoSync)
 		{
-			delayTimeLeft = TempoSyncer::getTempoInMilliSeconds(newTempo, syncTimeLeft);
-			delayTimeRight = TempoSyncer::getTempoInMilliSeconds(newTempo, syncTimeLeft);
+			delayTimeLeft = TempoSyncer::getTempoInMilliSecondsAt(newTempo, syncTimeLeft);
+			delayTimeRight = TempoSyncer::getTempoInMilliSecondsAt(newTempo, syncTimeLeft);
 
 			calcDelayTimes();
 
@@ -126,7 +126,7 @@ public:
 
 	void calcDelayTimes()
 	{
-		const bool wrongDomain = tempoSync && (syncTimeLeft >= TempoSyncer::Tempo::numTempos || syncTimeRight >= TempoSyncer::Tempo::numTempos);
+		const bool wrongDomain = tempoSync && (syncTimeLeft >= TempoSyncer::getNumTempos() || syncTimeRight >= TempoSyncer::getNumTempos());
 
 		if (wrongDomain)
 		{
@@ -136,10 +136,10 @@ public:
 			syncTimeRight = TempoSyncer::getTempoIndexForTime(getMainController()->getBpm(), syncTimeRight);
 		}
 		
-		const float actualLeftTime = tempoSync ? TempoSyncer::getTempoInMilliSeconds(getMainController()->getBpm(), syncTimeLeft) :
+		const float actualLeftTime = tempoSync ? TempoSyncer::getTempoInMilliSecondsAt(getMainController()->getBpm(), syncTimeLeft) :
 			delayTimeLeft;
 
-		const float actualRightTime = tempoSync ? TempoSyncer::getTempoInMilliSeconds(getMainController()->getBpm(), syncTimeRight) :
+		const float actualRightTime = tempoSync ? TempoSyncer::getTempoInMilliSecondsAt(getMainController()->getBpm(), syncTimeRight) :
 			delayTimeRight;
 
         leftDelay.setDelayTimeSeconds(actualLeftTime * 0.001);
@@ -173,8 +173,8 @@ private:
 	float timeLeft;
 	float timeRight;
 
-	TempoSyncer::Tempo syncTimeLeft;
-	TempoSyncer::Tempo syncTimeRight;
+	int syncTimeLeft; // positions in the active tempo list
+	int syncTimeRight;
 
 	float feedbackLeft;
 	float feedbackRight;

@@ -100,7 +100,8 @@ public:
 		LoopEnabled, 
 		PhaseOffset, 
 		SyncToMasterClock, 
-        IgnoreNoteOn, 
+        IgnoreNoteOn,
+		Delay, ///< APEX: ms to hold the LFO at rest after each (re)trigger before the fade-in starts
 		numParameters
 	};
 
@@ -279,6 +280,14 @@ private:
 	void resetFadeIn() noexcept
 	{
 		attackValue = 0.0f;
+		delaySamplesLeft = delaySamples;
+	}
+
+	/** APEX: the delay is counted in control-rate samples (calculateNewValue runs once per
+	    control-rate sample), so recompute whenever the time or the control rate changes. */
+	void updateDelaySamples()
+	{
+		delaySamples = roundToInt((double)delayTime * 0.001 * getControlRate());
 	}
 
     void resetPhase();
@@ -351,6 +360,12 @@ private:
 	float targetRatioA;
 	float attackValue;
 
+	/** APEX: onset delay. While delaySamplesLeft > 0 the fade-in value stays at 0 (= no
+	    modulation) and the phase is held at its reset position. Default 0 = stock behaviour. */
+	float delayTime = 0.0f;
+	int delaySamples = 0;
+	int delaySamplesLeft = 0;
+
 	ModulatorChain* intensityChain;
 	ModulatorChain* frequencyChain;
 
@@ -367,7 +382,7 @@ private:
 	int lastCycleIndex = 0;
 	int lastIndex = 0;
 
-	TempoSyncer::Tempo currentTempo;
+	int currentTempo; // position in the active tempo list
 	
 	heap<float> stepData;
 

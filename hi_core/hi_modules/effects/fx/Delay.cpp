@@ -100,8 +100,8 @@ DelayEffect::DelayEffect(MainController *mc, const String &id) :
 	hiPassFreq(40.0f),
 	mix(0.5f),
 	tempoSync(true),
-	syncTimeLeft(TempoSyncer::QuarterTriplet),
-	syncTimeRight(TempoSyncer::Quarter),
+	syncTimeLeft(TempoSyncer::getNearestIndex(TempoSyncer::QuarterTriplet)),
+	syncTimeRight(TempoSyncer::getNearestIndex(TempoSyncer::Quarter)),
 	skipFirstBuffer(true)
 {
 	finaliseModChains();
@@ -131,7 +131,7 @@ void DelayEffect::setInternalAttribute(int parameterIndex, float newValue)
 	switch (parameterIndex)
 	{
 	case DelayTimeLeft:		if (tempoSync)
-								syncTimeLeft = (TempoSyncer::Tempo)(int)newValue;
+								syncTimeLeft = (int)newValue;
 							
 							else
 								delayTimeLeft = newValue;
@@ -140,7 +140,7 @@ void DelayEffect::setInternalAttribute(int parameterIndex, float newValue)
 							break;
 
 	case DelayTimeRight:	if (tempoSync)
-								syncTimeRight = (TempoSyncer::Tempo)(int)newValue;
+								syncTimeRight = (int)newValue;
 	
 							else
 								delayTimeRight = newValue;

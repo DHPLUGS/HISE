@@ -1014,7 +1014,7 @@ public:
 	{
 		for(auto& s: clockState)
 		{
-			s.t = (TempoSyncer::Tempo)(int)newTempo;
+			s.t = jlimit(0, TempoSyncer::getNumTempos() - 1, (int)newTempo);
 			s.recalculate(bpm, sr);
 		}
         
@@ -1149,7 +1149,7 @@ public:
         double deltaPerSample = 0.0;
         double uptime = 0.0;
         double offset = 0.0;
-        TempoSyncer::Tempo t = TempoSyncer::Whole;
+        int t = TempoSyncer::getNearestIndex(TempoSyncer::Whole); // position in the active tempo list
         double multiplier = 1.0;
         int inactiveIndex = 0;
         
@@ -1157,7 +1157,7 @@ public:
 
         void recalculateFactor()
         {
-            factor = 1.0 / ((double)TempoSyncer::getTempoFactor(t) * multiplier);
+            factor = 1.0 / ((double)TempoSyncer::getTempoFactorAt(t) * multiplier);
         }
 
 		void recalcIfDirty()
@@ -2970,7 +2970,7 @@ struct granulator: public data::base,
     {
         if (bpm > 0.0 && sampleRate > 0.0)
         {
-            syncTimeBetweenGrains = (int)TempoSyncer::getTempoInSamples(bpm, sampleRate, syncTempo);
+            syncTimeBetweenGrains = (int)TempoSyncer::getTempoInSamplesAt(bpm, sampleRate, syncTempo);
             updateOverlapGain();
         }
     }
@@ -3042,7 +3042,7 @@ struct granulator: public data::base,
         }
         if (P == 10) // SyncTempo
         {
-            syncTempo = (TempoSyncer::Tempo)jlimit(0, (int)TempoSyncer::numTempos - 1, (int)v);
+            syncTempo = jlimit(0, TempoSyncer::getNumTempos() - 1, (int)v);
             updateSyncTiming();
         }
         if (P == 11) // DriftReset
@@ -3182,7 +3182,7 @@ struct granulator: public data::base,
 
     std::function<void(float p0, float durMs)> onGrainSpawn;
 
-    TempoSyncer::Tempo syncTempo = TempoSyncer::Quarter;
+    int syncTempo = TempoSyncer::getNearestIndex(TempoSyncer::Quarter); // position in the active tempo list
     int syncTimeBetweenGrains = 0;
     double bpm = 120.0;
     DllBoundaryTempoSyncer* syncer = nullptr;

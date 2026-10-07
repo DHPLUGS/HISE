@@ -841,6 +841,37 @@ void HiSlider::setup(Processor *p, int parameterIndex, const String &parameterNa
 	modUpdater->setUpdateFunction(p->getModulationQueryFunction(parameterIndex));
 }
 
+double HiSlider::snapValue(double attemptedValue, DragMode dragMode)
+{
+	if (mode == TempoSync && tempoFamilyLock)
+	{
+		auto family = TempoSyncer::getTempoFamilyAt(roundToInt(getValue()));
+		auto target = roundToInt(attemptedValue);
+		auto lo = roundToInt(getMinimum());
+		auto hi = roundToInt(getMaximum());
+		int best = target;
+		int bestDistance = std::numeric_limits<int>::max();
+
+		for (int i = lo; i <= hi; i++)
+		{
+			if (TempoSyncer::getTempoFamilyAt(i) != family)
+				continue;
+
+			auto distance = std::abs(i - target);
+
+			if (distance < bestDistance)
+			{
+				bestDistance = distance;
+				best = i;
+			}
+		}
+
+		return (double)best;
+	}
+
+	return Slider::snapValue(attemptedValue, dragMode);
+}
+
 double HiSlider::getValueFromText(const String& text)
 {
 	if (mode == Frequency) return getFrequencyFromTextString(text);
@@ -1242,7 +1273,7 @@ NormalisableRange<double> HiSlider::getRangeForMode(HiSlider::Mode m)
 		r.setSkewForCentre(1000.0);
 		break;
 	case TempoSync:
-		r = NormalisableRange<double>(0, TempoSyncer::numTempos-1, 1);
+		r = NormalisableRange<double>(0, TempoSyncer::getNumTempos()-1, 1);
 		break;
 	case Pan:
 		r = NormalisableRange<double>(-100.0, 100.0, 1);

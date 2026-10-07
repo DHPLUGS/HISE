@@ -885,8 +885,8 @@ private:
 
 		squareLFO->setAttribute(LfoModulator::Parameters::TempoSync, 1.0f, dontSendNotification);
 		seqLFO->setAttribute(LfoModulator::Parameters::TempoSync, 1.0f, dontSendNotification);
-		squareLFO->setAttribute(LfoModulator::Frequency, (float)(int)TempoSyncer::Eighth, dontSendNotification);
-		seqLFO->setAttribute(LfoModulator::Frequency, (float)(int)TempoSyncer::Sixteenth, dontSendNotification);
+		squareLFO->setAttribute(LfoModulator::Frequency, (float)TempoSyncer::getNearestIndex(TempoSyncer::Eighth), dontSendNotification);
+		seqLFO->setAttribute(LfoModulator::Frequency, (float)TempoSyncer::getNearestIndex(TempoSyncer::Sixteenth), dontSendNotification);
 
 		squareLFO->setAttribute(LfoModulator::SmoothingTime, 0.0f, dontSendNotification);
 		seqLFO->setAttribute(LfoModulator::SmoothingTime, 0.0f, dontSendNotification);
@@ -1095,7 +1095,7 @@ private:
 		{
 			lfo->setAttribute(LfoModulator::TempoSync, true, dontSendNotification);
 			lfo->setAttribute(LfoModulator::WaveFormType, LfoModulator::Square, dontSendNotification);
-			lfo->setAttribute(LfoModulator::Frequency, TempoSyncer::Eighth, dontSendNotification);
+			lfo->setAttribute(LfoModulator::Frequency, (float)TempoSyncer::getNearestIndex(TempoSyncer::Eighth), dontSendNotification);
 			lfo->setAttribute(LfoModulator::FadeIn, 0.0f, dontSendNotification);
 			lfo->setAttribute(LfoModulator::SmoothingTime, 0.0f, dontSendNotification);
 		}

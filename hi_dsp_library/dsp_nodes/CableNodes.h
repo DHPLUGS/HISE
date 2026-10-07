@@ -383,13 +383,13 @@ namespace control
 		bool enabled = false;
 		double unsyncedTime = false;
 		double multiplier = 1.0;
-		TempoSyncer::Tempo currentTempo = TempoSyncer::Tempo::Eighth;
+		int currentTempo = TempoSyncer::getNearestIndex(TempoSyncer::Eighth); // position in the active tempo list
 		double bpm = 120.0;
 
 		void refresh()
 		{
 			if (enabled)
-				currentTempoMilliseconds = TempoSyncer::getTempoInMilliSeconds(bpm, currentTempo) * multiplier;
+				currentTempoMilliseconds = TempoSyncer::getTempoInMilliSecondsAt(bpm, currentTempo) * multiplier;
 			else
 				currentTempoMilliseconds = unsyncedTime;
 		}
@@ -558,7 +558,7 @@ namespace control
 		{
 			for (auto& t : data)
 			{
-				t.currentTempo = (TempoSyncer::Tempo)jlimit<int>(0, TempoSyncer::numTempos - 1, (int)newTempoIndex);
+				t.currentTempo = jlimit<int>(0, TempoSyncer::getNumTempos() - 1, (int)newTempoIndex);
 				t.refresh();
 			}
 		}
@@ -706,11 +706,11 @@ namespace control
 		template <int P> void setParameter(double v)
 		{
 			if (P == 0)
-				t = (TempoSyncer::Tempo)(int)v;
+				t = jlimit(0, TempoSyncer::getNumTempos() - 1, (int)v);
 			else if (P == 1)
 				factor = jlimit(1.0, 64.0, v);
 			
-			loopLengthQuarters = TempoSyncer::getTempoFactor(t) * factor;
+			loopLengthQuarters = TempoSyncer::getTempoFactorAt(t) * factor;
 
 			if (loopLengthQuarters == 0.0)
 				loopLengthQuarters = 1.0;
@@ -743,7 +743,7 @@ namespace control
 		}
 
 		double ppqPos = 0.0;
-		TempoSyncer::Tempo t;
+		int t = 0; // position in the active tempo list
 		double factor;
 
 		double loopLengthQuarters;

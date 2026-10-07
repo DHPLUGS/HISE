@@ -123,9 +123,32 @@ in your code, otherwise this helps bring down the compile / link time of HISE / 
 If this is true, the tempo mode will contain lower values than 1/1. This allows eg. the LFO to run slower, however it 
 will break compatibility with older projects / presets because the tempo indexes will change.
 
+Legacy alias for HISE_TEMPO_LIST=1 (=2 together with HISE_USE_16_BAR_TEMPO).
 */
 #ifndef HISE_USE_EXTENDED_TEMPO_VALUES
 #define HISE_USE_EXTENDED_TEMPO_VALUES 0
+#endif
+
+#ifndef HISE_USE_16_BAR_TEMPO
+#define HISE_USE_16_BAR_TEMPO 0
+#endif
+
+/** Config: HISE_TEMPO_LIST
+
+Which ordering of note values every tempo-synced parameter stores its index against (see TempoSyncer::List):
+0 = stock (1/1 .. 1/64T), 1 = extended (8/1 .. 1/64T), 2 = extended with 16/1 and 12/1 in front,
+3 = every value longest first, dotted spelled "1/4." (APEX). Changing it changes what every stored tempo index
+means, so it must match between the exported plugin, its network dll and the presets. The HISE app ignores its
+own build value once a project is open and follows that project's extra definitions instead.
+*/
+#ifndef HISE_TEMPO_LIST
+#if HISE_USE_16_BAR_TEMPO
+#define HISE_TEMPO_LIST 2
+#elif HISE_USE_EXTENDED_TEMPO_VALUES
+#define HISE_TEMPO_LIST 1
+#else
+#define HISE_TEMPO_LIST 0
+#endif
 #endif
 
 /** Reenables using the mouse wheel to control the table curve if set to 1. */

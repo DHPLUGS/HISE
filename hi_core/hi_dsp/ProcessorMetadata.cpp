@@ -396,7 +396,7 @@ float ProcessorMetadata::getDefaultValue(const Processor* p, int parameterIndex)
 		if (pd.tempoSyncControllerIndex != -1)
 		{
 			if (p->getAttribute(pd.tempoSyncControllerIndex) > 0.5)
-				return (float)TempoSyncer::Tempo::Eighth;
+				return (float)TempoSyncer::getNearestIndex(TempoSyncer::Eighth);
 		}
 
 		return pd.defaultValue;

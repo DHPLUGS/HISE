@@ -538,7 +538,7 @@ private:
         StringArray expectedIds = {
             "Frequency", "FadeIn", "WaveformType", "Legato", "TempoSync",
             "SmoothingTime", "NumSteps", "LoopEnabled", "PhaseOffset",
-            "SyncToMasterClock", "IgnoreNoteOn"
+            "SyncToMasterClock", "IgnoreNoteOn", "Delay"
         };
 
         for (int i = 0; i < expectedIds.size(); i++)
@@ -591,6 +591,7 @@ private:
         expectEquals(md[LfoModulator::PhaseOffset].defaultValue, 0.0f, "PhaseOffset default");
         expectEquals(md[LfoModulator::SyncToMasterClock].defaultValue, 0.0f, "SyncToMasterClock default");
         expectEquals(md[LfoModulator::IgnoreNoteOn].defaultValue, 0.0f, "IgnoreNoteOn default");
+        expectEquals(md[LfoModulator::Delay].defaultValue, 0.0f, "Delay default");
     }
 
     void testLfoMetadataParameterRanges()

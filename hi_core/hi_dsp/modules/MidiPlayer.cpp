@@ -1151,7 +1151,7 @@ void MidiPlayer::onGridChange(int gridIndex, uint16 timestamp, bool firstGridEve
 		if (gridIndex != 0)
 		{
 			auto t = getMainController()->getMasterClock().getCurrentClockGrid();
-			auto quarterPos = (double)gridIndex * TempoSyncer::getTempoFactor(t);
+			auto quarterPos = (double)gridIndex * TempoSyncer::getTempoFactorAt(t);
 			auto tickPos = quarterPos * (double)HiseMidiSequence::TicksPerQuarter * playbackSpeed;
 			setPositionWithTicksFromPlaybackStart(tickPos);
 		}
