@@ -77,6 +77,9 @@ struct XYZBankProvider : public XYZSampleMapProvider
 	*/
 	bool parse(const String& v, MultiChannelAudioBuffer::XYZItem::List& list) override;
 
+	/** Why the last parse() returned false ("Bank <reference>: <reason>"), empty after a good one. */
+	String getLastError() const override;
+
 	/** The file extension including the dot. */
 	static String getFileExtension();
 
@@ -98,6 +101,8 @@ private:
 		const void* audioData, size_t audioSize) const;
 
 	bool fail(const String& reference, const String& reason) const;
+
+	mutable String lastError;
 };
 
 } // namespace hise

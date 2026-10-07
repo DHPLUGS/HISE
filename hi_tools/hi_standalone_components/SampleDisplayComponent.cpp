@@ -604,6 +604,14 @@ Identifier MultiChannelAudioBuffer::getCurrentXYZId() const
 	return Identifier();
 }
 
+String MultiChannelAudioBuffer::getLastXYZError() const
+{
+	if (xyzProvider != nullptr)
+		return xyzProvider->getLastError();
+
+	return {};
+}
+
 bool MultiChannelAudioBuffer::isXYZ() const
 {
 	return xyzProvider != nullptr;
@@ -2719,6 +2727,12 @@ bool MultiChannelAudioBuffer::fromBase64String(const String& b64)
 					try
 					{
 						auto ok = xyzProvider->parse(b64, xyzItems);
+
+						// Nothing is loaded after a failed parse, so don't claim the reference:
+						// toBase64String() stays honest and a retry of the same reference is not
+						// skipped by the b64 != referenceString check above.
+						if (!ok)
+							referenceString = {};
 
 						getUpdater().sendContentRedirectMessage();
 

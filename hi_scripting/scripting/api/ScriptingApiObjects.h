@@ -1157,8 +1157,11 @@ namespace ScriptingObjects
 		/** Returns the current loop range in the form [start, end]. */
 		var getLoopRange(bool subtractStart);
 
-		/** Loads an audio file from the given reference. */
-		void loadFile(const String& filePath);
+		/** Loads an audio file from the given reference. Returns false if nothing could be loaded (missing or damaged file). */
+		bool loadFile(const String& filePath);
+
+		/** Returns why the last loadFile() returned false, when the loader keeps a reason (bank files do), or an empty string. */
+		String getLastLoadError() const;
 
 		/** Loads a buffer into the audio sample slot. */
 		void loadBuffer(var bufferData, double sampleRate, var loopRange);

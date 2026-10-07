@@ -596,6 +596,9 @@ struct MultiChannelAudioBuffer : public ComplexDataUIBase
 
 		virtual bool parse(const String& v, XYZItem::List& list) = 0;
 
+		/** Why the last parse() failed, if the provider keeps that. Empty by default. */
+		virtual String getLastError() const { return {}; }
+
 		virtual DataProvider* getDataProvider() = 0;
 
 		SampleReference::Ptr getPooledItem(int idx) const;
@@ -701,6 +704,9 @@ struct MultiChannelAudioBuffer : public ComplexDataUIBase
 	Array<Identifier> getAvailableXYZProviders();
 
 	Identifier getCurrentXYZId() const;
+
+	/** The current XYZ provider's reason for its last failed load, or an empty string. */
+	String getLastXYZError() const;
 
 	bool isXYZ() const;
 

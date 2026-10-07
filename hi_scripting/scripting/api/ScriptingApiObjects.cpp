@@ -1595,7 +1595,8 @@ void ScriptingObjects::ScriptComplexDataReferenceBase::linkToInternal(var o)
 
 struct ScriptingObjects::ScriptAudioFile::Wrapper
 {
-	API_VOID_METHOD_WRAPPER_1(ScriptAudioFile, loadFile);
+	API_METHOD_WRAPPER_1(ScriptAudioFile, loadFile);
+	API_METHOD_WRAPPER_0(ScriptAudioFile, getLastLoadError);
 	API_METHOD_WRAPPER_0(ScriptAudioFile, getContent);
 	API_VOID_METHOD_WRAPPER_0(ScriptAudioFile, update);
 	API_METHOD_WRAPPER_0(ScriptAudioFile, getRange);
@@ -1620,6 +1621,7 @@ ScriptingObjects::ScriptAudioFile::ScriptAudioFile(ProcessorWithScriptingContent
 	ADD_API_METHOD_2(setRange);
 	ADD_API_METHOD_1(getLoopRange);
 	ADD_API_METHOD_1(loadFile);
+	ADD_API_METHOD_0(getLastLoadError);
 	ADD_API_METHOD_0(getContent);
 	ADD_API_METHOD_0(update);
 	ADD_API_METHOD_0(getNumSamples);
@@ -1743,10 +1745,26 @@ void ScriptingObjects::ScriptAudioFile::loadBuffer(var bufferData, double sample
 	
 }
 
-void ScriptingObjects::ScriptAudioFile::loadFile(const String& filePath)
+bool ScriptingObjects::ScriptAudioFile::loadFile(const String& filePath)
 {
 	if (auto buffer = getBuffer())
-		buffer->fromBase64String(filePath);
+	{
+		// Already loaded: fromBase64String() skips the load and reports false, which is not a failure.
+		if (filePath.isNotEmpty() && filePath == buffer->toBase64String())
+			return true;
+
+		return buffer->fromBase64String(filePath);
+	}
+
+	return false;
+}
+
+juce::String ScriptingObjects::ScriptAudioFile::getLastLoadError() const
+{
+	if (auto buffer = getBuffer())
+		return buffer->getLastXYZError();
+
+	return {};
 }
 
 var ScriptingObjects::ScriptAudioFile::getContent()

@@ -99,12 +99,20 @@ bool XYZBankProvider::fail(const String& reference, const String& reason) const
 
 	DBG(message);
 
+	// Kept for the script: ScriptAudioFile.getLastLoadError() after a loadFile() that returned false.
+	lastError = message;
+
 #if USE_BACKEND
 	auto mc = const_cast<MainController*>(getMainController());
 	debugError(mc->getMainSynthChain(), message);
 #endif
 
 	return false;
+}
+
+String XYZBankProvider::getLastError() const
+{
+	return lastError;
 }
 
 hise::MultiChannelAudioBuffer::SampleReference::Ptr XYZBankProvider::readZone(const ValueTree& s, const String& zoneReference,
@@ -142,6 +150,8 @@ hise::MultiChannelAudioBuffer::SampleReference::Ptr XYZBankProvider::readZone(co
 
 bool XYZBankProvider::parse(const String& v, MultiChannelAudioBuffer::XYZItem::List& list)
 {
+	lastError = {};
+
 	auto reference = v.fromFirstOccurrenceOf(getWildcard(), false, false);
 	auto bankFile = getBankFile(reference);
 
@@ -210,10 +220,9 @@ bool XYZBankProvider::parse(const String& v, MultiChannelAudioBuffer::XYZItem::L
 
 	auto audioData = body + pos;
 
-#if USE_BACKEND
-	// Hashing the whole body takes about as long as decrypting it, so only the IDE does it.
-	// That is where a freshly packed bank gets loaded first. The exported plugin relies on
-	// the check word and the length checks above.
+	// The plugin hashes too (2026-10-07). The check word and the lengths above only prove
+	// the key and the layout; a damaged byte inside the audio would pass them and reach the
+	// HLAC decoder, whose guards are asserts. Costs one SHA-256 over the file per map load.
 	{
 		SHA256 hash(body, bodySize - (size_t)kHashSize);
 		auto raw = hash.getRawData();
@@ -221,7 +230,6 @@ bool XYZBankProvider::parse(const String& v, MultiChannelAudioBuffer::XYZItem::L
 		if (raw.getSize() != (size_t)kHashSize || memcmp(raw.getData(), body + bodySize - (size_t)kHashSize, (size_t)kHashSize) != 0)
 			return fail(reference, "damaged file (hash mismatch)");
 	}
-#endif
 
 	auto xml = XmlDocument::parse(mapText);
 
