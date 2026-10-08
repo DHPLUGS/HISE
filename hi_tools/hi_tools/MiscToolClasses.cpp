@@ -2445,7 +2445,10 @@ void TempoSyncer::initTempoData()
 	setTempo(SixtyForthDuet, "1/64D", 0.125f * 0.5f * 1.5f);
 	setTempo(ThirtyTwoTriplet, "1/32T", 0.25f / 3.0f);
 	setTempo(SixtyForth, "1/64", 0.125f * 0.5f);
+	setTempo(OneTwentyEighthDuet, "1/128D", 0.125f * 0.25f * 1.5f);
 	setTempo(SixtyForthTriplet, "1/64T", 0.125f / 3.0f);
+	setTempo(OneTwentyEighth, "1/128", 0.125f * 0.25f);
+	setTempo(OneTwentyEighthTriplet, "1/128T", 0.0625f / 3.0f);
 
 	// the lists. The first three are HISE's historical orderings (stock, extended, 16-bar)
 	// and must never change, since every stored index of those projects depends on them.

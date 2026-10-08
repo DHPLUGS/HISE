@@ -2239,7 +2239,10 @@ public:
 		SixtyForthDuet, ///< a 64th duole (1/64D)
 		ThirtyTwoTriplet, ///< a 32th triplet (1/32T)
 		SixtyForth, ///< a 64th note (1/64)
+		OneTwentyEighthDuet, ///< APEX: a dotted 128th (1/128D)
 		SixtyForthTriplet, ///< a 64th triplet 1/64T)
+		OneTwentyEighth, ///< APEX: a 128th note (1/128)
+		OneTwentyEighthTriplet, ///< APEX: a 128th triplet (1/128T)
 		numTempoIds
 	};
 
@@ -2250,7 +2253,7 @@ public:
 		Stock = 0, ///< 1/1 .. 1/64T (19), stock HISE
 		Extended, ///< 8/1 .. 1/64T (24), HISE_USE_EXTENDED_TEMPO_VALUES
 		Extended16Bar, ///< 16/1, 12/1, 8/1 .. 1/64T (26), + HISE_USE_16_BAR_TEMPO (LFO-EQ)
-		Apex, ///< every value, longest first, dotted spelled "1/4." (33)
+		Apex, ///< every value, longest first, dotted spelled "1/4." (36, down to 1/128T)
 		numLists
 	};
 
@@ -2332,7 +2335,7 @@ public:
 
 private:
 
-	using TempoString = char[6];
+	using TempoString = char[8]; // "1/128T" + terminator
 
 	struct ListData
 	{
