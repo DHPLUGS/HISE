@@ -1196,19 +1196,10 @@ template <int NV, typename ParameterClass, typename DragHandler=flex_ahdsr_base:
 				break;
 			case ParameterType::Level:
 			{
-				if(S == State::ATTACK || S == State::HOLD)
-				{
-					originalAttackLevel = newValue;
-					newValue = jmax(data[(int)State::SUSTAIN].level.targetValue, newValue);
-				}
-				else if(S == State::SUSTAIN)
-				{
-					auto atk = jmax(originalAttackLevel, newValue);
-
-					data[(int)State::ATTACK].level.set(atk);
-					data[(int)State::HOLD].level.set(atk);
-				}
-
+				// APEX: attack level and sustain are independent. HISE used to clamp the
+				// attack/hold level to at least the sustain level, so raising sustain
+				// dragged the peak up with it. Without the clamp a sustain above the peak
+				// makes the decay stage rise (dip-then-swell shapes).
 				v.level.set(newValue);
 
 				break;	
@@ -1391,19 +1382,33 @@ template <int NV, typename ParameterClass, typename DragHandler=flex_ahdsr_base:
 		{
 			prevLevel = prevValue;
 
+			// APEX: Loop mode cycles attack -> hold -> decay only, like a standard looping
+			// envelope. Reaching SUSTAIN with the gate held wraps back to the attack (which
+			// starts from the decay's end level, so there's no jump); RELEASE is reserved
+			// for note-off. The old behaviour looped A-H-D-R, so the release knob set both
+			// the loop's fall time and the note-off tail.
+			// If attack, hold and decay are all zero, the second arrival at SUSTAIN in the
+			// same call holds there like Note mode instead of wrapping forever.
+			bool wrapped = false;
+
 			while(true)
 			{
 				s = (State)((int)s + 1);
 
-				if(s == State::DONE)
+				if(s == State::SUSTAIN && m == Mode::Loop && gateActive)
 				{
-					if(m == Mode::Loop && gateActive)
+					if(!wrapped)
 					{
+						wrapped = true;
 						s = State::IDLE;
-						bump(stopVoice);
-						return;
+						continue;
 					}
 
+					break;
+				}
+
+				if(s == State::DONE)
+				{
 					stopVoice = true;
 					break;
 				}
@@ -1454,7 +1459,6 @@ template <int NV, typename ParameterClass, typename DragHandler=flex_ahdsr_base:
 		float prevValue = 0.0f;
 		float prevLevel = 0.0f;
 
-		float originalAttackLevel = 0.0f;
 
 		bool gateActive = false;
 		bool preAttack = true;
