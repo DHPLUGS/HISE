@@ -931,6 +931,12 @@ public:
 	    value. Set the value directly to change family. */
 	void setTempoFamilyLock(bool shouldLock) { tempoFamilyLock = shouldLock; }
 
+	/** APEX: a click held for HoldDragMs without turning the knob starts dragging the named
+	    modulation source (an entry of MatrixIds::Helpers::fillModSourceList) onto a matrix
+	    target, exactly like the mod-row dragger. Moving HoldDragCancelPx before that is a
+	    normal turn. Empty name = off. */
+	void setHoldDragSource(const String& sourceName) { holdDragSourceName = sourceName; }
+
 	double snapValue(double attemptedValue, DragMode dragMode) override;
 
 	void setLookAndFeelOwned(LookAndFeel *fslaf);
@@ -1037,6 +1043,25 @@ private:
 	HoverPopupLookandFeel fallback;
 
 	bool skipGestureActive = false;
+
+	// APEX hold-to-drag-as-source, see setHoldDragSource()
+	static constexpr int HoldDragMs = 500;
+	static constexpr int HoldDragCancelPx = 3;
+
+	struct HoldDragTimer: public Timer
+	{
+		HoldDragTimer(HiSlider& p): parent(p) {};
+		void timerCallback() override;
+		HiSlider& parent;
+	};
+
+	int getHoldDragSourceIndex() const;
+	void startHoldDrag();
+	void selectHoldDragSource();
+
+	HoldDragTimer holdDragTimer;
+	String holdDragSourceName;
+	bool holdDragActive = false;
 };
 
 

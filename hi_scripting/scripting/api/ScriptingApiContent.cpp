@@ -2095,6 +2095,7 @@ maximum(1.0f)
 	ADD_SCRIPT_PROPERTY(i17, "sendValueOnDrag"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i18, "matrixTargetId"); 
 	ADD_SCRIPT_PROPERTY(i19, "tempoFamilyLock"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	ADD_SCRIPT_PROPERTY(i20, "modulationSourceId");
 
 	priorityProperties.add(getIdFor(Mode));
 
@@ -2123,7 +2124,8 @@ maximum(1.0f)
 	setDefaultValue(ScriptSlider::Properties::sendValueOnDrag, true);
 	setDefaultValue(ScriptSlider::Properties::matrixTargetId, "");
 	setDefaultValue(ScriptSlider::Properties::tempoFamilyLock, false);
-	
+	setDefaultValue(ScriptSlider::Properties::modulationSourceId, "");
+
 	ScopedValueSetter<bool> svs(removePropertyIfDefault, false);
 
 	const bool dontUpdateMode = !getPropertyValueTree().hasProperty(getIdFor(Mode));

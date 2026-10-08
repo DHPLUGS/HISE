@@ -436,6 +436,42 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 	targetSelector.setEnabled(targetId.isEmpty());
 	sourceSelector.setEnabled(sourceFilter == -1);
 
+	// APEX: a macro may not modulate a macro (the drag side is HiSlider::ModUpdater::canBeDropped).
+	// Both popups grey the other side out, so the connection can't be built from either column.
+	targetSelector.prepareItemsFunction = [this](PopupMenu& m)
+	{
+		auto macroSource = getSourceName((int)data[MatrixIds::SourceIndex]).startsWith("MACRO ");
+
+		for (PopupMenu::MenuItemIterator iterator (m, true); iterator.next();)
+		{
+			auto& item = iterator.getItem();
+
+			if(item.itemID == 0)
+				continue;
+
+			auto idx = targetSelector.indexOfItemId(item.itemID);
+			auto macroTarget = isPositiveAndBelow(idx, targetIds.size()) && targetIds[idx].startsWith("MACRO ");
+			item.isEnabled = !(macroSource && macroTarget);
+		}
+	};
+
+	sourceSelector.prepareItemsFunction = [this](PopupMenu& m)
+	{
+		auto macroTarget = data[MatrixIds::TargetId].toString().startsWith("MACRO ");
+
+		for (PopupMenu::MenuItemIterator iterator (m, true); iterator.next();)
+		{
+			auto& item = iterator.getItem();
+
+			if(item.itemID == 0)
+				continue;
+
+			auto idx = sourceSelector.indexOfItemId(item.itemID);
+			auto macroSource = isPositiveAndBelow(idx, sourceIndices.size()) && getSourceName(sourceIndices[idx]).startsWith("MACRO ");
+			item.isEnabled = !(macroTarget && macroSource);
+		}
+	};
+
 	// A fresh row has no target yet: show a placeholder instead of an empty box.
 	targetSelector.setTextWhenNothingSelected("--");
 

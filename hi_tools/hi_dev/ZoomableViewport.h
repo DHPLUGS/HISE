@@ -77,6 +77,18 @@ struct SubmenuComboBox: public juce::ComboBox
 
     void rebuildPopupMenu();
 
+	/** APEX: called with the root menu right before the popup opens, so the owner can enable /
+	    disable items for the current state (eg. the matrix row refusing MACRO -> MACRO). */
+	std::function<void(PopupMenu&)> prepareItemsFunction;
+
+	void showPopup() override
+	{
+		if(prepareItemsFunction)
+			prepareItemsFunction(*getRootMenu());
+
+		ComboBox::showPopup();
+	}
+
 	void refreshTickState()
 	{
 		// Raw id as stored by setSelectedId(). getSelectedId() additionally

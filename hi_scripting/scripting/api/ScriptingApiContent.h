@@ -1001,6 +1001,7 @@ public:
 			sendValueOnDrag,
 			matrixTargetId,
 			tempoFamilyLock,
+			modulationSourceId,
 			numProperties,
 		};
 

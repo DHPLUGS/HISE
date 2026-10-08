@@ -1225,11 +1225,19 @@ bool HiSlider::ModUpdater::canBeDropped(const var& info) const
 			auto targetId = parent.getProcessor()->getModulationTargetId(parent.getParameter());
 			auto con = MatrixIds::Helpers::getConnection(md, sourceIndex, targetId);
 
-			auto a = !con.isValid() ? GlobalModulatorContainer::DragAction::Hover :
-								      GlobalModulatorContainer::DragAction::DisabledHover;
+			// APEX: a macro may not be dropped on a macro knob (the macro knobs are matrix targets
+			// themselves, and the hold-to-drag on them makes MACRO n -> MACRO m a one-finger accident)
+			StringArray sources;
+			MatrixIds::Helpers::fillModSourceList(parent.getProcessor()->getMainController(), sources);
+			auto macroOnMacro = sources[sourceIndex].startsWith("MACRO ") && targetId.startsWith("MACRO ");
+
+			auto ok = !con.isValid() && !macroOnMacro;
+
+			auto a = ok ? GlobalModulatorContainer::DragAction::Hover :
+						  GlobalModulatorContainer::DragAction::DisabledHover;
 
 			gc->sendDragMessage(sourceIndex, targetId, a);
-			return !con.isValid();
+			return ok;
 		}
 	}
 
@@ -1299,7 +1307,8 @@ NormalisableRange<double> HiSlider::getRangeForMode(HiSlider::Mode m)
 HiSlider::HiSlider(const String &name) :
 	Slider(name),
 	MacroControlledObject(),
-	mode(numModes)
+	mode(numModes),
+	holdDragTimer(*this)
 {
 	addChildComponent(numberTag);
 
@@ -2351,6 +2360,10 @@ void HiSlider::mouseDown(const MouseEvent &e)
         {
             Slider::mouseDown(e);
             startTouch(e.getMouseDownPosition());
+
+            // APEX: a plain left click arms the hold-to-drag timer; a turn (mouseDrag) cancels it
+            if(holdDragSourceName.isNotEmpty() && e.mods.isLeftButtonDown() && !e.mods.isAnyModifierKeyDown())
+                holdDragTimer.startTimer(HoldDragMs);
         }
     }
 }
@@ -2367,6 +2380,22 @@ void HiSlider::mouseDrag(const MouseEvent& e)
 {
 	CHECK_MIDDLE_MOUSE_DRAG(e);
 
+	// APEX: while the source image is being dragged the knob must not turn (the DragImageComponent
+	// follows the mouse as a listener of this component, so returning here does not stop it)
+	if(holdDragActive)
+		return;
+
+	// APEX: still deciding between hold and turn: swallow the first pixels so the hold can't nudge
+	// the value, and cancel the hold once it is clearly a turn. The rotary drag is absolute from
+	// the mouse-down position so the skipped events lose nothing.
+	if(holdDragTimer.isTimerRunning())
+	{
+		if(e.getDistanceFromDragStart() < HoldDragCancelPx)
+			return;
+
+		holdDragTimer.stopTimer();
+	}
+
 	setDragDistance((float)e.getDistanceFromDragStart());
 
 	if(performModifierAction(e, false, false))
@@ -2380,6 +2409,28 @@ void HiSlider::mouseUp(const MouseEvent& e)
 	CHECK_MIDDLE_MOUSE_UP(e);
 
 	abortTouch();
+
+	// APEX: end a hold-to-drag (sends DragEnd, repaints the targets); the drop itself was already
+	// delivered to the target by JUCE. Slider::mouseUp below ends the host gesture, value unchanged.
+	// A timer still running here means a plain click (released inside the hold time, never moved
+	// 3 px): that selects the source like a click on its mod-row dragger.
+	auto plainClick = holdDragTimer.isTimerRunning();
+	holdDragTimer.stopTimer();
+
+	if(holdDragActive)
+	{
+		holdDragActive = false;
+		MatrixIds::Helpers::stopDragging(this);
+
+		// stopDragging clears the drag state on every slider with a modulated ring; this knob's
+		// "ready to drag" state 2 (startHoldDrag) is cleared here too in case it has none
+		getProperties().set("modulationDragState", (int)MatrixIds::Helpers::DragTargetType::Inactive);
+		repaint();
+	}
+	else if(plainClick)
+	{
+		selectHoldDragSource();
+	}
 
 	showModHoverPopup(true, false);
 
@@ -2400,6 +2451,68 @@ void HiSlider::mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& 
 void HiSlider::touchAndHold(Point<int> /*downPosition*/)
 {
 	enableMidiLearnWithPopup();
+}
+
+void HiSlider::HoldDragTimer::timerCallback()
+{
+	stopTimer();
+	parent.startHoldDrag();
+}
+
+int HiSlider::getHoldDragSourceIndex() const
+{
+	auto p = getProcessor();
+
+	if(p == nullptr || holdDragSourceName.isEmpty())
+		return -1;
+
+	// the name is resolved per use so a source added after the property was set is still found
+	StringArray sources;
+	MatrixIds::Helpers::fillModSourceList(p->getMainController(), sources);
+
+	return sources.indexOf(holdDragSourceName);
+}
+
+void HiSlider::startHoldDrag()
+{
+	// the button was released (or the window lost it) before the hold time was up
+	if(!isMouseButtonDown())
+		return;
+
+	auto sourceIndex = getHoldDragSourceIndex();
+
+	if(sourceIndex == -1)
+		return;
+
+	holdDragActive = true;
+
+	// same three steps as MatrixContent::Controller::ModulationDragger::mouseDown. JUCE's
+	// startDragging only needs a mouse button to be down, so starting it from the timer is fine
+	MatrixIds::Helpers::startDragging(this, sourceIndex);
+
+	// the source knob itself shows the drop look (state 2, the two lines either side) while the
+	// drag is live, as the "ready to drag" signal. startDragging has just set it to Inactive.
+	getProperties().set("modulationDragState", (int)MatrixIds::Helpers::DragTargetType::Hover);
+	repaint();
+
+	if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(getProcessor()->getMainController()->getMainSynthChain()))
+	{
+		gc->sendDragMessage(sourceIndex, "", GlobalModulatorContainer::DragAction::DragStart);
+		gc->setExlusiveMatrixSource(sourceIndex, sendNotificationSync);
+	}
+}
+
+void HiSlider::selectHoldDragSource()
+{
+	auto sourceIndex = getHoldDragSourceIndex();
+
+	if(sourceIndex == -1)
+		return;
+
+	// select only, never unselect: the APEX mod-row tiles run with UnselectableExclusiveSource, so
+	// a click on a dragger that is already selected leaves it selected, and the knob matches that
+	if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(getProcessor()->getMainController()->getMainSynthChain()))
+		gc->setExlusiveMatrixSource(sourceIndex, sendNotificationSync);
 }
 
 void HiSlider::onTextValueChange(double newValue)

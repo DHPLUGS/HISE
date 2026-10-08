@@ -601,9 +601,31 @@ void Helpers::repaintMatrixSlidersOnDrag(Component* c, const var& data, DragTarg
 
 	if(idx != -1)
 	{
+		// APEX: a macro may not land on a macro (HiSlider::ModUpdater::canBeDropped), so the macro
+		// knobs must not light up as available targets while a macro is being dragged. Any other
+		// source lights them as usual.
+		bool macroSource = false;
+		bool sourceResolved = false;
+
 		Component::callRecursive<HiSlider>(c, [&](HiSlider* s)
 		{
-			updateDragState(s, state);
+			auto sliderState = state;
+
+			if(state == DragTargetType::Dragging && s->getProcessor() != nullptr)
+			{
+				if(!sourceResolved)
+				{
+					StringArray sources;
+					fillModSourceList(s->getProcessor()->getMainController(), sources);
+					macroSource = sources[idx].startsWith("MACRO ");
+					sourceResolved = true;
+				}
+
+				if(macroSource && s->getProcessor()->getModulationTargetId(s->getParameter()).startsWith("MACRO "))
+					sliderState = DragTargetType::Inactive;
+			}
+
+			updateDragState(s, sliderState);
 			return false;
 		});
 	}
