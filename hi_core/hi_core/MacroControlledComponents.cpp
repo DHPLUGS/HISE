@@ -2420,6 +2420,7 @@ void HiSlider::mouseUp(const MouseEvent& e)
 	if(holdDragActive)
 	{
 		holdDragActive = false;
+		setMouseCursor(MouseCursor::NormalCursor);
 		MatrixIds::Helpers::stopDragging(this);
 
 		// stopDragging clears the drag state on every slider with a modulated ring; this knob's
@@ -2485,6 +2486,10 @@ void HiSlider::startHoldDrag()
 		return;
 
 	holdDragActive = true;
+
+	// the grab hand says "drag me now". JUCE reads the pressed component's cursor for as long as
+	// the button is down and the drag image forces a refresh on every move, so this is enough
+	setMouseCursor(MouseCursor::DraggingHandCursor);
 
 	// same three steps as MatrixContent::Controller::ModulationDragger::mouseDown. JUCE's
 	// startDragging only needs a mouse button to be down, so starting it from the timer is fine
