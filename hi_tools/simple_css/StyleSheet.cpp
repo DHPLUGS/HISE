@@ -877,6 +877,10 @@ StyleSheet::Ptr StyleSheet::Collection::getWithAllStates(Component* c, const Sel
 	for(auto m: matches)
 		ptr->copyPropertiesFrom(m, true);
 
+	// APEX: copyPropertiesFrom() does not carry the @font-face fonts, so popup menus (which
+	// resolve .popup / .popup-item through here) fell back to the default font.
+	ptr->setCustomFonts(customFonts);
+
 	cachedMapForAllStates.add({{c, s}, ptr});
 
 	jassert(animator != nullptr);
@@ -1199,6 +1203,12 @@ Result StyleSheet::Collection::performAtRules(DataProvider* d)
                 if(cm.second != nullptr)
                     cm.second->setCustomFonts(customFonts);
             }
+
+            for(auto& cm: cachedMapForAllStates)
+            {
+                if(cm.second != nullptr)
+                    cm.second->setCustomFonts(customFonts);
+            }
         }
         
         return Result::ok();
@@ -1255,6 +1265,12 @@ Result StyleSheet::Collection::performAtRules(DataProvider* d)
 
 		// see the isolated branch above: cached sheets need the fonts as well
 		for(auto& cm: cachedMaps)
+		{
+			if(cm.second != nullptr)
+				cm.second->setCustomFonts(customFonts);
+		}
+
+		for(auto& cm: cachedMapForAllStates)
 		{
 			if(cm.second != nullptr)
 				cm.second->setCustomFonts(customFonts);
