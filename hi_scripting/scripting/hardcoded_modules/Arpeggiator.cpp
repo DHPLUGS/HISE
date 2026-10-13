@@ -510,6 +510,12 @@ void Arpeggiator::onControl(ScriptingApi::Content::ScriptComponent *c, var value
 		semiToneSliderPack->set("sliderAmount", newNumber);
 		activeSliderPack->set("sliderAmount", newNumber);
 		currentStepSlider->set("max", newNumber);
+
+		// A running step at or beyond the new count would, until it wrapped on the next
+		// advance, read the packs' default values and push a display index past the
+		// UI packs' sliders (seen as the last steps flashing while the count is reduced).
+		// Wrap it into the new range now.
+		currentStep = WrapValueFromZeroToMax(currentStep, newNumber);
 	}
 	else if (c == bypassButton)
 	{

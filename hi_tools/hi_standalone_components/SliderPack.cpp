@@ -993,7 +993,11 @@ void SliderPack::displayedIndexChanged(SliderPackData* d, int newIndex)
 {
 	auto f = [](SliderPack& s)
 	{
-		for (int i = 0; i < s.getNumSliders(); i++)
+		// the data can be resized before the slider components are rebuilt (that
+		// happens on the timer), so stay inside both counts
+		auto n = jmin(s.getNumSliders(), s.sliders.size());
+
+		for (int i = 0; i < n; i++)
 			s.sliders[i]->setValue(s.getValue(i), dontSendNotification);
 	};
 
@@ -1003,7 +1007,10 @@ void SliderPack::displayedIndexChanged(SliderPackData* d, int newIndex)
 	{
 		currentDisplayIndex = newIndex;
 
-        if(newIndex != -1)
+        // Array::set() APPENDS an out-of-range index, which leaves displayAlphas one
+        // longer than sliders and paintOverChildren() then skips the flash entirely
+        // until the next rebuild - so only flash indices the sliders actually cover
+        if(isPositiveAndBelow(newIndex, displayAlphas.size()))
         {
             displayAlphas.set(newIndex, 0.4f);
             startTimer(30);
