@@ -135,6 +135,20 @@ but will not modify or delete user-created user presets (with the exception of a
 #define HISE_OVERWRITE_OLD_USER_PRESETS 0
 #endif
 
+/** Config: HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD
+
+APEX: a user preset load sends an all-notes-off before the engine is killed ("stop the
+arpeggiator etc."). It is applied on the first block after the engine resumes and wipes the MIDI
+state: the arpeggiator's held keys, the keyboard state and the script key tracking. The voices are
+killed by the suspension either way. Set this to 0 to keep the MIDI state through a preset load,
+so an arpeggiator carries on with the keys that are still held. The project scripts then own the
+all-notes-off for the cases that need one (voice-mode or arp engine changes). Read at runtime in
+the IDE (project extra definitions) and at compile time in an export.
+*/
+#ifndef HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD
+#define HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD 1
+#endif
+
 /** Config: HISE_BACKEND_AS_FX
  
  Set this to 1 in order to use HISE as a effect plugin. This will simulate the processing setup of an FX plugin (so child sound generators will not be processed etc).

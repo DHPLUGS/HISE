@@ -498,7 +498,10 @@ void MainController::UserPresetHandler::loadUserPresetFromValueTree(const ValueT
 		preprocess(pendingPreset);
 
 		// Send a note off to stop the arpeggiator etc...
-		mc->allNotesOff(false);
+		// APEX (HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD = 0): keep the MIDI state, the suspension
+		// below still kills every voice
+		if (HISE_GET_PREPROCESSOR(mc, HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD))
+			mc->allNotesOff(false);
 
 		mc->killAndCallOnLoadingThread(f);
 	}
