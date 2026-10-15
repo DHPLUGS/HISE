@@ -1410,7 +1410,7 @@ MatrixContent::Controller::Controller(MainController* mc, Component& p, bool uns
 			triggerAsyncUpdate();
 		});
 
-		updateConnectionState();
+		handleAsyncUpdate();
 	}
 }
 
@@ -1493,6 +1493,24 @@ void MatrixContent::Controller::buttonClicked(Button* b)
 
 void MatrixContent::Controller::handleAsyncUpdate()
 {
+	// The async update can land while the loading thread is still rebuilding the matrix data
+	// (long preset loads), and walking it then reads freed children (SIGSEGV in Logic when
+	// stepping through presets). Wait until the load is done, then count once.
+	if(getMainController()->getUserPresetHandler().isPresetLoadInProgress())
+	{
+		startTimer(50);
+		return;
+	}
+
+	updateConnectionState();
+}
+
+void MatrixContent::Controller::timerCallback()
+{
+	if(getMainController()->getUserPresetHandler().isPresetLoadInProgress())
+		return;
+
+	stopTimer();
 	updateConnectionState();
 }
 

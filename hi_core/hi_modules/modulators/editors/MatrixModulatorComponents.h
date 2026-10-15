@@ -423,7 +423,8 @@ struct MatrixContent: public MatrixBase
 	struct Controller: public simple_css::FlexboxComponent,
 					   public ControlledObject,
 					   public Button::Listener,
-					   public AsyncUpdater
+					   public AsyncUpdater,
+					   public Timer
 	{
 		struct ModulationDragger: public Component,
 								  public simple_css::ComponentWithAutoTextSize,
@@ -509,6 +510,7 @@ struct MatrixContent: public MatrixBase
 		void buttonClicked(Button* b) override;
 		void initLaf(Component* p);
 		void handleAsyncUpdate() override;
+		void timerCallback() override;
 
 		/** Counts the connections per source in the matrix data and passes them to the draggers. */
 		void updateConnectionState();

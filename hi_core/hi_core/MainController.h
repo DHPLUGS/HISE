@@ -959,6 +959,10 @@ public:
         
 		bool isCurrentlyInsidePresetLoad() const { return LockHelpers::getCurrentThreadHandleOrMessageManager() == currentThreadThatIsLoadingPreset; };
 
+		/** True while a preset load runs on ANY thread (isCurrentlyInsidePresetLoad() is only true on the loading thread).
+		    Use it from the message thread to keep away from value trees the load is still rebuilding. */
+		bool isPresetLoadInProgress() const { return currentThreadThatIsLoadingPreset != nullptr; }
+
 		bool isUsingCustomDataModel() const { return customStateManager != nullptr; };
 		
 		bool isUsingPersistentObject() const { return usePersistentObject; }
