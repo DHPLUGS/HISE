@@ -1825,7 +1825,25 @@ bool PresetBrowser::DataBaseHelpers::matchesAvailableExpansions(MainController* 
 	if (currentPreset.isDirectory())
 		return true;
 
-	auto s = currentPreset.loadFileAsString();
+	// APEX: this runs for every preset on every prev / next press (UserPresetHandler::incPreset
+	// -> cleanFileList). With nothing installed every preset passes, so skip the read: the
+	// full-file read below cost ~480 ms per press with 1100 presets / 99 MB (profiled 2026-10-14).
+	if (mc->getExpansionHandler().getNumExpansions() == 0)
+		return true;
+
+	// RequiredExpansions is an attribute of the root tag, so the head of the file is enough
+	String s;
+
+	{
+		FileInputStream fis(currentPreset);
+
+		if (fis.openedOk())
+		{
+			MemoryBlock mb;
+			fis.readIntoMemoryBlock(mb, 4096);
+			s = String::fromUTF8(static_cast<const char*>(mb.getData()), (int)mb.getSize());
+		}
+	}
 
 	auto m = s.fromFirstOccurrenceOf("RequiredExpansions=\"", false, false).upToFirstOccurrenceOf("\"", false, false);
 
