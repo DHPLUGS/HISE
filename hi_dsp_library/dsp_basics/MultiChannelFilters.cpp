@@ -2036,17 +2036,19 @@ DEFINE_MULTI_CHANNEL_FILTER(DiodeLadderSubType);
 
 // ============================================================================
 // CombFilterSubType
-// Musical comb filter with all-pass fractional delay interpolation.
+// Musical comb filter with a glided, Hermite-interpolated delay tap.
 //
 // Signal flow per sample:
-//   1. Read integer-delay sample from circular buffer.
-//   2. Apply first-order all-pass interpolation for fractional delay:
-//        ap_out = eta*(delayed_raw - y[n-1]) + x[n-1]
-//        eta = (1-d)/(1+d),  d = fractional part of delay
-//   3. Feed ap_out through a one-pole lowpass (damping):
-//        fb_lp_s += alpha*(ap_out - fb_lp_s),  alpha = fb_lp_coeff
-//   4. Mix back: output = input + effective_fb * fb_lp_s
-//   5. Write output to circular buffer, advance write head.
+//   1. Read the delayed sample from the circular buffer at the current fractional
+//      delay with 4-point cubic Hermite interpolation.
+//   2. Feed it through a one-pole LP/HP (Gain-controlled damping).
+//   3. Mix back: output = input + effective_fb * filtered  (Flanger FB feeds the
+//      filtered tap back into the line, the others write dry input or output).
+//   4. Write to the circular buffer, advance the write head.
+//
+// The delay target is set once per render call (updateCoefficients); the audio
+// path ramps towards it per sample so modulation of Frequency does not step the
+// tap by whole samples every chunk.
 //
 // Gain parameter arrives as linear amplitude from the framework
 // (FilterNodeBase::setGain converts dB->linear before passing through).
@@ -2058,6 +2060,7 @@ CombFilterSubType::CombFilterSubType()
 	delayLine.resize(NUM_MAX_CHANNELS * maxDelayLine, 0.0);
 	reset(NUM_MAX_CHANNELS);
 	updateCoefficients(44100.0, 440.0, 1.0, 0.0);
+	delayCurrent = delayLength;
 }
 
 hise::FilterHelpers::FilterSubType CombFilterSubType::getFilterType()
@@ -2095,10 +2098,11 @@ void CombFilterSubType::reset(int numChannels)
 {
 	std::fill(delayLine.begin(), delayLine.end(), 0.0);
 	memset(writePos,  0, sizeof(int)    * numChannels);
-	memset(ap_s,      0, sizeof(double) * numChannels);
-	memset(ap_s_prev, 0, sizeof(double) * numChannels);
 	memset(fb_lp_s,   0, sizeof(double) * numChannels);
 	memset(lp_s,      0, sizeof(float)  * numChannels);
+
+	// No sweep-in on voice start: the tap begins at its target.
+	delayCurrent = delayLength;
 }
 
 void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double gain)
@@ -2144,6 +2148,8 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 	const bool isFlanger = (mode == Flanger || mode == FlangerInv ||
 	                        mode == FlangerFB || mode == FlangerFBInv);
 
+	double d;
+
 	if (isFlanger)
 	{
 		// Map frequency 20-20000 Hz to flanger delay range, inverted:
@@ -2151,21 +2157,18 @@ void CombFilterSubType::updateCoefficients(double sampleRate, double frequency, 
 		//   high freq -> short delay (~0.1 ms, high-pitched shimmer)
 		const double fc = jlimit(20.0, 20000.0, frequency);
 		const double t  = (fc - 20.0) / (20000.0 - 20.0);
-		delayLength     = sampleRate * 0.0001 * std::pow(200.0, 1.0 - t);
+		d = sampleRate * 0.0001 * std::pow(200.0, 1.0 - t);
 	}
 	else
 	{
 		// Comb / feedforward: delay = period of the fundamental
 		const double fc = jlimit(20.0, 5000.0, frequency);
-		delayLength     = sampleRate / fc;
+		d = sampleRate / fc;
 	}
 
-	delayLengthInt = jlimit(1, maxDelayLine - 1, (int)std::floor(delayLength));
-
-	// All-pass fractional interpolation coefficient: eta = (1-d)/(1+d)
-	const double delayFrac = delayLength - (double)delayLengthInt;
-	ap_coeff = (1.0 - delayFrac) / (1.0 + delayFrac);
-
+	// Hermite reads the 4 taps around the read position (idx-1 .. idx+2); keep the
+	// whole window behind the write head and inside the buffer.
+	delayLength = jlimit(3.0, (double)(maxDelayLine - 4), d);
 }
 
 FilterCoefficientData CombFilterSubType::getCoefficients(double freqNorm, double q, double gain) const
@@ -2261,6 +2264,56 @@ double CombFilterSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 	}
 }
 
+double CombFilterSubType::tick(int c, double input, double delay, bool isFeedforward, bool isCombFB, double effective_fb)
+{
+	double* dl = delayLine.data() + c * maxDelayLine;
+	const int wp = writePos[c];
+
+	// 4-point cubic Hermite read at (wp - delay). delay >= 3 keeps idx+2 behind the
+	// write head, so no tap touches the slot written below.
+	const double rp   = (double)wp - delay + (double)maxDelayLine;
+	const int    idx  = (int)rp;               // rp > 0, truncation == floor
+	const double frac = rp - (double)idx;
+
+	const double y0 = dl[(idx - 1) % maxDelayLine];
+	const double y1 = dl[ idx      % maxDelayLine];
+	const double y2 = dl[(idx + 1) % maxDelayLine];
+	const double y3 = dl[(idx + 2) % maxDelayLine];
+
+	const double c1 = 0.5 * (y2 - y0);
+	const double c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+	const double c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+	const double delayed = ((c3 * frac + c2) * frac + c1) * frac + y1;
+
+	// Gain-controlled LP/HP on the delayed signal (shared by every mode)
+	lp_s[c] = (1.0f - lp_coeff) * (float)delayed + lp_coeff * lp_s[c];
+	const double filtered = fb_is_hp ? (delayed - (double)lp_s[c]) : (double)lp_s[c];
+
+	double output;
+
+	if (isFeedforward)
+	{
+		// Feedforward: y[n] = x[n] + g * filtered(x[n-D]); only dry input enters the line.
+		output = input + effective_fb * filtered;
+		dl[wp] = input;
+	}
+	else if (isCombFB)
+	{
+		// Feedback comb: the filtered tap recirculates through the output.
+		output = input + effective_fb * filtered;
+		dl[wp] = output;
+	}
+	else
+	{
+		// FlangerFB: unfiltered tap to the output, filtered tap in the feedback write path.
+		output = input + effective_fb * delayed;
+		dl[wp] = input + effective_fb * filtered;
+	}
+
+	writePos[c] = (wp + 1) % maxDelayLine;
+	return output;
+}
+
 void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
 	const bool isInv = (mode == InvComb || mode == FeedforwardInvComb ||
@@ -2275,57 +2328,24 @@ void CombFilterSubType::processSamples(AudioSampleBuffer& buffer, int startSampl
 
 	const int numChannels = buffer.getNumChannels();
 
+	// Ramp the tap from where the last block left it to this block's target.
+	// Every channel walks the same ramp; delayCurrent advances once, after all of them.
+	const double startDelay = delayCurrent;
+	const double inc = numSamples > 0 ? (delayLength - startDelay) / (double)numSamples : 0.0;
+
 	for (int c = 0; c < numChannels; c++)
 	{
-		float*  d  = buffer.getWritePointer(c, startSample);
-		double* dl = delayLine.data() + c * maxDelayLine;
+		float* d = buffer.getWritePointer(c, startSample);
+		double delay = startDelay;
 
 		for (int i = 0; i < numSamples; i++)
 		{
-			const double input = (double)d[i];
-
-			// Read from delay line (integer delay)
-			const int readPos = (writePos[c] - delayLengthInt + maxDelayLine) % maxDelayLine;
-			const double delayed_raw = dl[readPos];
-
-			// All-pass fractional interpolation: y[n] = eta*(x[n]-y[n-1]) + x[n-1]
-			const double ap_out = ap_coeff * (delayed_raw - ap_s[c]) + ap_s_prev[c];
-			ap_s_prev[c] = delayed_raw;
-			ap_s[c]      = ap_out;
-
-			double output;
-
-			if (isFeedforward)
-			{
-				// Feedforward: y[n] = x[n] + g * filtered(x[n-D])
-				// Gain-controlled LP/HP applied to the delayed signal before mixing.
-				// Only dry input is written to the delay buffer (no feedback).
-				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-				const float ff_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-				output = input + effective_fb * (double)ff_filtered;
-				dl[writePos[c]] = input;
-			}
-			else if (isCombFB)
-			{
-				// Feedback comb: Gain-controlled LP/HP applied to delayed signal in feedback path.
-				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-				const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-				output = input + effective_fb * (double)fb_filtered;
-				dl[writePos[c]] = output;
-			}
-			else
-			{
-				// FlangerFB: Gain-controlled LP/HP in the feedback write path
-				lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-				const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-				output = input + effective_fb * ap_out;
-				dl[writePos[c]] = input + effective_fb * (double)fb_filtered;
-			}
-
-			writePos[c] = (writePos[c] + 1) % maxDelayLine;
-			d[i] = (float)output;
+			delay += inc;
+			d[i] = (float)tick(c, (double)d[i], delay, isFeedforward, isCombFB, effective_fb);
 		}
 	}
+
+	delayCurrent = delayLength;
 }
 
 void CombFilterSubType::processFrame(float* frameData, int numChannels)
@@ -2338,50 +2358,11 @@ void CombFilterSubType::processFrame(float* frameData, int numChannels)
 	                            mode == Flanger          || mode == FlangerInv);
 	const bool isCombFB      = (mode == Comb || mode == InvComb);
 
+	// Frame processing is already per sample: snap to the target.
+	delayCurrent = delayLength;
+
 	for (int c = 0; c < numChannels; c++)
-	{
-		const double input = (double)frameData[c];
-		double* dl = delayLine.data() + c * maxDelayLine;
-
-		// Read from delay line (integer delay)
-		const int readPos = (writePos[c] - delayLengthInt + maxDelayLine) % maxDelayLine;
-		const double delayed_raw = dl[readPos];
-
-		// All-pass fractional interpolation
-		const double ap_out = ap_coeff * (delayed_raw - ap_s[c]) + ap_s_prev[c];
-		ap_s_prev[c] = delayed_raw;
-		ap_s[c]      = ap_out;
-
-		double output;
-
-		if (isFeedforward)
-		{
-			// Feedforward: Gain-controlled LP/HP applied to the delayed signal.
-			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-			const float ff_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-			output = input + effective_fb * (double)ff_filtered;
-			dl[writePos[c]] = input;
-		}
-		else if (isCombFB)
-		{
-			// Feedback comb: Gain-controlled LP/HP applied to delayed signal in feedback path.
-			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-			const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-			output = input + effective_fb * (double)fb_filtered;
-			dl[writePos[c]] = output;
-		}
-		else
-		{
-			// FlangerFB: Gain-controlled LP/HP in the feedback write path
-			lp_s[c] = (1.0f - lp_coeff) * (float)ap_out + lp_coeff * lp_s[c];
-			const float fb_filtered = fb_is_hp ? ((float)ap_out - lp_s[c]) : lp_s[c];
-			output = input + effective_fb * ap_out;
-			dl[writePos[c]] = input + effective_fb * (double)fb_filtered;
-		}
-
-		writePos[c] = (writePos[c] + 1) % maxDelayLine;
-		frameData[c] = (float)output;
-	}
+		frameData[c] = (float)tick(c, (double)frameData[c], delayCurrent, isFeedforward, isCombFB, effective_fb);
 }
 
 

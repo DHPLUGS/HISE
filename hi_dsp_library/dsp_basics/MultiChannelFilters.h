@@ -1411,9 +1411,8 @@ private:
 	// Write head per channel
 	int writePos[NUM_MAX_CHANNELS] = {};
 
-	// All-pass interpolator state per channel
-	double ap_s[NUM_MAX_CHANNELS]      = {};   // previous output y[n-1]
-	double ap_s_prev[NUM_MAX_CHANNELS] = {};   // previous input  x[n-1]
+	// One sample of the comb for channel c at the given (fractional) delay.
+	double tick(int c, double input, double delay, bool isFeedforward, bool isCombFB, double effective_fb);
 
 	// Feedback lowpass integrator state per channel (FlangerFB modes)
 	double fb_lp_s[NUM_MAX_CHANNELS] = {};
@@ -1422,13 +1421,18 @@ private:
 	float lp_s[NUM_MAX_CHANNELS] = {};
 
 	// Precomputed coefficients
-	double ap_coeff    = 0.0;    // all-pass eta = (1-d)/(1+d)
 	double fb_lp_coeff = 0.0;    // FlangerFB feedback LP speed alpha
 	double fb_gain     = 0.0;    // Comb/FF/Flanger: Q-controlled [0, 0.95]; FlangerFB: Gain-controlled [-0.99, 0.99]
 	float  lp_coeff    = 0.0f;   // Comb/FF/Flanger feedback filter pole (from Gain); see fb_is_hp
 	bool   fb_is_hp    = false;  // Comb/FF/Flanger: false = LP in signal path, true = HP
-	double delayLength  = 100.0; // fractional delay in samples
-	int    delayLengthInt = 100; // floor(delayLength)
+
+	// Delay tap in samples. updateCoefficients() sets the target once per render call;
+	// processSamples() ramps delayCurrent towards it per sample across the block (the tap
+	// used to jump by whole samples every 64-sample chunk under modulation = zipper).
+	// The read uses cubic Hermite interpolation, which stays clean while the delay moves;
+	// the old first-order all-pass tap added its own transient on every coefficient change.
+	double delayLength  = 100.0; // target (also the display value)
+	double delayCurrent = 100.0; // ramped value used by the audio path
 
 	// Stored for graph/coefficient queries
 	double storedSampleRate = 44100.0;
