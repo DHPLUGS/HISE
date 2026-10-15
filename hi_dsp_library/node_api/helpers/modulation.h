@@ -120,6 +120,32 @@ struct EventData
 	const int*    thisBlockSize = nullptr;		        // the (current) size of the modulation signal array
 	ClearState*	  resetFlag     = nullptr;				// the voice state for envelope modulation signals
 
+	// APEX: the event id owning each resetFlag slot (NUM_POLYPHONIC_VOICES entries). Published by sources
+	// that allocate the slots per note-on (ModulatorChain, GlobalModulatorContainer); nullptr = the old
+	// eventId % numVoices scheme.
+	const uint16* slotEventIds  = nullptr;
+
+	/** APEX: the resetFlag slot that holds this event. Probes from id % numVoices, where the source
+	    allocated it first, so the first compare hits in the common case. Without an owner table, or if
+	    the id is not in it, this is the old eventId % numVoices. */
+	int getSlotForEvent(uint16 eventId, int numVoices) const
+	{
+		const int start = (int)(eventId % (uint16)numVoices);
+
+		if (slotEventIds == nullptr || resetFlag == nullptr)
+			return start;
+
+		for (int i = 0; i < numVoices; i++)
+		{
+			const int s = (start + i) % numVoices;
+
+			if (slotEventIds[s] == eventId)
+				return s;
+		}
+
+		return start;
+	}
+
 };
 
 

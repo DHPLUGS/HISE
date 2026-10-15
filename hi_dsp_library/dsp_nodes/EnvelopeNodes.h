@@ -1894,7 +1894,10 @@ template <int NV, typename IndexClass, runtime_target::RuntimeTarget TargetType>
 		{
 			auto& s = state.get();
 			s.eventData = signal.getEventData(index, e, NumVoices > 1);
-			s.voiceIndex = e.getEventId() % NumVoices;
+			// APEX: slot lookup (modulation::EventData::getSlotForEvent). Was eventId % NumVoices, so a later
+			// note with the same id modulo NumVoices took this note's slot and, on its release, reset it from
+			// under the held note: the gate reported finished and the voice was killed.
+			s.voiceIndex = s.eventData.getSlotForEvent(e.getEventId(), NumVoices);
 			mv.setModValue(1.0);
 		}
 	}

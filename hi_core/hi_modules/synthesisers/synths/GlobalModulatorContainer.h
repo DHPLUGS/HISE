@@ -277,10 +277,10 @@ public:
 	{
 		auto idx = getIndexForEvent(voiceEvent);
 
-		auto& flag = isClear[idx];
+		if (idx == -1)
+			return false;
 
-		auto clear = idx == -1 || (flag == ClearState::Reset);
-		return !clear;
+		return isClear[idx] != ClearState::Reset;
 	}
 
 	const float* getReadPointer(const HiseEvent& voiceEvent, int startSample) const
@@ -403,9 +403,20 @@ public:
 		}
 	}
 
+	/** APEX: the slot is allocated here, not derived from the id.
+
+	    getIndexForEvent() used to be eventId % NUM_POLYPHONIC_VOICES, so after that many note-ons (16 in
+	    the plugin: two seconds of a 1/16 arp, since every root, arp and seq note takes an id) a new note
+	    landed on the slot of a note still held. The held note then read the new note's envelope (a
+	    re-attack on every arp step) and, when the new note's release ran out, found its slot Reset:
+	    isPlaying() false, the matrix modulators reading this envelope reported finished and the synth
+	    killed the held voice. Now the first free slot from id % NUM_POLYPHONIC_VOICES is taken, the id
+	    recorded and every lookup matches on the id. The container has at most NUM_POLYPHONIC_VOICES
+	    voices and resetIfOwner() frees the slot of a voice that ends early, so a free slot always exists;
+	    the modulo slot is only the fallback. */
 	void startVoice(const HiseEvent& voiceEvent)
 	{
-		auto voiceIndex = getIndexForEvent(voiceEvent);
+		auto voiceIndex = allocateSlotForEvent(voiceEvent);
 
 		jassert(voiceIndex != -1);
 
@@ -416,9 +427,8 @@ public:
 	/** APEX: frees the slot at once if this event still owns it. For a container voice that is
 	    reset without running its envelopes out (stolen at the voice limit, force-killed, all notes
 	    off): checkRelease() never gets to clear the slot then, so it stayed Playing with a frozen
-	    buffer and the synth voice of that note hung on the last envelope value (stuck note). The
-	    owner check keeps a newer note that took the slot over (event id + NUM_POLYPHONIC_VOICES)
-	    untouched. Monophonic envelopes share slot 0 between all voices and are left alone. */
+	    buffer and the synth voice of that note hung on the last envelope value (stuck note).
+	    Monophonic envelopes share slot 0 between all voices and are left alone. */
 	void resetIfOwner(const HiseEvent& voiceEvent)
 	{
 		if(getModulator()->isInMonophonicMode())
@@ -440,6 +450,10 @@ public:
 	bool clearIfPending(const HiseEvent& voiceEvent)
 	{
 		auto voiceIndex = getIndexForEvent(voiceEvent);
+
+		// APEX: not in the table (never started, or the slot was given away) = nothing playing
+		if(voiceIndex == -1)
+			return false;
 
 		if(voiceIndex != -1)
 		{
@@ -469,6 +483,8 @@ private:
 
 	
 
+	/** APEX: the slot that holds this event, or -1. Probes from id % NUM_POLYPHONIC_VOICES, where
+	    allocateSlotForEvent() placed it first, so the first compare hits in the common case. */
 	int getIndexForEvent(const HiseEvent& voiceEvent) const
 	{
 		if(getModulator()->isInMonophonicMode())
@@ -477,7 +493,41 @@ private:
 		if(voiceEvent.isEmpty())
 			return -1;
 
-		return voiceEvent.getEventId() % NUM_POLYPHONIC_VOICES;
+		const uint16 id = voiceEvent.getEventId();
+		const int start = (int)(id % (uint16)NUM_POLYPHONIC_VOICES);
+
+		for (int i = 0; i < NUM_POLYPHONIC_VOICES; i++)
+		{
+			const int s = (start + i) % NUM_POLYPHONIC_VOICES;
+
+			if (slotEventId[s] == id)
+				return s;
+		}
+
+		return -1;
+	}
+
+	/** APEX: the first free slot from id % NUM_POLYPHONIC_VOICES (see startVoice()). */
+	int allocateSlotForEvent(const HiseEvent& voiceEvent) const
+	{
+		if(getModulator()->isInMonophonicMode())
+			return 0;
+
+		if(voiceEvent.isEmpty())
+			return -1;
+
+		const int start = (int)(voiceEvent.getEventId() % (uint16)NUM_POLYPHONIC_VOICES);
+
+		for (int i = 0; i < NUM_POLYPHONIC_VOICES; i++)
+		{
+			const int s = (start + i) % NUM_POLYPHONIC_VOICES;
+
+			if (isClear[s] == ClearState::Reset)
+				return s;
+		}
+
+		jassertfalse;
+		return start;
 	}
 
 	AudioSampleBuffer monophonicallyReducedSignal;

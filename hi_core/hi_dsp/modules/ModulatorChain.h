@@ -722,7 +722,59 @@ public:
 		RuntimeTargetSource(ModulatorChain& parent_):
 		  parent(parent_),
 		  signalData(1, 0)
-		{}
+		{
+			// APEX: Playing (enum value 0) is what the formerly uninitialised array read as, and a chain
+			// that never starts voices (no voice modulators) must keep reading Playing through the
+			// modulo fallback, or every gate on it would report finished at once.
+			for (int i = 0; i < NUM_POLYPHONIC_VOICES; i++)
+			{
+				resetFlag[i] = scriptnode::modulation::ClearState::Playing;
+				slotEventId[i] = 0;
+				slotLive[i] = 0;
+			}
+		}
+
+		/** APEX: picks the resetFlag slot for a starting note.
+
+		    Both sides used eventId % NUM_POLYPHONIC_VOICES, so after that many note-ons (16 in the plugin,
+		    two seconds of a 1/16 arp) a new note landed on the slot of a note still held; when the new note
+		    released, the slot went Reset and every gate reading it (the Griffin output gates) killed the
+		    held voice. Now the first free slot from id % NUM_POLYPHONIC_VOICES is taken and the id recorded;
+		    readers look the id up (EventData::getSlotForEvent). Occupancy is slotLive, not the flag: the
+		    flag is the gate signal and starts out Playing. A chain has at most NUM_POLYPHONIC_VOICES live
+		    voices and startVoice() frees the slot of a voice that ended without its release, so a free
+		    slot always exists; the modulo slot is only the fallback. */
+		int allocateSlot(uint16 eventId)
+		{
+			const int start = (int)(eventId % (uint16)NUM_POLYPHONIC_VOICES);
+
+			for (int i = 0; i < NUM_POLYPHONIC_VOICES; i++)
+			{
+				const int s = (start + i) % NUM_POLYPHONIC_VOICES;
+
+				if (slotLive[s] == 0)
+				{
+					slotLive[s] = 1;
+					slotEventId[s] = eventId;
+					return s;
+				}
+			}
+
+			jassertfalse;
+			slotLive[start] = 1;
+			slotEventId[start] = eventId;
+			return start;
+		}
+
+		/** APEX: the note in this slot is over: gate signal Reset, slot free for the next note. */
+		void releaseSlot(int slot)
+		{
+			if (isPositiveAndBelow(slot, NUM_POLYPHONIC_VOICES))
+			{
+				resetFlag[slot] = scriptnode::modulation::ClearState::Reset;
+				slotLive[slot] = 0;
+			}
+		}
 
 		int getRuntimeHash() const override;
 
@@ -745,6 +797,7 @@ public:
 			d.thisBlockSize = &typed->thisBlockSize;
 			d.constantValue = 0.0f;
 			d.resetFlag = typed->resetFlag;
+			d.slotEventIds = typed->slotEventId;
 			return d;
 		}
 
@@ -863,6 +916,8 @@ public:
 		TargetType* connectedTarget = nullptr;
 
 		scriptnode::modulation::ClearState resetFlag[NUM_POLYPHONIC_VOICES];
+		uint16 slotEventId[NUM_POLYPHONIC_VOICES];   // APEX: owner of each slot, see allocateSlot()
+		uint8 slotLive[NUM_POLYPHONIC_VOICES];       // APEX: 1 while a started note holds the slot
 
     } runtimeTargetSource;
 

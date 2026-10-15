@@ -1227,7 +1227,7 @@ void ModulatorChain::ModChainWithBuffer::calculateModulationValuesForCurrentVoic
 					if (isPositiveAndBelow(eventId, NUM_POLYPHONIC_VOICES))
 					{
 						c->eventIdToVoiceIndexMap[voiceIndex] = -1;
-						c->runtimeTargetSource.resetFlag[eventId] = scriptnode::modulation::ClearState::Reset;
+						c->runtimeTargetSource.releaseSlot(eventId);
 					}
 				}
 			}
@@ -1581,7 +1581,7 @@ void ModulatorChain::handleHiseEvent(const HiseEvent &m)
 	jassert(shouldBeProcessedAtAll());
 
 	if(m.isNoteOn())
-		unsavedEventId = m.getEventId() % NUM_POLYPHONIC_VOICES;
+		unsavedEventId = (int)m.getEventId();   // APEX: raw id, startVoice() allocates the slot
 
 	EnvelopeModulator::handleHiseEvent(m);
 
@@ -1704,8 +1704,14 @@ float ModulatorChain::startVoice(int voiceIndex)
 {
 	jassert(hasVoiceModulators());
 
-	eventIdToVoiceIndexMap[voiceIndex] = unsavedEventId;
-	runtimeTargetSource.resetFlag[unsavedEventId] = scriptnode::modulation::ClearState::Playing;
+	// APEX: a voice that ended without running its release (stolen, killed, all notes off) never
+	// reached the Reset write in renderVoice(); its slot is freed now that the voice index is reused.
+	runtimeTargetSource.releaseSlot(eventIdToVoiceIndexMap[voiceIndex]);
+
+	const int slot = runtimeTargetSource.allocateSlot((uint16)unsavedEventId);
+
+	eventIdToVoiceIndexMap[voiceIndex] = slot;
+	runtimeTargetSource.resetFlag[slot] = scriptnode::modulation::ClearState::Playing;
 
 	activeVoices.setBit(voiceIndex, true);
 
