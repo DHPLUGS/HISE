@@ -1545,7 +1545,16 @@ File FrontendHandler::getUserPresetDirectory(bool getRedirect)
     
 #else
 #if HISE_USER_PRESETS_IN_MUSIC_FOLDER
-	File presetDir = File::getSpecialLocation(File::userMusicDirectory).getChildFile(getCompanyName()).getChildFile(getProjectName()).getChildFile("Presets");
+#if JUCE_MAC
+	// DHP: on macOS the <Company>/<Product> content root lives in /Users/Shared, not
+	// ~/Music (TCC-protected: prompts per DAW and per installer). Same root as the
+	// sample fallback in getSampleLocationForCompiledPlugin() and the scripting-side
+	// content root. Windows keeps the Music folder (no TCC there).
+	File contentRoot("/Users/Shared");
+#else
+	File contentRoot = File::getSpecialLocation(File::userMusicDirectory);
+#endif
+	File presetDir = contentRoot.getChildFile(getCompanyName()).getChildFile(getProjectName()).getChildFile("Presets");
 #else
 	File presetDir = getAppDataDirectory().getChildFile("User Presets");
 #endif

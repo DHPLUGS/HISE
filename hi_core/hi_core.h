@@ -495,8 +495,9 @@ OpenGL should be enabled by default or not.
 /** Config: HISE_USER_PRESETS_IN_MUSIC_FOLDER
 
     If enabled, the compiled plugin will store its user presets in a "Presets" subfolder
-    of the <Company>/<Product> folder in the user's music directory instead of the
-    "User Presets" folder in the app data directory.
+    of the <Company>/<Product> content folder instead of the "User Presets" folder in
+    the app data directory. That content folder is /Users/Shared/<Company>/<Product>
+    on macOS (DHP: ~/Music is TCC-protected) and the user's music directory elsewhere.
 */
 #ifndef HISE_USER_PRESETS_IN_MUSIC_FOLDER
 #define HISE_USER_PRESETS_IN_MUSIC_FOLDER 0
