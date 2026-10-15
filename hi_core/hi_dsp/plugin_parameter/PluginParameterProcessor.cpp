@@ -546,19 +546,42 @@ void PluginParameterAudioProcessor::createScriptedParameters(juce::AudioProcesso
 	// (AU clump id = index of the group in the parameter tree). The scripted sort
 	// callback can't run while the parameters are built in a compiled plugin, so it
 	// silently falls back to layout order and the folders end up scrambled in the
-	// DAW even though the backend simulator looks correct. Stable-sort by group name
-	// so the parameter folders are always alphabetical regardless of the callback;
-	// the within-group order established above is preserved.
+	// DAW even though the backend simulator looks correct. Stable-sort by group so the
+	// folder order never depends on the callback; the within-group order established
+	// above is preserved. Folders follow the order of setPluginParameterGroupNames()
+	// (the scripts are compiled before this runs); groups missing from that list go
+	// after it, alphabetically.
 	{
 		struct GroupSorter
 		{
+			GroupSorter(const StringArray& order_):
+			  order(order_)
+			{}
+
+			int getRank(const String& group) const
+			{
+				auto idx = order.indexOf(group);
+				return idx == -1 ? order.size() : idx;
+			}
+
 			int compareElements(HisePluginParameterBase* p1, HisePluginParameterBase* p2) const
 			{
-				return p1->getHisePluginParameterGroupName().compareIgnoreCase(p2->getHisePluginParameterGroupName());
+				auto g1 = p1->getHisePluginParameterGroupName();
+				auto g2 = p2->getHisePluginParameterGroupName();
+
+				auto r1 = getRank(g1);
+				auto r2 = getRank(g2);
+
+				if(r1 != r2)
+					return r1 < r2 ? -1 : 1;
+
+				return g1.compareIgnoreCase(g2);
 			}
+
+			const StringArray& order;
 		};
 
-		GroupSorter gs;
+		GroupSorter gs(uph.pluginParameterGroups);
 		flatList.sort(gs, true);
 
 		for(int i = 0; i < flatList.size(); i++)
