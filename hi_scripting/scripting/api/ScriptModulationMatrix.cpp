@@ -743,7 +743,15 @@ void ScriptModulationMatrix::restoreFromValueTree(const ValueTree& v)
 	tree.removeAllChildren(um);
 
 	for(auto c: v)
-		tree.addChild(c.createCopy(), -1, um);
+	{
+		auto copy = c.createCopy();
+
+		// APEX: old presets carry modes the table has no entry for (see the helper); fixed on the
+		// copy before it is added, so the modulator picks the mode up on connect
+		MatrixIds::Helpers::sanitiseConnectionMode(copy, container->matrixProperties, nullptr);
+
+		tree.addChild(copy, -1, um);
+	}
 }
 
 bool ScriptModulationMatrix::connect(String sourceId, String targetId, bool addConnection)

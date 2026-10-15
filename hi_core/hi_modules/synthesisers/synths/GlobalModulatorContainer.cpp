@@ -434,7 +434,12 @@ void GlobalModulatorContainer::RuntimeSource::restore(const ValueTree& v, UndoMa
 
 	for(auto c: v)
 	{
-		matrixData.addChild(c.createCopy(), -1, um);
+		auto copy = c.createCopy();
+
+		// APEX: fixed on the copy before it is added, so the modulator picks the mode up on connect
+		MatrixIds::Helpers::sanitiseConnectionMode(copy, parent.matrixProperties, nullptr);
+
+		matrixData.addChild(copy, -1, um);
 	}
 }
 

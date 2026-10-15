@@ -162,6 +162,12 @@ struct Helpers
 
 	// APEX: Bypassed comes first because this order is also the matrix table's column order (the ON lamp is the first cell).
 	static Array<Identifier> getWatchableIds() { return { Bypassed, SourceIndex, TargetId, Mode, Inverted, Intensity, AuxIndex, AuxIntensity }; };
+
+	// APEX: a connection restored with a Mode the matrix table does not offer gets the target's
+	// init-table default, else Unipolar. Presets written before the mode list settled carry 4 (Raw),
+	// which the engine renders as nothing and the table shows as an empty MODE cell. Returns true
+	// if the property was rewritten, so a later save stores the mode the table shows.
+	static bool sanitiseConnectionMode(ValueTree& connection, const Properties& properties, UndoManager* um);
 	static ValueTree addConnection(ValueTree& v, MainController* um, const String& targetId, int sourceIndex=-1);
 	static ValueTree getMatrixDataFromGlobalContainer(MainController* mc);
 	static bool removeConnection(ValueTree& data, UndoManager* um, const String& targetId, int sourceIndex);

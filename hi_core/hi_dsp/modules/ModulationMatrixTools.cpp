@@ -356,6 +356,33 @@ Helpers::Properties::RangeData Helpers::getRangePreset(RangePresets p)
 	return rd;
 }
 
+bool Helpers::sanitiseConnectionMode(ValueTree& connection, const Properties& properties, UndoManager* um)
+{
+	using TM = scriptnode::modulation::TargetMode;
+
+	if(!connection.isValid() || connection.getType() != Connection)
+		return false;
+
+	// The table offers Gain / Unipolar / Bipolar only (MatrixModulatorComponents.cpp); anything else
+	// (a missing property, Raw from old presets, a non-numeric value) renders no modulation.
+	auto mode = connection.hasProperty(Mode) ? (int)connection[Mode] : -1;
+
+	if(mode >= (int)TM::Gain && mode <= (int)TM::Bipolar)
+		return false;
+
+	auto newMode = TM::Unipolar;
+	auto targetId = connection[TargetId].toString();
+
+	if(auto iv = properties.getConvertedIntensityValue(targetId))
+		newMode = iv.defaultMode;
+
+	if(newMode < TM::Gain || newMode > TM::Bipolar)
+		newMode = TM::Unipolar;
+
+	connection.setProperty(Mode, (int)newMode, um);
+	return true;
+}
+
 ValueTree Helpers::addConnection(ValueTree& v, MainController* mc, const String& targetId, int sourceIndex)
 {
 	jassert(v.getType() == MatrixData);
