@@ -949,8 +949,9 @@ public:
 		/** Returns the currently loaded file. Can be used to display the user preset name. */
 		File getCurrentlyLoadedFile() const;;
 
-		/** @internal */
-		//void setCurrentlyLoadedFile(const File& f);
+		/** Points the handler at another file without loading it, eg. after the loaded preset was renamed
+		    or moved on disk. Save and the current preset name follow it; no listener is notified. */
+		void setCurrentlyLoadedFile(const File& f);
 
 		/** @internal */
 		void sendRebuildMessage();

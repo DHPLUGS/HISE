@@ -498,6 +498,9 @@ public:
 		/** Loads a user preset with the given relative path  (use `/` for directory separation) or the given ScriptFile object. */
 		void loadUserPreset(var relativePathOrFileObject);
 
+		/** Makes the given preset file (relative path or ScriptFile object) the current user preset WITHOUT loading it, eg. after renaming the loaded preset on disk. The current preset name and the next save follow it; preset load callbacks are not called. */
+		void setCurrentUserPresetFile(var relativePathOrFileObject);
+
 		/** Sets the tags that appear in the user preset browser. */
 		void setUserPresetTagList(var listOfTags);
 
@@ -702,6 +705,9 @@ public:
 		/** This warning will show up in the console so people can migrate in the next years... */
 		void logSettingWarning(const String& methodName) const;
 
+		/** Resolves loadUserPreset / setCurrentUserPresetFile's argument: absolute path, ScriptFile or path relative to the user preset root. */
+		File getUserPresetFileFromVar(const var& file);
+
 		struct Wrapper;
 
 		double unused = 0.0;
@@ -871,7 +877,7 @@ public:
 
 	private:
 
-		
+
 
 		GlobalSettingManager* gm;
 		AudioProcessorDriver* driver;

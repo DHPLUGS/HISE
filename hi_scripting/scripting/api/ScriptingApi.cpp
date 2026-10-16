@@ -1197,6 +1197,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, loadNextUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadPreviousUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadUserPreset);
+	API_VOID_METHOD_WRAPPER_1(Engine, setCurrentUserPresetFile);
 	API_VOID_METHOD_WRAPPER_1(Engine, setUserPresetTagList);
 	API_METHOD_WRAPPER_1(Engine, isUserPresetReadOnly);
 	API_METHOD_WRAPPER_0(Engine, getUserPresetList);
@@ -1370,6 +1371,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(setGlobalPitchFactor);
 	ADD_API_METHOD_1(saveUserPreset);
 	ADD_API_METHOD_1(loadUserPreset);
+	ADD_API_METHOD_1(setCurrentUserPresetFile);
 	ADD_API_METHOD_0(getUserPresetList);
 	ADD_API_METHOD_0(isMpeEnabled);
 	ADD_API_METHOD_0(createMidiList);
@@ -3174,29 +3176,45 @@ bool ScriptingApi::Engine::sortWithFunction(var arrayToSort, var sortFunction)
 	return false;
 }
 
-void ScriptingApi::Engine::loadUserPreset(var file)
+File ScriptingApi::Engine::getUserPresetFileFromVar(const var& file)
 {
 	auto name = ScriptingObjects::ScriptFile::getFileNameFromFile(file);
 
-	File userPresetToLoad;
-
 	if (File::isAbsolutePath(name))
-	{
-		userPresetToLoad = File(name);
-	}
-	else
-	{
+		return File(name);
+
 #if USE_BACKEND
-		File userPresetRoot = GET_PROJECT_HANDLER(getProcessor()).getSubDirectory(ProjectHandler::SubDirectories::UserPresets);
+	File userPresetRoot = GET_PROJECT_HANDLER(getProcessor()).getSubDirectory(ProjectHandler::SubDirectories::UserPresets);
 #else
-		File userPresetRoot = FrontendHandler::getUserPresetDirectory();
+	File userPresetRoot = FrontendHandler::getUserPresetDirectory();
 #endif
 
-        userPresetToLoad = userPresetRoot.getChildFile(file.toString());
-        
-        if(userPresetToLoad.hasFileExtension(".preset"))
-            userPresetToLoad = userPresetToLoad.withFileExtension(".preset");
+	auto f = userPresetRoot.getChildFile(file.toString());
+
+	if (f.hasFileExtension(".preset"))
+		f = f.withFileExtension(".preset");
+
+	return f;
+}
+
+void ScriptingApi::Engine::setCurrentUserPresetFile(var file)
+{
+	auto f = getUserPresetFileFromVar(file);
+
+	if (!f.existsAsFile())
+	{
+		reportScriptError("User preset " + f.getFullPathName() + " doesn't exist");
+		return;
 	}
+
+	// Only the bookkeeping: no load, no listener. The current name and the next save follow
+	// the file; the preset bar / menu scripts poll Engine.getCurrentUserPresetName().
+	getProcessor()->getMainController()->getUserPresetHandler().setCurrentlyLoadedFile(f);
+}
+
+void ScriptingApi::Engine::loadUserPreset(var file)
+{
+	File userPresetToLoad = getUserPresetFileFromVar(file);
 
     if (userPresetToLoad.existsAsFile())
 	{
