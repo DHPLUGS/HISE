@@ -209,7 +209,7 @@ float ott::getGainReduction(float input)
 	}
 	else if (input > (hi_t + hi_w*0.5f))
 	{
-		return jmin(1.0f, hi_t + (input - hi_t) / hi_r_d);
+		return hi_t + (input - hi_t) / hi_r_d;
 	}
 	else
 	{
