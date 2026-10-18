@@ -829,6 +829,43 @@ public:
 
 	StringArray matrixSourceFolderOrder;
 
+	/** APEX: sources the script marks as unavailable, eg. SAMPLER TRACK while the sampler is off.
+	    The matrix rows draw them dimmed and the source popups label them "(OFF)". Set from the
+	    script through ScriptModulationMatrix::setSourceDimmed(). */
+	void setMatrixSourceDimmed(const String& sourceName, bool shouldBeDimmed)
+	{
+		bool changed;
+
+		{
+			ScopedLock sl(dimmedMatrixSourceLock);
+
+			if(shouldBeDimmed)
+				changed = dimmedMatrixSources.addIfNotAlreadyThere(sourceName);
+			else
+			{
+				auto numBefore = dimmedMatrixSources.size();
+				dimmedMatrixSources.removeString(sourceName);
+				changed = dimmedMatrixSources.size() != numBefore;
+			}
+		}
+
+		if(changed)
+			dimmedMatrixSourceBroadcaster.sendMessage(sendNotificationAsync, 0);
+	}
+
+	bool isMatrixSourceDimmed(const String& sourceName) const
+	{
+		if(sourceName.isEmpty())
+			return false;
+
+		ScopedLock sl(dimmedMatrixSourceLock);
+		return dimmedMatrixSources.contains(sourceName);
+	}
+
+	CriticalSection dimmedMatrixSourceLock;
+	StringArray dimmedMatrixSources;
+	LambdaBroadcaster<int> dimmedMatrixSourceBroadcaster;
+
 	runtime_target::connection getMatrixModulatorConnection() const { return runtimeSource.createConnection(); }
 
 	void handleRetriggeredNote(ModulatorSynthVoice *voice) override

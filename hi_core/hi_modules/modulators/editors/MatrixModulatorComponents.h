@@ -337,6 +337,14 @@ struct MatrixContent: public MatrixBase
 		/** The plain source name behind a source index, for the row's displayText (the popup only
 		    shows the short leaf once the sources are foldered). */
 		String getSourceName(int sourceIndex) const;
+
+		/** APEX: dims the source / aux selector while its source is marked unavailable
+		    (GlobalModulatorContainer::setMatrixSourceDimmed). */
+		void updateDimmedSources();
+
+		/** APEX: labels the unavailable sources "(OFF)" in a source / aux popup. */
+		void labelDimmedSources(PopupMenu& m, ComboBox& cb) const;
+
 		int getIndexInTarget() const;
 		void updateValue(const Identifier& id, const var& newValue);
 
@@ -418,6 +426,8 @@ struct MatrixContent: public MatrixBase
 		DeleteButton deleteButton;
 		SubmenuComboBox auxSelector;
 		UndoManager* um;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Row);   // APEX: dimmedMatrixSourceBroadcaster listener
 	};
 
 	struct Controller: public simple_css::FlexboxComponent,

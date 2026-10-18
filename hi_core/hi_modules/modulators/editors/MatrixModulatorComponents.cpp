@@ -470,6 +470,13 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 			auto macroSource = isPositiveAndBelow(idx, sourceIndices.size()) && getSourceName(sourceIndices[idx]).startsWith("MACRO ");
 			item.isEnabled = !(macroTarget && macroSource);
 		}
+
+		labelDimmedSources(m, sourceSelector);
+	};
+
+	auxSelector.prepareItemsFunction = [this](PopupMenu& m)
+	{
+		labelDimmedSources(m, auxSelector);
 	};
 
 	// A fresh row has no target yet: show a placeholder instead of an empty box.
@@ -496,8 +503,55 @@ MatrixContent::Row::Row(MainController* mc, ValueTree rowData, const String& tar
 							 valuetree::AsyncMode::Asynchronously,
 							 BIND_MEMBER_FUNCTION_2(Row::updateValue));
 
+	if(container != nullptr)
+		container->dimmedMatrixSourceBroadcaster.addListener(*this, [](Row& r, int)
+		{
+			r.updateDimmedSources();
+		});
+
 	lookAndFeelChanged();
 };
+
+void MatrixContent::Row::updateDimmedSources()
+{
+	auto update = [this](ComboBox& cb, const Identifier& id)
+	{
+		auto dimmed = container != nullptr && container->isMatrixSourceDimmed(getSourceName((int)data[id]));
+
+		if((bool)cb.getProperties()["dimmed"] != dimmed)
+		{
+			cb.getProperties().set("dimmed", dimmed);
+			cb.repaint();
+		}
+	};
+
+	update(sourceSelector, MatrixIds::SourceIndex);
+	update(auxSelector, MatrixIds::AuxIndex);
+}
+
+void MatrixContent::Row::labelDimmedSources(PopupMenu& m, ComboBox& cb) const
+{
+	if(container == nullptr)
+		return;
+
+	for (PopupMenu::MenuItemIterator iterator (m, true); iterator.next();)
+	{
+		auto& item = iterator.getItem();
+
+		if(item.itemID == 0)
+			continue;
+
+		auto idx = cb.indexOfItemId(item.itemID);
+
+		if(isPositiveAndBelow(idx, sourceIndices.size()) && container->isMatrixSourceDimmed(getSourceName(sourceIndices[idx])))
+		{
+			if(!item.text.endsWith(" (OFF)"))
+				item.text << " (OFF)";
+
+			item.colour = Colours::grey;
+		}
+	}
+}
 
 void MatrixContent::Row::lookAndFeelChanged()
 {
@@ -839,6 +893,7 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 			// the full source name the same way the target column does.
 			auxSelector.getProperties().set("displayText", isEnabled ? getSourceName((int)newValue) : "--");
 			auxSelector.refreshTickState();
+			updateDimmedSources();
 			auxSelector.repaint();
 		}
 		else if (id == MatrixIds::SourceIndex)
@@ -848,6 +903,7 @@ void MatrixContent::Row::updateValue(const Identifier& id, const var& newValue)
 			auxSelector.setEnabled(isEnabled);
 			sourceSelector.getProperties().set("displayText", isEnabled ? getSourceName((int)newValue) : "--");
 			sourceSelector.refreshTickState();
+			updateDimmedSources();
 			sourceSelector.repaint();
 			rebuildLayout();
 		}

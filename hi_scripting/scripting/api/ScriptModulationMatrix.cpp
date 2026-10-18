@@ -632,6 +632,7 @@ struct ScriptingObjects::ScriptModulationMatrix::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setTargetFolderOrder);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setSourceDisplayNames);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setSourceFolderOrder);
+	API_VOID_METHOD_WRAPPER_2(ScriptModulationMatrix, setSourceDimmed);
 	API_METHOD_WRAPPER_2(ScriptModulationMatrix, canConnect);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, clearAllConnections);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setCurrentlySelectedSource);
@@ -675,6 +676,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_API_METHOD_1(setTargetFolderOrder);
 	ADD_API_METHOD_1(setSourceDisplayNames);
 	ADD_API_METHOD_1(setSourceFolderOrder);
+	ADD_API_METHOD_2(setSourceDimmed);
 	ADD_API_METHOD_1(getTargetId);
 	ADD_API_METHOD_1(getComponent);
 	ADD_API_METHOD_2(canConnect);
@@ -1218,6 +1220,11 @@ void ScriptModulationMatrix::setSourceFolderOrder(var order)
 		sa.add(v.toString());
 
 	container->setMatrixSourceFolderOrder(sa);
+}
+
+void ScriptModulationMatrix::setSourceDimmed(String sourceName, bool shouldBeDimmed)
+{
+	container->setMatrixSourceDimmed(sourceName, shouldBeDimmed);
 }
 
 void ScriptModulationMatrix::setMatrixModulationProperties(var newProperties)

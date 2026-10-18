@@ -4841,6 +4841,8 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int 
 			text = displayText;
 
 		obj->setProperty(id.text, text);
+		// APEX: "dimmed" marks an unavailable item, eg. a matrix source whose generator is off
+		obj->setProperty("dimmed", (bool)cb.getProperties()["dimmed"]);
 		obj->setProperty(id.active, cb.getSelectedId() != 0);
 		obj->setProperty(id.enabled, cb.isEnabled() && cb.getNumItems() > 0);
 		obj->setProperty(id.hover, cb.isMouseOver(true) || cb.isMouseButtonDown(true) || cb.isPopupActive());

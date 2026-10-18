@@ -320,6 +320,9 @@ struct ScriptModulationMatrix : public ConstScriptingObject,
 	/** Sets the order of the matrix source list: an array of display-name paths ("LFO", "ENV::1"); unlisted entries follow alphabetically. */
 	void setSourceFolderOrder(var order);
 
+	/** Marks a matrix source as unavailable (eg. its generator is switched off): rows using it draw dimmed and the source popups label it (OFF). */
+	void setSourceDimmed(String sourceName, bool shouldBeDimmed);
+
 	/** Sets the currently selected source. */
 	void setCurrentlySelectedSource(String sourceId);
 
