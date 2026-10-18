@@ -196,6 +196,7 @@ private:
 	int curMasterStep = 0;
 	NoteWithChannel currentNote = { -1, -1 };
 	int currentVelocity = 0;
+	int incomingTranspose = 0; // transpose of the last key (Transposer before the arp); addNoteOn skips the chain
 	int currentStep = 0;
 	int currentNoteLengthInSamples = 0;
 	int midiChannel = 0;

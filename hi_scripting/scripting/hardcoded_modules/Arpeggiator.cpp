@@ -451,6 +451,8 @@ void Arpeggiator::onNoteOn()
 
 	NoteWithChannel newNote = { (int8)Message.getNoteNumber(), (int8)Message.getChannel() };
 
+	incomingTranspose = Message.getTransposeAmount();
+
 	addUserHeldKey(newNote);
 
 	if (is_playing && currentDirection == Direction::Chord && (Engine.getUptime() - chordStartUptime < 0.02) && !curr_step_is_skip())
@@ -852,7 +854,9 @@ uint16 Arpeggiator::sendNoteOnInternal(const Arpeggiator::NoteWithChannel& c)
 {
 	int midiChannelToUse = mpeMode || midiChannel == 0 ? c.channel : midiChannel;
 
-	auto eventId = (uint16)Synth.addNoteOn(midiChannelToUse, c.noteNumber, currentVelocity, 0);
+	auto noteNumber = jlimit(0, 127, (int)c.noteNumber + incomingTranspose);
+
+	auto eventId = (uint16)Synth.addNoteOn(midiChannelToUse, noteNumber, currentVelocity, 0);
 
 	if (mpeMode)
 	{
