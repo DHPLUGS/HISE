@@ -84,7 +84,7 @@ public:
 	/** Calculates a new random value. If the table is used, it is converted to 7bit.*/
 	float calculateVoiceStartValue(const HiseEvent &m) override
 	{
-        return getTableUnchecked(0)->getInterpolatedValue(m.getNoteNumber() / 127.0, sendNotificationAsync);
+        return getTableUnchecked(0)->getInterpolatedValue(jlimit(0, 127, m.getNoteNumberIncludingTransposeAmount()) / 127.0, sendNotificationAsync);
 	};
 };
 
