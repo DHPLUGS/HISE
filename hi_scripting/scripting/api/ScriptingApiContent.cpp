@@ -2096,6 +2096,7 @@ maximum(1.0f)
 	ADD_SCRIPT_PROPERTY(i18, "matrixTargetId"); 
 	ADD_SCRIPT_PROPERTY(i19, "tempoFamilyLock"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i20, "modulationSourceId");
+	ADD_SCRIPT_PROPERTY(i21, "macroOnlyTarget"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 
 	priorityProperties.add(getIdFor(Mode));
 
@@ -2125,6 +2126,7 @@ maximum(1.0f)
 	setDefaultValue(ScriptSlider::Properties::matrixTargetId, "");
 	setDefaultValue(ScriptSlider::Properties::tempoFamilyLock, false);
 	setDefaultValue(ScriptSlider::Properties::modulationSourceId, "");
+	setDefaultValue(ScriptSlider::Properties::macroOnlyTarget, false);
 
 	ScopedValueSetter<bool> svs(removePropertyIfDefault, false);
 

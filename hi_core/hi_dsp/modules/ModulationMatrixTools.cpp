@@ -650,6 +650,10 @@ void Helpers::repaintMatrixSlidersOnDrag(Component* c, const var& data, DragTarg
 
 				if(macroSource && s->getProcessor()->getModulationTargetId(s->getParameter()).startsWith("MACRO "))
 					sliderState = DragTargetType::Inactive;
+
+				// APEX: a macro-only target (HiSlider::setMacroOnlyTarget) only lights up for a macro
+				if(!macroSource && s->isMacroOnlyTarget())
+					sliderState = DragTargetType::Inactive;
 			}
 
 			updateDragState(s, sliderState);

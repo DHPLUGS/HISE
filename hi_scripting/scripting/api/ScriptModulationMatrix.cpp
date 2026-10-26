@@ -193,6 +193,7 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::Target::onPrope
 
 		auto sourceMod = ProcessorHelpers::getFirstProcessorWithName(parent.getMainController()->getMainSynthChain(), sourceId);
 		isVoiceStart = dynamic_cast<VoiceStartModulator*>(sourceMod) != nullptr;
+		isMacroSource = sourceId.startsWith("MACRO ");
 
 		if(isVoiceStart)
 			start();
@@ -509,6 +510,9 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 
 	// APEX (HISE_HOLD_MODS_WITHOUT_VOICES): with no voice anywhere the slider's callback receives
 	// its base value and the plot buffers are left alone, so curves and plotters stand still.
+	// MACRO sources are exempt: a macro is a static, global offset, and holding it at base would
+	// snap every macro-driven knob back when the last note ends and jump it on the next note-on
+	// (audible on the unison voice counts, whose setter resets the sounding clones).
 	const bool holdAtBase = getMainController()->shouldHoldModsWithoutVoices() &&
 	                        getMainController()->getNumActiveVoices() == 0;
 
@@ -516,8 +520,8 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 	{
 		for(auto s: scaleTargets)
 		{
-			if (holdAtBase)
-				break;
+			if (holdAtBase && !s->isMacroSource)
+				continue;
 
 			jassert(s->tm == modulation::TargetMode::Gain);
 			auto i = s->intensity;
@@ -538,8 +542,8 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 			
 		for(auto a: addTargets)
 		{
-			if (holdAtBase)
-				break;
+			if (holdAtBase && !a->isMacroSource)
+				continue;
 
 			auto modValue = a->lastModValue;
 

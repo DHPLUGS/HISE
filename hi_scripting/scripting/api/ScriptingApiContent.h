@@ -1002,6 +1002,7 @@ public:
 			matrixTargetId,
 			tempoFamilyLock,
 			modulationSourceId,
+			macroOnlyTarget,
 			numProperties,
 		};
 

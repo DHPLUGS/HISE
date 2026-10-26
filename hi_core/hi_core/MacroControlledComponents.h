@@ -937,6 +937,13 @@ public:
 	    normal turn. Empty name = off. */
 	void setHoldDragSource(const String& sourceName) { holdDragSourceName = sourceName; }
 
+	/** APEX: only a MACRO source may be dropped on this knob, and it only lights up as an
+	    available target while a macro is being dragged (ModUpdater::canBeDropped and
+	    MatrixIds::Helpers::repaintMatrixSlidersOnDrag). For global, stepped parameters such as
+	    the unison voice counts, whose setter resets every sounding note on each change. */
+	void setMacroOnlyTarget(bool shouldBeMacroOnly) { macroOnlyTarget = shouldBeMacroOnly; }
+	bool isMacroOnlyTarget() const noexcept { return macroOnlyTarget; }
+
 	double snapValue(double attemptedValue, DragMode dragMode) override;
 
 	void setLookAndFeelOwned(LookAndFeel *fslaf);
@@ -1062,6 +1069,7 @@ private:
 	HoldDragTimer holdDragTimer;
 	String holdDragSourceName;
 	bool holdDragActive = false;
+	bool macroOnlyTarget = false;
 };
 
 

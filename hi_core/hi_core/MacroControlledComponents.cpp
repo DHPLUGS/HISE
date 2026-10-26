@@ -1229,9 +1229,13 @@ bool HiSlider::ModUpdater::canBeDropped(const var& info) const
 			// themselves, and the hold-to-drag on them makes MACRO n -> MACRO m a one-finger accident)
 			StringArray sources;
 			MatrixIds::Helpers::fillModSourceList(parent.getProcessor()->getMainController(), sources);
-			auto macroOnMacro = sources[sourceIndex].startsWith("MACRO ") && targetId.startsWith("MACRO ");
+			auto macroSource = sources[sourceIndex].startsWith("MACRO ");
+			auto macroOnMacro = macroSource && targetId.startsWith("MACRO ");
 
-			auto ok = !con.isValid() && !macroOnMacro;
+			// APEX: a macro-only target (HiSlider::setMacroOnlyTarget) refuses every other source
+			auto nonMacroOnMacroOnly = parent.isMacroOnlyTarget() && !macroSource;
+
+			auto ok = !con.isValid() && !macroOnMacro && !nonMacroOnMacroOnly;
 
 			auto a = ok ? GlobalModulatorContainer::DragAction::Hover :
 						  GlobalModulatorContainer::DragAction::DisabledHover;

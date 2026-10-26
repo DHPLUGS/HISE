@@ -814,6 +814,7 @@ void ScriptCreatedComponentWrappers::SliderWrapper::updateComponent(int property
 		PROPERTY_CASE::ScriptSlider::sendValueOnDrag:   s->setSendValueOnDrag((bool)newValue); break;
 		PROPERTY_CASE::ScriptSlider::tempoFamilyLock:   s->setTempoFamilyLock((bool)newValue); break;
 		PROPERTY_CASE::ScriptSlider::modulationSourceId: s->setHoldDragSource(newValue.toString()); break;
+		PROPERTY_CASE::ScriptSlider::macroOnlyTarget:   s->setMacroOnlyTarget((bool)newValue); break;
 		PROPERTY_CASE::ScriptComponent::bgColour:
 		PROPERTY_CASE::ScriptComponent::itemColour :
 		PROPERTY_CASE::ScriptComponent::itemColour2 :

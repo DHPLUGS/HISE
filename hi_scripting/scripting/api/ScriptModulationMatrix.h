@@ -164,6 +164,10 @@ struct ScriptingApi::Content::ScriptSlider::MatrixCableConnection: public Matrix
 		bool isVoiceStart = false;
 		double voiceStartValue = 0.0;
 
+		// APEX: a MACRO source is global and static, not voice-bound, so the hold-at-base rule
+		// (HISE_HOLD_MODS_WITHOUT_VOICES) does not apply to it - see calculateNewModValue().
+		bool isMacroSource = false;
+
 		ValueTree connection;
 		AuxTarget::Ptr auxTarget;
 		SimpleRingBuffer::Ptr rb;
