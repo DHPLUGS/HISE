@@ -334,6 +334,7 @@ template <typename DT, int NV> struct jdelay_base : public base::jwrapper<DT, NV
 	{
 		base::jwrapper<DT, NV>::prepare(ps);
 		sr = ps.sampleRate;
+		delayRamp.prepare(ps);
 
 		if (sr > 0.0)
 		{
@@ -349,6 +350,81 @@ template <typename DT, int NV> struct jdelay_base : public base::jwrapper<DT, NV
                 currentSize = -1.0;
             }
 		}
+
+		for (auto& r : delayRamp)
+			r.current = r.target;
+	}
+
+	// APEX: a DelayTime change used to land as one setDelay() per block (an LFO through
+	// peak / minmax, or a knob), so the read head jumped at every block start = crackle
+	// that grew with the modulation rate and depth (DOUBLER RATE / DELAY, ROTAVIBE).
+	// The target is kept per voice and the delay is ramped across the block, sample by
+	// sample, so the read head moves continuously. The ramp ends exactly at the block
+	// end, so a modulation is not smeared beyond the one-block latency it already had.
+	struct DelayRamp
+	{
+		float current = 0.0f;
+		float target = 0.0f;
+	};
+
+	void reset()
+	{
+		base::jwrapper<DT, NV>::reset();
+
+		auto* r = delayRamp.begin();
+
+		for (auto& obj : this->objects)
+		{
+			r->current = r->target;
+			obj.setDelay(r->target);
+			++r;
+		}
+	}
+
+	template <typename ProcessDataType> void process(ProcessDataType& data)
+	{
+		auto& r = delayRamp.get();
+		const int numSamples = data.getNumSamples();
+
+		if (r.current == r.target || numSamples <= 0)
+		{
+			base::jwrapper<DT, NV>::process(data);
+			return;
+		}
+
+		auto& obj = this->objects.get();
+		const int numChannels = data.getNumChannels();
+		auto** ptrs = data.getRawChannelPointers();
+		const float inc = (r.target - r.current) / (float)numSamples;
+		float d = r.current;
+
+		for (int i = 0; i < numSamples; i++)
+		{
+			d += inc;
+			obj.setDelay(d);
+
+			for (int c = 0; c < numChannels; c++)
+			{
+				obj.pushSample(c, ptrs[c][i]);
+				ptrs[c][i] = obj.popSample(c);
+			}
+		}
+
+		r.current = r.target;
+		obj.setDelay(r.target);
+	}
+
+	template <typename FrameDataType> void processFrame(FrameDataType& data)
+	{
+		auto& r = delayRamp.get();
+
+		if (r.current != r.target)
+		{
+			r.current = r.target;
+			this->objects.get().setDelay(r.target);
+		}
+
+		base::jwrapper<DT, NV>::processFrame(data);
 	}
 
 	template <int P> void setParameter(double v)
@@ -373,6 +449,12 @@ template <typename DT, int NV> struct jdelay_base : public base::jwrapper<DT, NV
 				obj.setMaxDelaySamples(roundToInt(sampleValue));
 			if constexpr (P == 1)
                 obj.setDelay(sampleValue);
+		}
+
+		if constexpr (P == 1)
+		{
+			for (auto& r : delayRamp)
+				r.target = sampleValue;
 		}
 	}
 
@@ -404,6 +486,8 @@ template <typename DT, int NV> struct jdelay_base : public base::jwrapper<DT, NV
 	double sr = 0.0;
 	double maxSize = -1.0;
     double currentSize = -1.0;
+
+	PolyData<DelayRamp, NV> delayRamp;
 };
 
 template <int NV> using jdelay = jdelay_base<LinearDelay, NV>;

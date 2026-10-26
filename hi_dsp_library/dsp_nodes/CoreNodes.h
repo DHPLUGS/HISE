@@ -2116,9 +2116,13 @@ public:
 	void prepare(PrepareSpecs ps)
 	{
 		gainer.prepare(ps);
+		lastBlockGain.prepare(ps);
 		sr = ps.sampleRate;
 
 		setSmoothing(smoothingTime);
+
+		for (auto& l : lastBlockGain)
+			l = (float)gainValue;
 	}
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
@@ -2132,15 +2136,46 @@ public:
 	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
 		auto& thisGainer = gainer.get();
+		auto& lastGain = lastBlockGain.get();
 
 		if (thisGainer.isActive())
+		{
 			FrameConverters::forwardToFrame16(this, data);
+			lastGain = thisGainer.get();
+		}
 		else
 		{
 			auto gainFactor = thisGainer.get();
+			const int numSamples = data.getNumSamples();
 
-			for (auto ch : data)
-				data.toChannelData(ch) *= gainFactor;
+			// APEX: with Smoothing at 0 a block-rate gain change (matrix target, extra_mod,
+			// a knob) landed as one hard step at the block start = zipper noise on every
+			// modulated MIX / WET / DRY / OUTPUT gain. Ramp from the last block's gain to
+			// the new one across this block instead. The ramp ends exactly at the block
+			// end, so the modulation is not smeared beyond the one-block latency it
+			// already had, and reset() still snaps (no fade-in unless Smoothing > 0).
+			if (lastGain != gainFactor && numSamples > 0)
+			{
+				const float inc = (gainFactor - lastGain) / (float)numSamples;
+
+				for (auto ch : data)
+				{
+					float g = lastGain;
+
+					for (auto& s : data.toChannelData(ch))
+					{
+						g += inc;
+						s *= g;
+					}
+				}
+			}
+			else
+			{
+				for (auto ch : data)
+					data.toChannelData(ch) *= gainFactor;
+			}
+
+			lastGain = gainFactor;
 		}
 	}
 
@@ -2155,6 +2190,9 @@ public:
 			g.reset();
 			g.set((float)gainValue);
 		}
+
+		for (auto& l : lastBlockGain)
+			l = (float)gainValue;
 	}
 
 	void createParameters(ParameterDataList& data) override
@@ -2223,6 +2261,8 @@ public:
 
 	PolyData<sfloat, NumVoices> gainer;
 
+	// APEX: gain the previous block ended on (see process()).
+	PolyData<float, NumVoices> lastBlockGain;
 };
 
 template <int NV> class smoother: public mothernode,
