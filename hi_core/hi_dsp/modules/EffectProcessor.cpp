@@ -194,6 +194,18 @@ void MasterEffectProcessor::updateSoftBypass()
 bool MasterEffectProcessor::isSoftBypassed() const noexcept
 { return softBypassState == Bypassed; }
 
+void MasterEffectProcessor::clearPeakMeterValues()
+{
+	if (!getMatrix().anyChannelActive())
+		return;
+
+	float gainValues[NUM_MAX_CHANNELS];
+	memset(gainValues, 0, sizeof(gainValues));
+
+	getMatrix().setGainValues(gainValues, true);
+	getMatrix().setGainValues(gainValues, false);
+}
+
 void MasterEffectProcessor::numDestinationChannelsChanged()
 {
 
@@ -266,7 +278,10 @@ void MasterEffectProcessor::renderNextBlock(AudioSampleBuffer&, int startSample,
 void MasterEffectProcessor::renderWholeBuffer(AudioSampleBuffer& buffer)
 {
 	if (softBypassState == Bypassed)
+	{
+		clearPeakMeterValues();
 		return;
+	}
 
 	auto leftChannel = getLeftSourceChannel();
 	auto rightChannel = getRightSourceChannel();

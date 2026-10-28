@@ -289,6 +289,8 @@ void EffectProcessorChain::renderMasterEffects(AudioSampleBuffer &b)
 
 		if(!mfx->isSoftBypassed())
 			mfx->renderWholeBuffer(b);
+		else
+			mfx->clearPeakMeterValues();	// APEX: otherwise its peak meters freeze on the last rendered block
 	};
 
 	const auto prev = resetCounter;

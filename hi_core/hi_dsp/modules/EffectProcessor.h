@@ -190,6 +190,11 @@ public:
 
 	bool isSoftBypassed() const noexcept;
 
+	/** APEX: writes zeros to the routing-matrix peak values. The chain skips a soft-bypassed effect,
+	*   so nothing refreshed its peaks and every MatrixPeakMeter on it froze at the last rendered block.
+	*   Called once per block while bypassed; with decay coefficients set the meter glides down. */
+	void clearPeakMeterValues();
+
 	virtual void setSoftBypass(bool shouldBeSoftBypassed, bool useRamp=true);
 
 	virtual void numDestinationChannelsChanged() override;;
