@@ -539,10 +539,13 @@ struct PopupMenuParser
         String name;
         StringArray items;
         
-        void flush(PopupMenu& m, int& firstId, const Array<int>& activeIndexes)
+        // Returns whether this folder or any folder beneath it holds a ticked item, so a
+        // nested tick marks every ancestor header, not just the folder that owns the item
+        // (preset name menu: BASS/BANGING/MORE/x ticked left BASS without its dot).
+        bool flush(PopupMenu& m, int& firstId, const Array<int>& activeIndexes)
         {
             if(items.isEmpty() && children.isEmpty())
-                return;
+                return false;
             
             for(auto& s: items)
             {
@@ -551,13 +554,15 @@ struct PopupMenuParser
             
             for(auto c: children)
             {
-                c->flush(sub, firstId, activeIndexes);
+                ticked |= c->flush(sub, firstId, activeIndexes);
             }
             
             m.addSubMenu(name, sub, true, nullptr, ticked);
             
             items.clear();
             children.clear();
+            
+            return ticked;
         }
         
         OwnedArray<SubInfo> children;
