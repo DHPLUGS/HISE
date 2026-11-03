@@ -2000,13 +2000,28 @@ void ModulatorChain::ModulatorChainHandler::bypassStateChanged(Processor* p, boo
 	// off an FX parameter cut the notes that were playing (2026-09-09).
 	const bool ownedBySynth = dynamic_cast<ModulatorSynth*>(chain->getParentProcessor()) != nullptr;
 
+	// APEX (2026-11-03): the same flip happens on the synth's own chains - a MatrixModulator
+	// auto-bypasses when its last connection is removed and un-bypasses on the first one, so
+	// removing a matrix connection from a filter / pitch / oscillator target cut every held
+	// note. A MatrixModulator never ends a voice and reads its sources per block, so it can
+	// join or leave a playing voice. The one exception is the GAIN chain, where the synth asks
+	// every active envelope isPlaying() and a MatrixModulator joining mid-voice (active[] still
+	// false for that voice) would end the note on the spot - keep the release there.
+	bool releaseVoices = ownedBySynth;
+
+	if (ownedBySynth && dynamic_cast<MatrixModulator*>(mod) != nullptr)
+	{
+		auto gainChain = chain->getParentProcessor()->getChildProcessor(ModulatorSynth::InternalChains::GainModulation);
+		releaseVoices = (gainChain == chain);
+	}
+
 	if (!bypassState)
 	{
 		activeAllList.insert(mod);
 
 		if (auto env = dynamic_cast<EnvelopeModulator*>(mod))
 		{
-			if (ownedBySynth)
+			if (releaseVoices)
 				chain->getMainController()->allNotesOff();
 
 			if (env->isInMonophonicMode())
@@ -2035,7 +2050,7 @@ void ModulatorChain::ModulatorChainHandler::bypassStateChanged(Processor* p, boo
 
 		if (auto env = dynamic_cast<EnvelopeModulator*>(mod))
 		{
-			if (ownedBySynth)
+			if (releaseVoices)
 				chain->getMainController()->allNotesOff();
 
 			activeEnvelopesList.remove(env);
