@@ -2425,6 +2425,9 @@ void HiSlider::mouseUp(const MouseEvent& e)
 	{
 		holdDragActive = false;
 		setMouseCursor(MouseCursor::NormalCursor);
+		// the mouse-up that ends a drag skips JUCE's component-under-mouse lookup, so the grab hand
+		// would stay on screen until the mouse moves; the fake move shows the right cursor now
+		e.source.triggerFakeMove();
 		MatrixIds::Helpers::stopDragging(this);
 
 		// stopDragging clears the drag state on every slider with a modulated ring; this knob's

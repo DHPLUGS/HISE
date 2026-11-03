@@ -1310,6 +1310,12 @@ void MatrixContent::Controller::ModulationDragger::mouseDown(const MouseEvent& e
 		return;
 	}
 
+	// APEX: the grab hand only while the drag is live. JUCE keeps showing the pressed component's
+	// cursor until the button goes up and the drag image refreshes it on every move, so setting it
+	// here is enough; mouseUp puts the idle (stylesheet) cursor back.
+	idleCursor = getMouseCursor();
+	setMouseCursor(MouseCursor::DraggingHandCursor);
+
 	MatrixIds::Helpers::startDragging(this, sourceIndex);
 
 	if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
@@ -1325,6 +1331,13 @@ void MatrixContent::Controller::ModulationDragger::mouseUp(const MouseEvent& eve
 {
 	if(event.mods.isPopupMenu())
 		return;   // see mouseDown: no drag was started, and prevSourceIndex is stale
+
+	// APEX: idle cursor back, then a fake mouse move. The mouse-up that ends a drag skips the
+	// component-under-mouse lookup (juce_MouseInputSource::setButtons), so JUCE would keep showing
+	// this dragger's grab hand until the mouse is moved; the fake move re-finds the component the
+	// mouse is really over (the drop target) and shows its cursor right away.
+	setMouseCursor(idleCursor);
+	event.source.triggerFakeMove();
 
 	MatrixIds::Helpers::stopDragging(this);
 

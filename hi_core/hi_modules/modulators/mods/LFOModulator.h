@@ -208,6 +208,10 @@ public:
 private:
 
     void resyncInternal(double ppqPosition);
+
+    bool isLockedToSongPosition() const;
+    bool pinPhaseToSongPosition(double ppqPosition);
+    bool getHostSongPosition(int controlRateOffset, double& ppq);
     
 	/** Calculates the oscillator value of the LFO
 	*	Don't use this for GUI stuff, since it advances the LFO

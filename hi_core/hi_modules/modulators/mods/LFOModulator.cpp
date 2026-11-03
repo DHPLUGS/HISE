@@ -693,23 +693,79 @@ void LfoModulator::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void LfoModulator::resyncInternal(double ppqPosition)
 {
-    if(!(syncToMasterClock && tempoSync))
-        return;
-
     // When loop is off the LFO must play once and stop. Re-pinning uptime to the transport
     // every block forces it to loop forever (uptime stays within one cycle, so the value-hold /
     // ruler-freeze logic never engages). Stop re-syncing and let uptime free-run past one cycle.
-    if(!loopEnabled)
-        return;
+    // (pinPhaseToSongPosition checks loopEnabled.)
+    pinPhaseToSongPosition(ppqPosition);
+}
 
-    auto cycleLength = (double)TempoSyncer::getTempoFactorAt(currentTempo);
-    
-    auto ppqOffset = hmath::fmod(ppqPosition, cycleLength);
-    
-    auto normalizedOffset = ppqOffset / cycleLength;
-    
-    uptime = roundToInt(normalizedOffset * (double)SAMPLE_LOOKUP_TABLE_SIZE);
-    
+bool LfoModulator::isLockedToSongPosition() const
+{
+    return syncToMasterClock && tempoSync && loopEnabled;
+}
+
+/** The host song position (quarters) controlRateOffset control-rate samples into the current
+    block. False while the host transport is stopped. Read from the MainController's playhead
+    copy, not the MasterClock: APEX never sets a MasterClock sync mode, so it stays Inactive
+    (getPPQPos() == 0, isPlaying() == false, no resync on loop jumps). */
+bool LfoModulator::getHostSongPosition(int controlRateOffset, double& ppq)
+{
+    const auto& pos = getMainController()->getPositionInfo();
+
+    if (!pos.isPlaying || pos.bpm <= 0.0)
+        return false;
+
+    // calculateBlock's startSample is in control-rate samples
+    const auto cr = getControlRate();
+    const auto controlSamplesPerQuarter = cr > 0.0 ? cr * 60.0 / pos.bpm : 0.0;
+
+    ppq = pos.ppqPosition;
+
+    if (controlSamplesPerQuarter > 0.0)
+        ppq += (double)controlRateOffset / controlSamplesPerQuarter;
+
+    return true;
+}
+
+/** LOCK: the phase is a function of the song position - cycles since bar 1 at the current
+    synced rate, plus PHASE. Until 2026-11-02 LOCK only pinned the phase on transport START:
+    the LFO then integrated on through Logic cycle jumps (isPlaying never changes, and the
+    Inactive MasterClock never reports a resync) and through synced-rate changes, so MACHINE
+    (LFO 3 -> LFO 1 RATE SYNC) came back off the grid every time the loop went round. Now
+    calculateBlock pins every block while the host plays; inside a block it runs on at the
+    exact rate, so a steady LFO is unchanged and a rate flip starts on the grid.
+    Absolute cycles, not fmod(ppq, cycle): Steps / Random read the cycle count, so the step
+    sequence follows the bar. Returns false (uptime untouched) when not locked. */
+bool LfoModulator::pinPhaseToSongPosition(double ppqPosition)
+{
+    if (!isLockedToSongPosition())
+        return false;
+
+    const auto cycleLength = (double)TempoSyncer::getTempoFactorAt(currentTempo);
+
+    if (!(cycleLength > 0.0))
+        return false;
+
+    const auto cycles = jmax(0.0, ppqPosition) / cycleLength + phaseOffset;
+
+    const auto oldCycles = uptime / (double)SAMPLE_LOOKUP_TABLE_SIZE;
+
+    uptime = cycles * (double)SAMPLE_LOOKUP_TABLE_SIZE;
+
+    // A drift correction (the every-block pin of a steady LFO moves it by far less than this)
+    // keeps the wrap state, or a correction landing on a cycle boundary would wrap twice and
+    // Random would re-roll. A real jump (loop, rate change, note-on) into a different cycle
+    // counts as a wrap, so Steps / Random pick the value of the cycle they landed in.
+    if (std::abs(cycles - oldCycles) > 1.0e-3)
+    {
+        const int pinnedCycle = (int)std::floor(cycles);
+
+        if (pinnedCycle != lastCycleIndex)
+            lastCycleIndex = pinnedCycle - 1;
+    }
+
+    return true;
 }
 
 void LfoModulator::calculateBlock(int startSample, int numSamples)
@@ -718,6 +774,16 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 	const int numValues = numSamples;
 
 	auto* modData = internalBuffer.getWritePointer(0, startSample);
+
+	// LOCK + host playing: the phase follows the song position (see pinPhaseToSongPosition).
+	// Not while the onset delay holds the phase parked.
+	if (isLockedToSongPosition() && delaySamplesLeft == 0)
+	{
+		double ppq;
+
+		if (getHostSongPosition(startSample, ppq))
+			pinPhaseToSongPosition(ppq);
+	}
 
 #if 0
 	if (syncToMasterClock && tempoSync)
@@ -861,6 +927,12 @@ void LfoModulator::resetPhase()
     }
 
     resetFadeIn();
+
+    // LOCK + host playing: a note starts the LFO where the song position says, not at PHASE.
+    double ppq;
+
+    if (isLockedToSongPosition() && getHostSongPosition(0, ppq))
+        pinPhaseToSongPosition(ppq);
 }
 
 void LfoModulator::handleHiseEvent(const HiseEvent &m)
