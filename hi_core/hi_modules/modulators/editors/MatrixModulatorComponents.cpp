@@ -1283,7 +1283,9 @@ MatrixContent::Controller::ModulationDragger::ModulationDragger(const String& na
 	simple_css::FlexboxComponent::Helpers::setCustomType(*this, simple_css::Selector(simple_css::ElementType::Panel));
 	simple_css::FlexboxComponent::Helpers::writeSelectorsToProperties(*this, { ".dragger", id });
 	simple_css::FlexboxComponent::Helpers::setFallbackStyleSheet(*this, "width: auto; height: 24px;--dragPath:" + p64 + ";");
-	setMouseCursor(MouseCursor::PointingHandCursor);
+	// APEX: no cursor of its own (the stylesheet's `cursor: default` wins anyway). The drag shows the
+	// pressed component's cursor, and a cursor that differs from the drop target's sticks on screen in
+	// Logic (out-of-process AU: the host only redraws the cursor on a real mouse move), so the arrow it is.
 }
 
 void MatrixContent::Controller::ModulationDragger::mouseDown(const MouseEvent& e)
@@ -1310,12 +1312,6 @@ void MatrixContent::Controller::ModulationDragger::mouseDown(const MouseEvent& e
 		return;
 	}
 
-	// APEX: the grab hand only while the drag is live. JUCE keeps showing the pressed component's
-	// cursor until the button goes up and the drag image refreshes it on every move, so setting it
-	// here is enough; mouseUp puts the idle (stylesheet) cursor back.
-	idleCursor = getMouseCursor();
-	setMouseCursor(MouseCursor::DraggingHandCursor);
-
 	MatrixIds::Helpers::startDragging(this, sourceIndex);
 
 	if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
@@ -1331,13 +1327,6 @@ void MatrixContent::Controller::ModulationDragger::mouseUp(const MouseEvent& eve
 {
 	if(event.mods.isPopupMenu())
 		return;   // see mouseDown: no drag was started, and prevSourceIndex is stale
-
-	// APEX: idle cursor back, then a fake mouse move. The mouse-up that ends a drag skips the
-	// component-under-mouse lookup (juce_MouseInputSource::setButtons), so JUCE would keep showing
-	// this dragger's grab hand until the mouse is moved; the fake move re-finds the component the
-	// mouse is really over (the drop target) and shows its cursor right away.
-	setMouseCursor(idleCursor);
-	event.source.triggerFakeMove();
 
 	MatrixIds::Helpers::stopDragging(this);
 

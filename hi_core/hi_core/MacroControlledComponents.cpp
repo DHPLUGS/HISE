@@ -2424,10 +2424,6 @@ void HiSlider::mouseUp(const MouseEvent& e)
 	if(holdDragActive)
 	{
 		holdDragActive = false;
-		setMouseCursor(MouseCursor::NormalCursor);
-		// the mouse-up that ends a drag skips JUCE's component-under-mouse lookup, so the grab hand
-		// would stay on screen until the mouse moves; the fake move shows the right cursor now
-		e.source.triggerFakeMove();
 		MatrixIds::Helpers::stopDragging(this);
 
 		// stopDragging clears the drag state on every slider with a modulated ring; this knob's
@@ -2494,9 +2490,9 @@ void HiSlider::startHoldDrag()
 
 	holdDragActive = true;
 
-	// the grab hand says "drag me now". JUCE reads the pressed component's cursor for as long as
-	// the button is down and the drag image forces a refresh on every move, so this is enough
-	setMouseCursor(MouseCursor::DraggingHandCursor);
+	// no grab hand: the knob's state-2 look is the "drag me now" signal. A cursor that differs from the
+	// drop target's sticks on screen after the drop in Logic (out-of-process AU view, redrawn only on a
+	// real mouse move), so the arrow stays throughout.
 
 	// same three steps as MatrixContent::Controller::ModulationDragger::mouseDown. JUCE's
 	// startDragging only needs a mouse button to be down, so starting it from the timer is fine

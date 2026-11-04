@@ -541,8 +541,6 @@ struct MatrixContent: public MatrixBase
 			bool currentlySelected = false;
 			int prevSourceIndex = -1;
 			bool unselectableExclusiveSource = false;
-			// APEX: the cursor the dragger had before a drag started (mouseDown), put back in mouseUp
-			MouseCursor idleCursor { MouseCursor::PointingHandCursor };
 			int numConnections = 0;
 		};
 
