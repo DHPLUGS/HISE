@@ -57,7 +57,7 @@ struct MatrixBase: public Component,
 
 			down = true;
 
-			Slider::mouseDown(event);
+			Slider::mouseDown(toRail(event));
 		}
 
 		void mouseUp(const MouseEvent& event) override
@@ -67,7 +67,7 @@ struct MatrixBase: public Component,
 
 			down = false;
 
-			Slider::mouseUp(event);
+			Slider::mouseUp(toRail(event));
 		}
 
 		void mouseDrag(const MouseEvent& event) override
@@ -75,7 +75,42 @@ struct MatrixBase: public Component,
 			if(performModifierAction(event, false, false))
 				return;
 
-			Slider::mouseDrag(event);
+			Slider::mouseDrag(toRail(event));
+		}
+
+		// APEX: the script LAF (matrixLaf_drawLinearSlider in Modulation H3.js) draws the value
+		// text in its own column on the right and the rail only over the rest, inset by half
+		// the handle width. JUCE maps the mouse over the whole width (thumb radius 0, no text
+		// box), so the handle trailed the pointer. The mouse x is stretched so the rail's ends
+		// land on the slider's ends: the handle sits under the pointer, a click in the value
+		// column = max. Keep both constants in step with MATRIX_SLIDER_VALUE_W and hw / 2.
+		static constexpr float RailValueColumnWidth = 44.0f;
+		static constexpr float RailInset = 2.5f;
+
+		MouseEvent toRail(const MouseEvent& e) const
+		{
+			// The tile's "Horizontal" SliderStyle is LinearBar, whose drag region is the bounds
+			// reduced by 1 px a side (LookAndFeel_V2::getSliderLayout); LinearHorizontal has
+			// thumb radius 0 in GlobalHiseLookAndFeel, so its region is the full width.
+			auto style = getSliderStyle();
+			float regionStart;
+
+			if (style == Slider::LinearBar)
+				regionStart = 1.0f;
+			else if (style == Slider::LinearHorizontal)
+				regionStart = 0.0f;
+			else
+				return e;
+
+			auto w = (float)getWidth();
+			auto regionWidth = w - 2.0f * regionStart;
+			auto railWidth = w - RailValueColumnWidth - 2.0f * RailInset;
+
+			if (railWidth < 8.0f)
+				return e;
+
+			auto x = regionStart + (e.position.x - RailInset) / railWidth * regionWidth;
+			return e.withNewPosition(Point<float>(x, e.position.y));
 		}
 
 		void mouseDoubleClick(const MouseEvent& event) override;
