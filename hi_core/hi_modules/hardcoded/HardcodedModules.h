@@ -326,12 +326,32 @@ class HardcodedSynthesiser: public ModulatorSynth,
 		Voice(HardcodedSynthesiser* p);;
 
 		void calculateBlock(int startSample, int numSamples) override;
-		void setVoiceStartDataForNextRenderCallback() { isVoiceStart = true; }
+		void setVoiceStartDataForNextRenderCallback() { isVoiceStart = true; resetTailActive = false; }
 		void resetVoice() override;
 		void prepareToPlay(double sampleRate, int samplesPerBlock) override;
 
+		/** APEX: called when the network ends this voice (voice reset message). If a polyphonic
+			effect with a tail (FILTERS) follows the generator, the voice keeps running with a
+			silent generator until the effect output is silent, instead of being cut mid-ring
+			(note-off click). Returns false if there is nothing to wait for. */
+		bool beginResetTail();
+
 		HardcodedSynthesiser* synth;
 		bool isVoiceStart = false;
+
+	private:
+
+		void updateResetTail(int startSample, int numSamples);
+
+		// APEX reset tail: below kResetTailSilence for kResetTailSilentSeconds -> kill fade.
+		// kResetTailMaxSeconds caps a tail that never decays (self-oscillating filter).
+		static constexpr float kResetTailSilence = 0.0001f;		// -80 dB
+		static constexpr double kResetTailSilentSeconds = 0.01;
+		static constexpr double kResetTailMaxSeconds = 0.3;
+
+		bool resetTailActive = false;
+		int resetTailSamples = 0;
+		int resetTailSilentSamples = 0;
 	};
 
 	HardcodedSynthesiser(MainController* mc, const String& id, int numVoices);

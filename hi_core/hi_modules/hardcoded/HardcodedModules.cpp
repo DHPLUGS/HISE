@@ -955,6 +955,14 @@ void HardcodedSynthesiser::Voice::calculateBlock(int startSample, int numSamples
 
 		voiceBuffer.clear();
 
+		if (resetTailActive)
+		{
+			// APEX: the generator has ended this voice - only the poly effect tail is left.
+			getOwnerSynth()->effectChain->renderVoice(voiceIndex, voiceBuffer, startSample, numSamples);
+			updateResetTail(startSample, numSamples);
+			return;
+		}
+
 		using RD = ModulatorChain::ExtraModulatorRuntimeTargetSource::RenderData<OpaqueNode>;
 
 		int numChannels = voiceBuffer.getNumChannels();
@@ -983,8 +991,52 @@ void HardcodedSynthesiser::Voice::calculateBlock(int startSample, int numSamples
 
 void HardcodedSynthesiser::Voice::resetVoice()
 {
+	resetTailActive = false;
 	ModulatorSynthVoice::resetVoice();
 	synth->voiceData.reset(getVoiceIndex());
+}
+
+bool HardcodedSynthesiser::Voice::beginResetTail()
+{
+	// The generator repeats the reset message every block while its gates are shut.
+	if (resetTailActive)
+		return true;
+
+	if (isInactive() || shouldBeKilled())
+		return false;
+
+	if (!getOwnerSynth()->effectChain->hasTailingPolyEffects())
+		return false;
+
+	resetTailActive = true;
+	resetTailSamples = 0;
+	resetTailSilentSamples = 0;
+
+	// The generator voice is done - same as the hard reset did, the effects keep their state.
+	synth->voiceData.reset(getVoiceIndex());
+	return true;
+}
+
+void HardcodedSynthesiser::Voice::updateResetTail(int startSample, int numSamples)
+{
+	float peak = 0.0f;
+
+	for (int i = 0; i < voiceBuffer.getNumChannels(); i++)
+		peak = jmax(peak, voiceBuffer.getMagnitude(i, startSample, numSamples));
+
+	resetTailSamples += numSamples;
+	resetTailSilentSamples = (peak < kResetTailSilence) ? resetTailSilentSamples + numSamples : 0;
+
+	if (shouldBeKilled())
+		return;
+
+	const auto sr = getSampleRate() > 0.0 ? getSampleRate() : 44100.0;
+
+	// killVoice() fades the post-effect output over the synth's KillFadeTime, then
+	// checkRelease() resets the voice the normal way.
+	if (resetTailSilentSamples >= (int)(kResetTailSilentSeconds * sr) ||
+		resetTailSamples >= (int)(kResetTailMaxSeconds * sr))
+		killVoice();
 }
 
 void HardcodedSynthesiser::Voice::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -1205,8 +1257,14 @@ void HardcodedSynthesiser::onVoiceReset(bool allVoices, int voiceIndex)
 	}
 	else
 	{
-		if(auto v = static_cast<ModulatorSynthVoice*>(getVoice(voiceIndex)))
+		if(auto v = static_cast<Voice*>(getVoice(voiceIndex)))
+		{
+			// APEX: let the poly effect tail ring out instead of cutting it (note-off click).
+			if (v->beginResetTail())
+				return;
+
 			v->resetVoice();
+		}
 	}
 }
 
