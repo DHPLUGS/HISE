@@ -151,6 +151,36 @@ own build value once a project is open and follows that project's extra definiti
 #endif
 #endif
 
+/** Config: HISE_TABLE_PLAYHEAD
+
+If 1, an LFO with a Custom waveform publishes a playhead and its table editors draw a smooth,
+display-rate ruler natively (bypassing the look and feel's drawTableRuler). 0 keeps the stock
+ruler. The HISE app follows the open project's extra definitions (see ProjectBehaviour).
+*/
+#ifndef HISE_TABLE_PLAYHEAD
+#define HISE_TABLE_PLAYHEAD 0
+#endif
+
+/** Config: HISE_ARP_CARRY_TRANSPOSE
+
+If 1, the Arpeggiator adds the transpose amount of the incoming note (a Transposer before it)
+to the notes it creates. 0 = stock: arp notes ignore it. The HISE app follows the open
+project's extra definitions (see ProjectBehaviour).
+*/
+#ifndef HISE_ARP_CARRY_TRANSPOSE
+#define HISE_ARP_CARRY_TRANSPOSE 0
+#endif
+
+/** Config: HISE_OPAQUE_FLOATING_TILES
+
+If 1, a script floating tile with a fully opaque bgColour becomes an opaque component (cheaper
+repaints) and fills its background with that colour. 0 = stock: the tile stays transparent.
+The HISE app follows the open project's extra definitions (see ProjectBehaviour).
+*/
+#ifndef HISE_OPAQUE_FLOATING_TILES
+#define HISE_OPAQUE_FLOATING_TILES 0
+#endif
+
 /** Reenables using the mouse wheel to control the table curve if set to 1. */
 #ifndef HISE_USE_MOUSE_WHEEL_FOR_TABLE_CURVE
 #define HISE_USE_MOUSE_WHEEL_FOR_TABLE_CURVE 0

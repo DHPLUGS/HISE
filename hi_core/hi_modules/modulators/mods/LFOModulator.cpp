@@ -687,8 +687,9 @@ void LfoModulator::prepareToPlay(double sampleRate, int samplesPerBlock)
 		// APEX: push the phase into the table every audio block (was every 10th). The table's
 		// ComplexDataUIUpdater latches the latest value and only forwards it on the pooled UI
 		// timer tick, so per-block sends cost nothing on the UI side but remove the 10-block
-		// stepping of the table ruler (~9 Hz at a 512 buffer).
-		inputMerger.setManualCountLimit(1);
+		// stepping of the table ruler (~9 Hz at a 512 buffer). Only with HISE_TABLE_PLAYHEAD;
+		// otherwise the stock every-10th-block rate.
+		inputMerger.setManualCountLimit(ProjectBehaviour::tablePlayhead() ? 1 : 10);
 
 		valueUpdater.setManualCountLimit(LFO_DOWNSAMPLING_FACTOR);
 
@@ -821,20 +822,25 @@ void LfoModulator::calculateBlock(int startSample, int numSamples)
 		if (inputMerger.shouldUpdate())
 			table->setNormalisedIndexSync(isLooped ? newInputValue : 1.0f);
 
-		// APEX prototype: publish phase, rate and a timestamp so the table editor can
-		// extrapolate a smooth playhead on every display frame. angleDelta is table
-		// indices per control-rate sample and already includes frequency modulation.
-		const double cyclesPerSecond = angleDelta * getControlRate() / (double)SAMPLE_LOOKUP_TABLE_SIZE;
+		// APEX (HISE_TABLE_PLAYHEAD): publish phase, rate and a timestamp so the table editor
+		// can extrapolate a smooth playhead on every display frame. A table that never
+		// publishes keeps the stock ruler, drawn by the look and feel's drawTableRuler.
+		if (ProjectBehaviour::tablePlayhead())
+		{
+			// angleDelta is table indices per control-rate sample and already includes
+			// frequency modulation.
+			const double cyclesPerSecond = angleDelta * getControlRate() / (double)SAMPLE_LOOKUP_TABLE_SIZE;
 
-		// While the onset delay is pending the phase is parked, so report a rate of 0: the
-		// ruler then waits on the reset position instead of extrapolating ahead of the audio.
-		const bool advancing = isLooped && delaySamplesLeft == 0;
+			// While the onset delay is pending the phase is parked, so report a rate of 0: the
+			// ruler then waits on the reset position instead of extrapolating ahead of the audio.
+			const bool advancing = isLooped && delaySamplesLeft == 0;
 
-		table->publishPlayhead(isLooped ? (double)newInputValue : 1.0,
-		                       advancing ? cyclesPerSecond : 0.0,
-		                       loopEnabled,
-		                       phaseResetCounter,
-		                       keysPressed > 0);   // gate the playhead to notes being held
+			table->publishPlayhead(isLooped ? (double)newInputValue : 1.0,
+			                       advancing ? cyclesPerSecond : 0.0,
+			                       loopEnabled,
+			                       phaseResetCounter,
+			                       keysPressed > 0);   // gate the playhead to notes being held
+		}
 	}
 
 	float *mod = internalBuffer.getWritePointer(0, startIndex);

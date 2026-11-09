@@ -1529,6 +1529,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 	{
 		mc->clearExtraDefinitionCache();
 		TempoSyncer::setActiveList(TempoSyncer::getListFromDefinitions(getExtraDefinitionsAsObject()));
+		ProjectBehaviour::setFromDefinitions(getExtraDefinitionsAsObject());
 		mc->rebuildPluginParameters();
 		auto chain = mc->getMainSynthChain();
 		chain->prepareToPlay(chain->getSampleRate(), chain->getLargestBlockSize());

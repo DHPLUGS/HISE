@@ -2542,6 +2542,29 @@ TempoSyncer::List TempoSyncer::getListFromDefinitions(const var& extraDefinition
 	return List::Stock;
 }
 
+std::atomic<bool> ProjectBehaviour::tablePlayheadFlag { HISE_TABLE_PLAYHEAD != 0 };
+std::atomic<bool> ProjectBehaviour::arpCarryTransposeFlag { HISE_ARP_CARRY_TRANSPOSE != 0 };
+std::atomic<bool> ProjectBehaviour::opaqueFloatingTilesFlag { HISE_OPAQUE_FLOATING_TILES != 0 };
+
+void ProjectBehaviour::setFromDefinitions(const var& extraDefinitions)
+{
+	auto obj = extraDefinitions.getDynamicObject();
+
+	// a bare "-DFLAG" lands here with an empty value, which the compiler treats as 1
+	auto isSet = [obj](const char* name)
+	{
+		if (obj == nullptr || !obj->hasProperty(Identifier(name)))
+			return false;
+
+		auto v = obj->getProperty(Identifier(name)).toString().trim();
+		return v.isEmpty() || v.getIntValue() != 0;
+	};
+
+	tablePlayheadFlag.store(isSet("HISE_TABLE_PLAYHEAD"));
+	arpCarryTransposeFlag.store(isSet("HISE_ARP_CARRY_TRANSPOSE"));
+	opaqueFloatingTilesFlag.store(isSet("HISE_OPAQUE_FLOATING_TILES"));
+}
+
 void MasterClock::setNextGridIsFirst()
 {
 	waitForFirstGrid = true;

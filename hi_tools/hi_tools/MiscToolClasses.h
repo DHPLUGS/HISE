@@ -2360,6 +2360,32 @@ private:
 	static std::atomic<int> activeList;
 };
 
+/** APEX: behaviour changes a project opts into with an extra definition. An exported plugin
+    uses its compile-time value. One HISE build edits projects with different settings, so the
+    HISE app calls setFromDefinitions() when a project is opened (like the tempo list) and a
+    flag the project does not define is off. */
+struct ProjectBehaviour
+{
+	/** HISE_TABLE_PLAYHEAD */
+	static bool tablePlayhead() { return tablePlayheadFlag.load(std::memory_order_relaxed); }
+
+	/** HISE_ARP_CARRY_TRANSPOSE */
+	static bool arpCarryTranspose() { return arpCarryTransposeFlag.load(std::memory_order_relaxed); }
+
+	/** HISE_OPAQUE_FLOATING_TILES */
+	static bool opaqueFloatingTiles() { return opaqueFloatingTilesFlag.load(std::memory_order_relaxed); }
+
+	/** Takes the object form of a project's extra definitions
+	    (HiseSettings::Data::getExtraDefinitionsAsObject). */
+	static void setFromDefinitions(const var& extraDefinitions);
+
+private:
+
+	static std::atomic<bool> tablePlayheadFlag;
+	static std::atomic<bool> arpCarryTransposeFlag;
+	static std::atomic<bool> opaqueFloatingTilesFlag;
+};
+
 struct MasterClock
 {
 	enum class State

@@ -854,7 +854,11 @@ uint16 Arpeggiator::sendNoteOnInternal(const Arpeggiator::NoteWithChannel& c)
 {
 	int midiChannelToUse = mpeMode || midiChannel == 0 ? c.channel : midiChannel;
 
-	auto noteNumber = jlimit(0, 127, (int)c.noteNumber + incomingTranspose);
+	// HISE_ARP_CARRY_TRANSPOSE: without it arp notes ignore a Transposer before the arp (stock)
+	auto noteNumber = (int)c.noteNumber;
+
+	if (ProjectBehaviour::arpCarryTranspose())
+		noteNumber = jlimit(0, 127, noteNumber + incomingTranspose);
 
 	auto eventId = (uint16)Synth.addNoteOn(midiChannelToUse, noteNumber, currentVelocity, 0);
 

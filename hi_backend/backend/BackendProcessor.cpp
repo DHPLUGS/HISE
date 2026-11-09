@@ -768,6 +768,7 @@ void BackendProcessor::refreshExpansionType()
 	// list follows the project. This runs at startup (the restored project is set before
 	// this processor listens for project changes) and on every project switch.
 	TempoSyncer::setActiveList(TempoSyncer::getListFromDefinitions(getSettingsObject().getExtraDefinitionsAsObject()));
+	ProjectBehaviour::setFromDefinitions(getSettingsObject().getExtraDefinitionsAsObject());
 	auto expType = dynamic_cast<GlobalSettingManager*>(this)->getSettingsObject().getSetting(HiseSettings::Project::ExpansionType).toString();
 
 	if (expType == "Disabled")
