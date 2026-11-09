@@ -1331,7 +1331,11 @@ File FrontendHandler::getSampleLocationForCompiledPlugin()
 		// In this case we'll silently pick a sensible default location for the samples
 
 #if JUCE_WINDOWS
-		File sensibleDefaultLocation = File::getSpecialLocation(File::userDocumentsDirectory);
+		// DHP: Public Documents (C:\Users\Public\Documents) instead of the user's
+		// own Documents - the Windows twin of /Users/Shared below and where the
+		// DHP sample installers (and Native Instruments) put content: one copy
+		// for every user on the PC, writable by any interactive user.
+		File sensibleDefaultLocation = File::getSpecialLocation(File::commonDocumentsDirectory);
 #else
 		// DHP: /Users/Shared instead of ~/Music — ~/Music is TCC-protected, so
 		// both the installer and the DAW streaming samples from it raise macOS

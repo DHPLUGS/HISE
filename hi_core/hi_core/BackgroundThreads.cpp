@@ -1080,7 +1080,10 @@ File getDefaultSampleDestination()
 	const String path = company + "/" + product + "/Samples";
 
 #if JUCE_WINDOWS
-	const File sourceD = File::getSpecialLocation(File::globalApplicationsDirectory).getChildFile(path);
+	// DHP: Public Documents instead of Program Files - a standard user cannot
+	// write to Program Files, and this matches the frontend fallback in
+	// PresetHandler.cpp and the DHP sample installers.
+	const File sourceD = File::getSpecialLocation(File::commonDocumentsDirectory).getChildFile(path);
 #else
 	// DHP: /Users/Shared instead of ~/Music — ~/Music is TCC-protected, so
 	// both the installer and the DAW streaming samples from it raise macOS
