@@ -258,7 +258,16 @@ void LfoModulator::restoreFromValueTree(const ValueTree &v)
 	loadAttributeWithDefault(PhaseOffset);
 	loadAttributeWithDefault(SyncToMasterClock);
     loadAttributeWithDefault(IgnoreNoteOn);
-	loadAttributeWithDefault(Delay);
+	// Projects saved before Delay existed have no attribute: the default 0 would read as
+	// tempo list position 0 (the shortest note) when synced, so treat a missing Delay as none.
+	if (v.hasProperty(getIdentifierForParameterIndex(Delay)))
+	{
+		loadAttributeWithDefault(Delay);
+	}
+	else
+	{
+		setAttribute(Delay, tempoSync ? -1.0f : 0.0f, dontSendNotification);
+	}
 
 	loadAttribute(SmoothingTime, "SmoothingTime");
 
