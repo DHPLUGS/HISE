@@ -513,6 +513,10 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 	// MACRO sources are exempt: a macro is a static, global offset, and holding it at base would
 	// snap every macro-driven knob back when the last note ends and jump it on the next note-on
 	// (audible on the unison voice counts, whose setter resets the sounding clones).
+	// Voice-start sources (NOTE, VELOCITY, RANDOM) are exempt too: their value only arrives with
+	// the note-on, before that note's voice counts as active, and nothing recalculates afterwards.
+	// Holding it at base there dropped the modulation for every note played from silence, so only
+	// overlapped notes were modulated (NOTE -> LFO RATE FREE: second held note much faster).
 	const bool holdAtBase = getMainController()->shouldHoldModsWithoutVoices() &&
 	                        getMainController()->getNumActiveVoices() == 0;
 
@@ -520,7 +524,7 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 	{
 		for(auto s: scaleTargets)
 		{
-			if (holdAtBase && !s->isMacroSource)
+			if (holdAtBase && !s->isMacroSource && !s->isVoiceStart)
 				continue;
 
 			jassert(s->tm == modulation::TargetMode::Gain);
@@ -542,7 +546,7 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 			
 		for(auto a: addTargets)
 		{
-			if (holdAtBase && !a->isMacroSource)
+			if (holdAtBase && !a->isMacroSource && !a->isVoiceStart)
 				continue;
 
 			auto modValue = a->lastModValue;
