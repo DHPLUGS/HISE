@@ -2073,6 +2073,12 @@ struct HiSlider::HoverPopup: public Component,
 
 	void mouseDrag(const MouseEvent& e) override
 	{
+		// APEX: right-click is reserved for the mod window / connection menu (mouseDown). Without
+		// this a right-drag (or the small wobble of a right-click) still wrote the intensity, from
+		// a stale intensityDownValues entry since the right-click path returns before refreshing it.
+		if(e.mods.isRightButtonDown())
+			return;
+
 		keepAlive = !getLocalBounds().contains(e.getPosition());
 
 		if(isPositiveAndBelow(currentHoverIndex, intensityDownValues.size()))

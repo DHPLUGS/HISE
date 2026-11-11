@@ -1462,7 +1462,7 @@ MatrixContent::Controller::Controller(MainController* mc, Component& p, bool uns
 			triggerAsyncUpdate();
 		});
 
-		connectionSourceListener.setCallback(matrixData, { MatrixIds::SourceIndex }, valuetree::AsyncMode::Synchronously,
+		connectionSourceListener.setCallback(matrixData, { MatrixIds::SourceIndex, MatrixIds::AuxIndex }, valuetree::AsyncMode::Synchronously,
 		                                     [this](const ValueTree&, const Identifier&)
 		{
 			triggerAsyncUpdate();
@@ -1577,12 +1577,19 @@ void MatrixContent::Controller::updateConnectionState()
 	Array<int> counts;
 	counts.insertMultiple(0, 0, draggers.size());
 
+	// APEX: a source used as a row's AUX counts too, or a macro that only scales other rows
+	// looked unused (no .connected, no number). A row that uses the same source as main and
+	// aux counts once.
 	for(auto c: matrixData)
 	{
 		auto sourceIndex = (int)c[MatrixIds::SourceIndex];
+		auto auxIndex = (int)c.getProperty(MatrixIds::AuxIndex, -1);
 
 		if(isPositiveAndBelow(sourceIndex, draggers.size()))
 			counts.set(sourceIndex, counts[sourceIndex] + 1);
+
+		if(auxIndex != sourceIndex && isPositiveAndBelow(auxIndex, draggers.size()))
+			counts.set(auxIndex, counts[auxIndex] + 1);
 	}
 
 	for(int i = 0; i < draggers.size(); i++)

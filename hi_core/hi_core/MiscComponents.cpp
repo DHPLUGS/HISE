@@ -330,11 +330,26 @@ void MouseCallbackComponent::fillPopupMenu(const MouseEvent &event)
 
 	auto m = parseFromStringArray(itemList, { activePopupId }, &plaf);
 	
-	ScopedValueSetter<bool>(currentlyShowingPopup, true, false);
+	// Held for the whole menu so mouseUp does not reach the script while it is open (an
+	// arrow box both opened its popup and stepped its value on one click). This was an
+	// unnamed ScopedValueSetter temporary, which reset the flag at once. Set by hand, not
+	// a named setter: that would write to a deleted 'this' on the safeThis bail-out below.
+	currentlyShowingPopup = true;
+
+	// showMenu() runs a modal loop: the interface can be rebuilt (and this component
+	// deleted) or the item list replaced while the menu is open. Resolve the picked
+	// name from the list the menu was built from, and bail out if we are gone.
+	const StringArray shownItems(itemList);
+	Component::SafePointer<MouseCallbackComponent> safeThis(this);
 
 	auto result = PopupLookAndFeel::showAtComponent(m, this, popupShouldBeAligned);
-    
-	String itemName = result != 0 ? itemList[result - 1] : "";
+
+	if (safeThis == nullptr)
+		return;
+
+	currentlyShowingPopup = false;
+
+	String itemName = result != 0 ? shownItems[result - 1] : "";
 
 	auto obj = new DynamicObject();
 

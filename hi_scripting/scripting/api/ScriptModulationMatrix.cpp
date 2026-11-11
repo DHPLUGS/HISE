@@ -462,31 +462,37 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::addConnection(c
 
 void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::removeConnection(const ValueTree& v)
 {
+	// APEX: search allTargets (a Bypassed row is not in the scale / add lists and was never
+	// released), change the lists under the write lock like the Mode / Bypassed updates, and
+	// recalculate afterwards. Without the recalculation the slider's callback kept the last
+	// MODULATED value after the last connection went (ENV 2 -> LFO 1 RATE FREE removed = the
+	// LFO stayed at the modulated rate instead of returning to the knob).
 	ReferenceCountedObjectPtr<Target> toBeRemoved;
 
-	for(auto t: scaleTargets)
 	{
-		if(t->propertyListener.isRegisteredTo(v))
+		SimpleReadWriteLock::ScopedWriteLock sl(listLock);
+
+		for(auto t: allTargets)
 		{
-			toBeRemoved = t;
-			scaleTargets.removeObject(t);
-			allTargets.removeObject(t);
-			break;
+			if(t->propertyListener.isRegisteredTo(v))
+			{
+				toBeRemoved = t;
+				break;
+			}
+		}
+
+		if(toBeRemoved != nullptr)
+		{
+			allTargets.removeObject(toBeRemoved.get());
+			rebuildTargets();
 		}
 	}
 
-	for(auto t: addTargets)
+	if(toBeRemoved != nullptr)
 	{
-		if(t->propertyListener.isRegisteredTo(v))
-		{
-			toBeRemoved = t;
-			addTargets.removeObject(t);
-			allTargets.removeObject(t);
-			break;
-		}
+		toBeRemoved = nullptr;
+		calculateNewModValue();
 	}
-
-	toBeRemoved = nullptr;
 }
 
 void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::onUpdate(const ValueTree& v, bool wasAdded)
