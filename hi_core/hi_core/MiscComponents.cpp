@@ -420,6 +420,54 @@ void MouseCallbackComponent::filesDropped(const StringArray& files, int x, int y
 	sendFileMessage(Action::FileDrop, files, Point<int>(x, y));
 }
 
+bool MouseCallbackComponent::isInterestedInDragSource(const SourceDetails& details)
+{
+	if(details.description["Type"].toString() != "ModulationDrag")
+		return false;
+
+	return modulationDragTargetCheck && modulationDragTargetCheck();
+}
+
+void MouseCallbackComponent::itemDragEnter(const SourceDetails& details)
+{
+	sendModulationDragMessage(true, details.localPosition);
+}
+
+void MouseCallbackComponent::itemDragMove(const SourceDetails& details)
+{
+	sendModulationDragMessage(true, details.localPosition);
+}
+
+void MouseCallbackComponent::itemDragExit(const SourceDetails&)
+{
+	sendModulationDragMessage(false, {});
+}
+
+void MouseCallbackComponent::itemDropped(const SourceDetails&)
+{
+	// not a connection target: just tell the script the drag is no longer over it
+	sendModulationDragMessage(false, {});
+}
+
+void MouseCallbackComponent::sendModulationDragMessage(bool isOver, Point<int> pos)
+{
+	static const Identifier x("x");
+	static const Identifier y("y");
+	static const Identifier modDragHover("modDragHover");
+	static const Identifier modDragExit("modDragExit");
+
+	// a fresh object per message: the callback may run deferred
+	auto e = new DynamicObject();
+	var info(e);
+
+	e->setProperty(x, pos.getX());
+	e->setProperty(y, pos.getY());
+	e->setProperty(modDragHover, isOver);
+	e->setProperty(modDragExit, !isOver);
+
+	sendToListeners(info);
+}
+
 Result MouseCallbackComponent::validateEventObject(const var& objectToTest, const String& callbackLevel)
 {
 	auto cl = getCallbackLevel(callbackLevel);

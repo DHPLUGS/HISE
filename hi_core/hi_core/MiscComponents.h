@@ -39,7 +39,8 @@ class MouseCallbackComponent : public Component,
 							   public MacroControlledObject,
 							   public TouchAndHoldComponent,
 							   public ProfiledComponent,
-						       public FileDragAndDropTarget
+						       public FileDragAndDropTarget,
+							   public juce::DragAndDropTarget   // APEX: opt-in matrix source drag hover
 {
 	// ================================================================================================================
 
@@ -234,6 +235,19 @@ public:
 
 	void setEnableFileDrop(const String& newCallbackLevel, const String& allowedWildcards);
 
+	/** APEX: opt-in matrix source drag hover. A ScriptPanel opts in from script with
+	    `Panel.data.modulationDragTarget = true` (the wrapper installs the check, so no new script
+	    API and older builds just ignore the flag). While a matrix source is dragged over the
+	    component, the mouse callback gets { modDragHover: true, x, y } on every move and
+	    { modDragExit: true } when the drag leaves or ends on it. A drop on it does nothing. */
+	void setModulationDragTargetCheck(const std::function<bool()>& f) { modulationDragTargetCheck = f; }
+
+	bool isInterestedInDragSource(const SourceDetails& details) override;
+	void itemDragEnter(const SourceDetails& details) override;
+	void itemDragMove(const SourceDetails& details) override;
+	void itemDragExit(const SourceDetails& details) override;
+	void itemDropped(const SourceDetails& details) override;
+
 	/** Checks whether the event object is properly formatted. */
 	static Result validateEventObject(const var& objectToTest, const String& callbackLevel);
 
@@ -262,6 +276,7 @@ private:
 
 	FileCallbackLevel fileCallbackLevel = FileCallbackLevel::NoCallbacks;
 	StringArray fileDropExtensions;
+	std::function<bool()> modulationDragTargetCheck;
 
 	var jsonPopupData;
 	Rectangle<int> popupSize;
@@ -277,6 +292,7 @@ private:
 	using SubMenuList = std::tuple < String, StringArray > ;
 
 	void sendFileMessage(Action a, const StringArray& f, Point<int> pos);
+	void sendModulationDragMessage(bool isOver, Point<int> pos);
 
 	void sendMessage(const MouseEvent &event, Action action, EnterState state = Nothing);
 	void sendToListeners(var clickInformation);

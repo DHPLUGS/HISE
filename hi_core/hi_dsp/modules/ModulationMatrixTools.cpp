@@ -178,6 +178,7 @@ void Helpers::Properties::fromJSON(const var& obj)
 			v.intensity = nv.value.getProperty(Intensity, 0.0);
 
 			v.isNormalised = nv.value.getProperty(IsNormalized, true);
+			v.inverted = nv.value.getProperty(Inverted, false);
 
 			auto idx = modeNames.indexOf(nv.value[Mode].toString());
 			v.defaultMode = idx != -1 ? (TM)(int)idx : TM::Raw;
@@ -229,6 +230,9 @@ var Helpers::Properties::toJSON(const MainController* mc) const
 		item->setProperty(Intensity, dv.intensity);
 
 		item->setProperty(IsNormalized, dv.isNormalised);
+
+		if(dv.inverted)
+			item->setProperty(Inverted, true);
 
 		if(dv.defaultMode != TM::Raw)
 			item->setProperty(Mode, modeNames[(int)dv.defaultMode]);
@@ -452,7 +456,7 @@ ValueTree Helpers::addConnection(ValueTree& v, MainController* mc, const String&
 				c.setProperty(Intensity, iv.intensity, um);
 				c.setProperty(AuxIndex, -1.0, um);
 				c.setProperty(AuxIntensity, 0.0, um);
-				c.setProperty(Inverted, false, um);
+				c.setProperty(Inverted, iv.inverted, um);
 
 				return c;
 			}
@@ -467,7 +471,7 @@ ValueTree Helpers::addConnection(ValueTree& v, MainController* mc, const String&
 	nd.setProperty(Intensity, iv.intensity, nullptr);
 	nd.setProperty(AuxIndex, -1.0, nullptr);
 	nd.setProperty(AuxIntensity, 0.0, nullptr);
-	nd.setProperty(Inverted, false, nullptr);
+	nd.setProperty(Inverted, iv.inverted, nullptr);
 	v.addChild(nd, -1, um);
 	return nd;
 }

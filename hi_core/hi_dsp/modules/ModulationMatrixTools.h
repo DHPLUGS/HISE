@@ -107,6 +107,7 @@ struct Helpers
 			float intensity = 0.0f;
 			scriptnode::modulation::TargetMode defaultMode = scriptnode::modulation::TargetMode::Raw;
 			bool isNormalised = true;
+			bool inverted = false;   // APEX: optional "Inverted" key in DefaultInitValues
 
 			operator bool() const { return defaultMode != scriptnode::modulation::TargetMode::Raw; }
 		};

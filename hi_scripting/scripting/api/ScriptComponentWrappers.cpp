@@ -2525,6 +2525,21 @@ void ScriptCreatedComponentWrappers::PanelWrapper::initPanel(ScriptingApi::Conte
 
 	bp->setEnableFileDrop(panel->fileDropLevel, panel->fileDropExtension);
 
+	// APEX: `Panel.data.modulationDragTarget = true` makes the panel report matrix source drags
+	// (see MouseCallbackComponent::setModulationDragTargetCheck). Read on demand: only while a
+	// modulation drag is over the panel.
+	WeakReference<ScriptingApi::Content::ScriptComponent> safePanel(panel);
+
+	bp->setModulationDragTargetCheck([safePanel]()
+	{
+		static const Identifier flagId("modulationDragTarget");
+
+		if(auto sp = safePanel.get())
+			return (bool)sp->getConstantValue(0).getProperty(flagId, false);
+
+		return false;
+	});
+
 	
     bp->setBufferedToImage(panel->getScriptObjectProperty(ScriptingApi::Content::ScriptPanel::bufferToImage));
 
