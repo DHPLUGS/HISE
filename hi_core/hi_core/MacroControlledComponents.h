@@ -1052,7 +1052,7 @@ private:
 	bool skipGestureActive = false;
 
 	// APEX hold-to-drag-as-source, see setHoldDragSource()
-	static constexpr int HoldDragMs = 500;
+	static constexpr int HoldDragMs = 250;
 	static constexpr int HoldDragCancelPx = 3;
 
 	struct HoldDragTimer: public Timer
