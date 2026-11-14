@@ -378,14 +378,20 @@ ModulationDisplayValue ScriptingApi::Content::ScriptSlider::MatrixCableConnectio
 		else
 		{
 			auto modValue = t->lastModValue;
-			max += t->intensity;
 
+			// APEX: combined reach, each edge only grows (see MatrixModulator::Item::
+			// handleDisplayValue) - signed sums let rows of opposite sign cancel to a sliver.
 			if (t->tm == modulation::TargetMode::Bipolar)
 			{
 				modValue *= 2.0;
 				modValue -= 1.0;
-				min -= t->intensity;
+				min -= std::abs(t->intensity);
+				max += std::abs(t->intensity);
 			}
+			else if (t->intensity < 0.0)
+				min += t->intensity;
+			else
+				max += t->intensity;
 
 			auto thisIntensity = t->intensity;
 

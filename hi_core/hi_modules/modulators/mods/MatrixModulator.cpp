@@ -173,7 +173,7 @@ void MatrixModulator::Item::handleScaleDrag(bool isDown, float delta)
 	}
 }
 
-void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scriptnode::InvertableParameterRange outputRange, double fullRangeFactor)
+void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, double ringFactor)
 {
 	if(!isConnected())
 		return;
@@ -196,8 +196,9 @@ void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scrip
 			auto v1 = (float)mv.normalisedValue;
 			auto v2 = (float)mod.zeroDelta;
 
-			mv.modulationRange.setStart(jmin(v1, v2));
-			mv.modulationRange.setEnd(jmax(v1, v2));
+			// APEX: grow the range, don't replace it - it holds the rows walked before this one
+			mv.modulationRange.setStart(jmin(mv.modulationRange.getStart(), (double)jmin(v1, v2)));
+			mv.modulationRange.setEnd(jmax(mv.modulationRange.getEnd(), (double)jmax(v1, v2)));
 		}
 		else
 		{
@@ -210,7 +211,9 @@ void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scrip
 	}
 	else
 	{
-		auto factor = fullRangeFactor / outputRange.rng.getRange().getLength();
+		// APEX: ringFactor converts intensity (input-range normalised) into the slider's space,
+		// see MatrixModulator::getDisplayValue.
+		auto factor = ringFactor;
 
 		auto thisIntensity = intensity * factor;
 
@@ -219,21 +222,24 @@ void MatrixModulator::Item::handleDisplayValue(ModulationDisplayValue& mv, scrip
 		if(!bypassed)
 			mv.addValue += thisV;
 
+		// APEX: the range is the combined REACH of the connections walked so far - how far they
+		// can push the knob down and up together. Upstream moved only the START for a unipolar
+		// row and swapped when it crossed, so a second unipolar row overwrote the first one's
+		// low edge (+30 % then +20 % drew base+20..base+30 instead of base..base+50), and rows
+		// of opposite sign cancelled. Each edge now only grows: a bipolar row widens both by
+		// |intensity| (a negative one just inverts the swing), a unipolar row the edge it points to.
 		auto minValue = mv.modulationRange.getStart();
 		auto maxValue = mv.modulationRange.getEnd();
 
 		if(isBipolar)
 		{
-			minValue -= thisIntensity;
-			maxValue += thisIntensity;
+			minValue -= std::abs(thisIntensity);
+			maxValue += std::abs(thisIntensity);
 		}
-		else
-		{
+		else if(thisIntensity < 0.0)
 			minValue += thisIntensity;
-		}
-
-		if(minValue > maxValue)
-			std::swap(minValue, maxValue);
+		else
+			maxValue += thisIntensity;
 
 		mv.modulationRange = { minValue, maxValue };
 	}
@@ -804,7 +810,18 @@ ModulationDisplayValue MatrixModulator::getDisplayValue(double nv, NormalisableR
 	mv.scaledValue = mv.normalisedValue;
 	mv.modulationRange = { mv.normalisedValue, mv.normalisedValue };
 
-	auto fullRange = getMode() == Modulation::PitchMode ? 2.0f : 1.0f;
+	// APEX: connections add intensity to the base value in INPUT-range normalised space and
+	// the output range is applied after (calculateBlock), as the dragger text assumes. Upstream
+	// scaled the ring by 1 / output-range length, so any target with a non 0..1 output range
+	// drew it at the wrong size: FINE TUNE (output 1/12 wide) hit the knob ends at ~8 %,
+	// OCTAVE drew 4x short, PAN 2x. Map input-normalised units onto the slider's range instead;
+	// LogInput already works in input (log) space and is mapped onto the slider below.
+	double ringFactor = 1.0;
+
+	if(getMode() == Modulation::PitchMode)
+		ringFactor = 2.0 / rangeData.outputRange.rng.getRange().getLength();
+	else if(!logDisplay && nr.getRange().getLength() > 0.0)
+		ringFactor = rangeData.inputRange.rng.getRange().getLength() / nr.getRange().getLength();
 
 	bool anyConnected = false;
 	bool anyActive = false;
@@ -815,7 +832,7 @@ ModulationDisplayValue MatrixModulator::getDisplayValue(double nv, NormalisableR
 		{
 			anyConnected |= i->isConnected();
 			anyActive |= i->isActive();
-			i->handleDisplayValue(mv, rangeData.outputRange, fullRange);
+			i->handleDisplayValue(mv, ringFactor);
 		}
 	}
 
