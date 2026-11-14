@@ -1221,6 +1221,14 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 	{
 		buffer.clear();
 
+		// APEX: keep the held-key table current while suspended. Every voice is dead
+		// here, so nothing counts as sounding any more.
+		trackHeldKeys(midiMessages, false);
+
+		for (auto& ch : heldKeyVelocities)
+			for (auto& v : ch)
+				v &= 0x7F;
+
 		MidiBuffer::Iterator it(midiMessages);
 
 		MidiMessage m;
@@ -1302,6 +1310,19 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 	jassert(getOriginalBufferSize() >= numSamplesThisBlock);
 
 #if !FRONTEND_IS_PLUGIN || HISE_ENABLE_MIDI_INPUT_FOR_FX
+
+#if !FRONTEND_IS_PLUGIN
+	{
+		// APEX: while the voices fade out before a suspension, a new note-on would start
+		// a voice that is never killed (stuck note). Remember the key, drop the note-on;
+		// after a preset load it is struck again by retriggerHeldKeysIfPending().
+		const bool inVoiceKill = getKillStateHandler().isInVoiceKillState();
+		trackHeldKeys(midiMessages, !inVoiceKill);
+
+		if (inVoiceKill)
+			stripNoteOnsDuringVoiceKill(midiMessages);
+	}
+#endif
     
 	keyboardState.processNextMidiBuffer(midiMessages, 0, numSamplesThisBlock, true);
 
@@ -1326,6 +1347,11 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
     if (!masterEventBuffer.isEmpty()) setMidiInputFlag();
     
 	checkAllNotesOff();
+
+#if !FRONTEND_IS_PLUGIN
+	retriggerHeldKeysIfPending();
+#endif
+
 	eventIdHandler.handleEventIds();
 
 	getDebugLogger().logEvents(masterEventBuffer);
@@ -2507,6 +2533,105 @@ void MainController::savePluginState(MemoryBlock& destData, int currentlyLoadedP
 		getUserPresetHandler().saveStateManager(v, UserPresetIds::macro_controls, pluginState);
 
 	v.writeToStream(output);
+}
+
+// APEX held-key retrigger -------------------------------------------------------------
+// heldKeyVelocities[ch][note]: bits 0-6 = velocity (0 = key up), bit 7 = a voice was
+// started for this key press. Bit 7 is cleared while suspended (all voices dead).
+
+void MainController::trackHeldKeys(const MidiBuffer& rawMidi, bool noteOnsWillSound)
+{
+	MidiBuffer::Iterator it(rawMidi);
+	MidiMessage m;
+	int pos;
+
+	while (it.getNextEvent(m, pos))
+	{
+		const int ch = jlimit(0, 15, m.getChannel() - 1);
+
+		if (m.isNoteOn())
+		{
+			auto v = (uint8)jlimit(1, 127, (int)m.getVelocity());
+			heldKeyVelocities[ch][m.getNoteNumber()] = noteOnsWillSound ? (uint8)(v | 0x80) : v;
+		}
+		else if (m.isNoteOff())
+		{
+			heldKeyVelocities[ch][m.getNoteNumber()] = 0;
+		}
+		else if (m.isAllNotesOff() || m.isAllSoundOff())
+		{
+			for (auto& v : heldKeyVelocities[ch])
+				v = 0;
+		}
+	}
+}
+
+void MainController::stripNoteOnsDuringVoiceKill(MidiBuffer& rawMidi)
+{
+	bool hasNoteOn = false;
+
+	{
+		MidiBuffer::Iterator it(rawMidi);
+		MidiMessage m;
+		int pos;
+
+		while (it.getNextEvent(m, pos))
+			hasNoteOn |= m.isNoteOn();
+	}
+
+	if (!hasNoteOn)
+		return;
+
+	MidiBuffer filtered;
+	MidiBuffer::Iterator it(rawMidi);
+	MidiMessage m;
+	int pos;
+
+	while (it.getNextEvent(m, pos))
+	{
+		if (!m.isNoteOn())
+			filtered.addEvent(m, pos);
+	}
+
+	rawMidi.swapWith(filtered);
+}
+
+void MainController::retriggerHeldKeysIfPending()
+{
+	if (!retriggerHeldKeysPending.load())
+	{
+		retriggerClearBlockCount = 0;
+		return;
+	}
+
+	// Wait for a few clean blocks: no kill pending and no sample preload (preloadEverything()
+	// can suspend again right after the preset load and would kill the new voices).
+	if (!getKillStateHandler().isInClearState() || getSampleManager().isPreloading())
+	{
+		retriggerClearBlockCount = 0;
+		return;
+	}
+
+	if (++retriggerClearBlockCount < 3)
+		return;
+
+	retriggerHeldKeysPending.store(false);
+	retriggerClearBlockCount = 0;
+
+	for (int ch = 0; ch < 16; ch++)
+	{
+		for (int n = 0; n < 128; n++)
+		{
+			auto& v = heldKeyVelocities[ch][n];
+
+			// key down but no voice since the suspension -> strike it on the new sound
+			if (v != 0 && (v & 0x80) == 0)
+			{
+				masterEventBuffer.addEvent(HiseEvent(MidiMessage::noteOn(ch + 1, n, (uint8)v)));
+				v |= 0x80;
+			}
+		}
+	}
 }
 
 void MainController::handleSuspendedNoteOffs()

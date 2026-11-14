@@ -684,6 +684,11 @@ void MainController::UserPresetHandler::loadUserPresetInternal()
 		// restore the remaining state managers...
 		restoreStateManager(userPresetToLoad, UserPresetIds::AdditionalStates, userPresetState);
 
+		// APEX: the all-notes-off above cut the held notes - play the keys that are still
+		// down again on the new sound once audio runs normally (not on a DAW state restore).
+		if (!isInternalPresetLoad() && HISE_GET_PREPROCESSOR(mc, HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD))
+			mc->setRetriggerHeldKeysPending();
+
 		postPresetLoad();
 	}
 

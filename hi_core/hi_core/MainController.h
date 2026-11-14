@@ -1374,6 +1374,12 @@ public:
 
 		/** Replacement for allVoicesKilled. Checks if the audio is running. */
 		bool isAudioRunning() const noexcept;
+
+		/** APEX: true while the voices are fading out before a suspension. */
+		bool isInVoiceKillState() const noexcept { return currentState.load() == State::VoiceKill; }
+
+		/** APEX: true when audio runs normally (no kill / suspension pending). */
+		bool isInClearState() const noexcept { return currentState.load() == State::Clear; }
 		
 
 		/** Give this method a lambda and a processor and it will call it as soon as all voices are killed.
@@ -2352,6 +2358,22 @@ private:
 	bool skipCompilingAtPresetLoad = false;
 
 	UnorderedStack<HiseEvent> suspendedNoteOns;
+
+	// APEX: physically held keys from the raw host MIDI (bits 0-6 velocity, 0 = up; bit 7 =
+	// a voice was started for it). Tracked even while suspended, so a held note can be
+	// played again after a preset load.
+	uint8 heldKeyVelocities[16][128] = {};
+	void trackHeldKeys(const MidiBuffer& rawMidi, bool noteOnsWillSound);
+	void retriggerHeldKeysIfPending();
+	void stripNoteOnsDuringVoiceKill(MidiBuffer& rawMidi);
+	std::atomic<bool> retriggerHeldKeysPending { false };
+	int retriggerClearBlockCount = 0;
+
+public:
+	/** APEX: called when a user preset finished loading - held keys are struck again
+	    on the new sound once audio runs normally. */
+	void setRetriggerHeldKeysPending() { retriggerHeldKeysPending.store(true); }
+private:
 
 	HiseEventBuffer masterEventBuffer;
 	SimpleReadWriteLock midiOutputLock;
