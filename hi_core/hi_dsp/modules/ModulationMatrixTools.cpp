@@ -785,6 +785,33 @@ String Helpers::IntensityTextConverter::getText(double v) const
 	if(data.p != nullptr)
 	{
 		auto ir = data.inputRange;
+
+		// APEX: a target with no TextConverter used the inactive prettifier, whose String(v, 0)
+		// is JUCE's full-precision default ("+37.4219"). Decimals now follow the range: a whole
+		// number step (OSC FRAME 1..256, OCTAVE, FINE TUNE) or a range of 100+ shows none, a range
+		// of 10+ one, anything smaller two. Positive values get a '+', as the converters do.
+		auto plainDecimals = 2;
+
+		if(ir.interval >= 1.0 || ir.getRange().getLength() >= 100.0)
+			plainDecimals = 0;
+		else if(ir.interval > 0.0)
+			plainDecimals = jlimit(0, 3, roundToInt(-std::log10(ir.interval)));
+		else if(ir.getRange().getLength() >= 10.0)
+			plainDecimals = 1;
+
+		auto format = [&](double x) -> String
+		{
+			if(prettifier.active)
+				return prettifier(x);
+
+			auto t = plainDecimals == 0 ? String(roundToInt(x)) : String(x, plainDecimals);
+
+			if(x > 0.0 && t.getDoubleValue() != 0.0)
+				t = "+" + t;
+
+			return t;
+		};
+
 		ir.interval = 0;
 
 		if(ir.skew == 1.0)
@@ -793,9 +820,9 @@ String Helpers::IntensityTextConverter::getText(double v) const
 			v *= delta;
 
 			if(data.tm == modulation::TargetMode::Unipolar)
-				return prettifier(v);
+				return format(v);
 			else
-				return "+-" + prettifier(v).removeCharacters("+-");
+				return "+-" + format(v).removeCharacters("+-");
 		}
 		else
 		{
@@ -806,9 +833,9 @@ String Helpers::IntensityTextConverter::getText(double v) const
 			auto diff = target - value;
 
 			if(data.tm == modulation::TargetMode::Unipolar)
-				return prettifier(diff);
+				return format(diff);
 			else
-				return "+-" + prettifier(diff).removeCharacters("+-");
+				return "+-" + format(diff).removeCharacters("+-");
 		}
 	}
 	
