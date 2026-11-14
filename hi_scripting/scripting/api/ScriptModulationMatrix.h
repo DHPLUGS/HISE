@@ -327,6 +327,9 @@ struct ScriptModulationMatrix : public ConstScriptingObject,
 	/** Marks a matrix source as unavailable (eg. its generator is switched off): rows using it draw dimmed and the source popups label it (OFF). */
 	void setSourceDimmed(String sourceName, bool shouldBeDimmed);
 
+	/** Sets the interface area [x, y, w, h] the source's drag picture is taken from (eg. a knob plus the tab it is dragged from), whichever component starts the drag. Pass an empty array to go back to the dragged component alone. */
+	void setSourceDragImageArea(String sourceName, var area);
+
 	/** Sets the currently selected source. */
 	void setCurrentlySelectedSource(String sourceId);
 

@@ -653,6 +653,7 @@ struct ScriptingObjects::ScriptModulationMatrix::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setSourceDisplayNames);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setSourceFolderOrder);
 	API_VOID_METHOD_WRAPPER_2(ScriptModulationMatrix, setSourceDimmed);
+	API_VOID_METHOD_WRAPPER_2(ScriptModulationMatrix, setSourceDragImageArea);
 	API_METHOD_WRAPPER_2(ScriptModulationMatrix, canConnect);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, clearAllConnections);
 	API_VOID_METHOD_WRAPPER_1(ScriptModulationMatrix, setCurrentlySelectedSource);
@@ -697,6 +698,7 @@ ScriptModulationMatrix::ScriptModulationMatrix(ProcessorWithScriptingContent* p,
 	ADD_API_METHOD_1(setSourceDisplayNames);
 	ADD_API_METHOD_1(setSourceFolderOrder);
 	ADD_API_METHOD_2(setSourceDimmed);
+	ADD_API_METHOD_2(setSourceDragImageArea);
 	ADD_API_METHOD_1(getTargetId);
 	ADD_API_METHOD_1(getComponent);
 	ADD_API_METHOD_2(canConnect);
@@ -1245,6 +1247,28 @@ void ScriptModulationMatrix::setSourceFolderOrder(var order)
 void ScriptModulationMatrix::setSourceDimmed(String sourceName, bool shouldBeDimmed)
 {
 	container->setMatrixSourceDimmed(sourceName, shouldBeDimmed);
+}
+
+void ScriptModulationMatrix::setSourceDragImageArea(String sourceName, var area)
+{
+	if(!sourceList.contains(sourceName))
+	{
+		reportScriptError(sourceName + " is not a matrix source");
+		return;
+	}
+
+	Rectangle<int> r;
+
+	if(area.isArray() && area.size() == 4)
+	{
+		auto res = Result::ok();
+		r = ApiHelpers::getIntRectangleFromVar(area, &res);
+
+		if(res.failed())
+			reportScriptError(res.getErrorMessage());
+	}
+
+	container->setMatrixSourceDragImageArea(sourceName, r);
 }
 
 void ScriptModulationMatrix::setMatrixModulationProperties(var newProperties)

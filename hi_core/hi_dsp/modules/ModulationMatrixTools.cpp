@@ -678,6 +678,52 @@ void Helpers::startDragging(Component* c, int sourceIndex)
 
 		var di(dragInfo.get());
 		repaintMatrixSlidersOnDrag(rc, di, DragTargetType::Dragging);
+
+		// APEX: a source can carry its own drag picture area (ScriptModulationMatrix::
+		// setSourceDragImageArea, interface coordinates), so a control made of several
+		// components - a macro knob and its drag tab - leaves as one picture whichever part
+		// started the drag. The container is the ScriptContentComponent, whose local
+		// coordinates are the interface's. Same 2x snapshot + 0.6 alpha as JUCE's default.
+		ControlledObject* co = dynamic_cast<ControlledObject*>(c);
+
+		if(co == nullptr)
+			co = c->findParentComponentOfClass<ControlledObject>();
+
+		if(co != nullptr && rc != nullptr && dynamic_cast<ComponentWithMiddleMouseDrag*>(rc) != nullptr)
+		{
+			auto chain = co->getMainController()->getMainSynthChain();
+
+			if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
+			{
+				StringArray sources;
+				fillModSourceList(co->getMainController(), sources);
+
+				auto area = gc->getMatrixSourceDragImageArea(sources[sourceIndex]);
+
+				if(!area.isEmpty())
+				{
+					// the component under the mouse is always inside the picture
+					area = area.getUnion(rc->getLocalArea(c, c->getLocalBounds()))
+					           .getIntersection(rc->getLocalBounds());
+
+					if(!area.isEmpty())
+					{
+						const float scale = 2.0f;
+						auto img = rc->createComponentSnapshot(area, true, scale).convertedToFormat(Image::ARGB);
+						img.multiplyAllAlphas(0.6f);
+
+						auto mouse = rc->getLocalPoint(c, c->getMouseXYRelative()) - area.getPosition();
+						mouse = Rectangle<int>(area.getWidth(), area.getHeight()).getConstrainedPoint(mouse);
+
+						// JUCE draws the image at mouse - (mouse position inside the image)
+						Point<int> offset(-mouse.x, -mouse.y);
+						tc->startDragging(di, c, ScaledImage(img, scale), false, &offset);
+						return;
+					}
+				}
+			}
+		}
+
 		tc->startDragging(di, c);
 	}
 }

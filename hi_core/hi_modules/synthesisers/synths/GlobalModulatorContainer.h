@@ -866,6 +866,25 @@ public:
 	StringArray dimmedMatrixSources;
 	LambdaBroadcaster<int> dimmedMatrixSourceBroadcaster;
 
+	/** APEX: the interface area a source's drag picture is taken from (MatrixIds::Helpers::
+	    startDragging), eg. a macro knob plus its drag tab. Empty = the dragged component alone.
+	    Message thread only (script onInit + drag start). */
+	void setMatrixSourceDragImageArea(const String& sourceName, Rectangle<int> area)
+	{
+		if(area.isEmpty())
+			matrixSourceDragImageAreas.erase(sourceName);
+		else
+			matrixSourceDragImageAreas[sourceName] = area;
+	}
+
+	Rectangle<int> getMatrixSourceDragImageArea(const String& sourceName) const
+	{
+		auto it = matrixSourceDragImageAreas.find(sourceName);
+		return it != matrixSourceDragImageAreas.end() ? it->second : Rectangle<int>();
+	}
+
+	std::map<String, Rectangle<int>> matrixSourceDragImageAreas;
+
 	runtime_target::connection getMatrixModulatorConnection() const { return runtimeSource.createConnection(); }
 
 	void handleRetriggeredNote(ModulatorSynthVoice *voice) override
