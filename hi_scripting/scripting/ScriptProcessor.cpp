@@ -208,6 +208,17 @@ float ProcessorWithScriptingContent::getControlValue(int index) const
 
 void ProcessorWithScriptingContent::controlCallback(ScriptingApi::Content::ScriptComponent *component, var controllerValue)
 {
+	// APEX: a knob that is a cable matrix target gets base + modulation, whoever moved it (see
+	// ScriptSlider::getMatrixCableCallbackValue()). The audio thread's own modulated call passes through.
+	if (auto slider = dynamic_cast<ScriptingApi::Content::ScriptSlider*>(component))
+	{
+		const auto baseValue = (double)controllerValue;
+		const auto modulated = slider->getMatrixCableCallbackValue(baseValue);
+
+		if (modulated != baseValue)
+			controllerValue = modulated;
+	}
+
 	if (thisAsJavascriptProcessor == nullptr)
 		thisAsJavascriptProcessor = dynamic_cast<JavascriptProcessor*>(this);
 

@@ -1156,6 +1156,13 @@ public:
             ScriptComponent::removeLinkedTarget(targetToRemove);
         }
         
+		/** APEX: the value this knob's control callback has to receive for the knob value baseValue.
+		    A cable matrix target (matrixTargetId without a MatrixModulator: LFO rates, FX RATE FREE...)
+		    is modulated by calling the control callback with base + mod from the audio thread. A knob
+		    move called it with the bare knob value, so the target jumped to the unmodulated value
+		    until the modulation next changed. Returns baseValue when nothing modulates the knob. */
+		double getMatrixCableCallbackValue(double baseValue);
+
 	private:
 
 		struct MatrixConnectionBase: public ControlledObject

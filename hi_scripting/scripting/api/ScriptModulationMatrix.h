@@ -202,6 +202,10 @@ struct ScriptingApi::Content::ScriptSlider::MatrixCableConnection: public Matrix
 	void onUpdate(const ValueTree& v, bool wasAdded);
 	void calculateNewModValue();
 
+	/** APEX: base + current modulation for a knob value that did not come from calculateNewModValue()
+	    (see ScriptSlider::getMatrixCableCallbackValue()). */
+	double getCallbackValueForBase(double baseValue);
+
 	SimpleReadWriteLock listLock;
 
 	Target::List allTargets;

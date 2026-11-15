@@ -512,6 +512,75 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::onUpdate(const 
 	}
 }
 
+// APEX: set while calculateNewModValue() calls the control callback with an already modulated
+// value, so ScriptSlider::getMatrixCableCallbackValue() does not modulate it a second time.
+static thread_local bool apexInMatrixCableCallback = false;
+
+double ScriptingApi::Content::ScriptSlider::getMatrixCableCallbackValue(double baseValue)
+{
+	if(apexInMatrixCableCallback)
+		return baseValue;
+
+	if(auto c = dynamic_cast<MatrixCableConnection*>(matrixConnection.get()))
+		return c->getCallbackValueForBase(baseValue);
+
+	return baseValue;
+}
+
+double ScriptingApi::Content::ScriptSlider::MatrixCableConnection::getCallbackValueForBase(double baseValue)
+{
+	// Same sum as calculateNewModValue(), without the plot buffers.
+	const bool holdAtBase = getMainController()->shouldHoldModsWithoutVoices() &&
+	                        getMainController()->getNumActiveVoices() == 0;
+
+	if(auto sl = SimpleReadWriteLock::ScopedTryReadLock(listLock))
+	{
+		if(scaleTargets.isEmpty() && addTargets.isEmpty())
+			return baseValue;
+
+		// The callback that follows may run after the audio thread's next tick (it is deferred to
+		// the scripting thread for a knob move): have that tick send its value again.
+		hasLastCallbackValue = false;
+
+		auto normValue = sliderRange.convertTo0to1(baseValue, false);
+
+		for(auto s: scaleTargets)
+		{
+			if (holdAtBase && !s->isMacroSource && !s->isVoiceStart)
+				continue;
+
+			auto i = s->intensity;
+
+			if(s->auxTarget != nullptr)
+				i *= s->auxTarget->getAuxValue();
+
+			normValue *= (1.0 - i) + i * s->lastModValue;
+		}
+
+		for(auto a: addTargets)
+		{
+			if (holdAtBase && !a->isMacroSource && !a->isVoiceStart)
+				continue;
+
+			auto modValue = a->lastModValue;
+
+			if(a->tm == modulation::TargetMode::Bipolar)
+				modValue = modValue * 2.0 - 1.0;
+
+			auto i = a->intensity;
+
+			if(a->auxTarget != nullptr)
+				i *= a->auxTarget->getAuxValue();
+
+			normValue += modValue * i;
+		}
+
+		return sliderRange.convertFrom0to1(jlimit(0.0, 1.0, normValue), false);
+	}
+
+	return baseValue;
+}
+
 void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewModValue()
 {
 	auto normValue = sliderRange.convertTo0to1((double)parent->value, false);
@@ -600,6 +669,9 @@ void ScriptingApi::Content::ScriptSlider::MatrixCableConnection::calculateNewMod
 		auto pr = parent.get()->getConnectedProcessor();
 
 		Processor::ScopedAttributeNotificationSuspender sp(pr);
+
+		// the value below is already modulated (see getMatrixCableCallbackValue())
+		ScopedValueSetter<bool> svs(apexInMatrixCableCallback, true);
 
 		auto mc = getMainController();
 
