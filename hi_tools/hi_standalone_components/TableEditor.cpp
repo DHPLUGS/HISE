@@ -647,7 +647,9 @@ void TableEditor::mouseDoubleClick(const MouseEvent& e)
 		}
 	}
 	
-	updateTable(false);
+	// The double click arrives AFTER mouseUp, so nothing refreshes the lookup table
+	// later: refresh it here or the curve reset is only visual.
+	updateTable(true);
 	refreshGraph();
 
 	needsRepaint = true;
