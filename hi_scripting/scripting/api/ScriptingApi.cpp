@@ -1153,6 +1153,7 @@ void ScriptingApi::Message::onAllNotesOff()
 struct ScriptingApi::Engine::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_0(Engine, allNotesOff);
+	API_VOID_METHOD_WRAPPER_1(Engine, setHeldKeyRetriggerHold);
 	API_METHOD_WRAPPER_0(Engine, getProjectInfo);
 	API_METHOD_WRAPPER_0(Engine, getUptime);
 	API_METHOD_WRAPPER_0(Engine, getHostBpm);
@@ -1313,6 +1314,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 {
 	ADD_API_METHOD_0(getProjectInfo);
 	ADD_API_METHOD_0(allNotesOff);
+	ADD_API_METHOD_1(setHeldKeyRetriggerHold);
 	ADD_API_METHOD_0(getUptime);
 	ADD_API_METHOD_0(getHostBpm);
 	ADD_TYPED_API_METHOD_1(setHostBpm, VarTypeChecker::Number);
@@ -1508,6 +1510,11 @@ var ScriptingApi::Engine::getProjectInfo()
 void ScriptingApi::Engine::allNotesOff()
 {
 	getProcessor()->getMainController()->allNotesOff();
+};
+
+void ScriptingApi::Engine::setHeldKeyRetriggerHold(bool shouldHold)
+{
+	getProcessor()->getMainController()->setRetriggerHeldKeysHold(shouldHold);
 };
 
 void ScriptingApi::Engine::addModuleStateToUserPreset(var moduleId)
@@ -3169,7 +3176,7 @@ bool ScriptingApi::Engine::sortWithFunction(var arrayToSort, var sortFunction)
 		if (dac.valid)
 		{
 			ar->sort(dac, true);
-			return true;
+			return true; 
 		}
 	}
 

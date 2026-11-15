@@ -2368,11 +2368,17 @@ private:
 	void stripNoteOnsDuringVoiceKill(MidiBuffer& rawMidi);
 	std::atomic<bool> retriggerHeldKeysPending { false };
 	int retriggerClearBlockCount = 0;
+	std::atomic<bool> retriggerHeldKeysHold { false };
+	int retriggerHoldSamples = 0;
 
 public:
 	/** APEX: called when a user preset finished loading - held keys are struck again
 	    on the new sound once audio runs normally. */
 	void setRetriggerHeldKeysPending() { retriggerHeldKeysPending.store(true); }
+
+	/** APEX: while set, the pending retrigger waits (the script releases it when the new
+	    preset has settled and the output is audible again). Gives up after 5 seconds. */
+	void setRetriggerHeldKeysHold(bool shouldHold) { retriggerHeldKeysHold.store(shouldHold); }
 private:
 
 	HiseEventBuffer masterEventBuffer;

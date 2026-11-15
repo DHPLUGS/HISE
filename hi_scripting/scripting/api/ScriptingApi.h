@@ -426,6 +426,9 @@ public:
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
 
+		/** Holds back (true) or releases (false) the retrigger of held keys after a user preset load. */
+		void setHeldKeyRetriggerHold(bool shouldHold);
+
 		/** Adds an entire module to the user preset system. */
 		void addModuleStateToUserPreset(var moduleId);
 

@@ -1346,6 +1346,17 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
     if (!masterEventBuffer.isEmpty()) setMidiInputFlag();
     
+#if !FRONTEND_IS_PLUGIN
+	// APEX: an all-notes-off also wipes the note-ons of this block, so no held key has a
+	// voice afterwards - a pending retrigger then plays every key that is still down.
+	if (allNotesOffFlag)
+	{
+		for (auto& ch : heldKeyVelocities)
+			for (auto& v : ch)
+				v &= 0x7F;
+	}
+#endif
+
 	checkAllNotesOff();
 
 #if !FRONTEND_IS_PLUGIN
@@ -2601,6 +2612,7 @@ void MainController::retriggerHeldKeysIfPending()
 	if (!retriggerHeldKeysPending.load())
 	{
 		retriggerClearBlockCount = 0;
+		retriggerHoldSamples = 0;
 		return;
 	}
 
@@ -2612,11 +2624,29 @@ void MainController::retriggerHeldKeysIfPending()
 		return;
 	}
 
-	if (++retriggerClearBlockCount < 3)
+	if (retriggerClearBlockCount < 3)
+	{
+		retriggerClearBlockCount++;
 		return;
+	}
+
+	// The script holds the retrigger back until the new preset has settled (post callbacks
+	// done, output gate open): a note struck right after the resume plays through the
+	// closing gate (blip) and is cut again by an all-notes-off from a post callback.
+	if (retriggerHeldKeysHold.load())
+	{
+		retriggerHoldSamples += numSamplesThisBlock;
+
+		if (retriggerHoldSamples < (int)(5.0 * processingSampleRate))
+			return;
+
+		// never released (script error): play the keys anyway
+		retriggerHeldKeysHold.store(false);
+	}
 
 	retriggerHeldKeysPending.store(false);
 	retriggerClearBlockCount = 0;
+	retriggerHoldSamples = 0;
 
 	for (int ch = 0; ch < 16; ch++)
 	{
