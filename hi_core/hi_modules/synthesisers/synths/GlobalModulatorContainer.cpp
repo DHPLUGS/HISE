@@ -774,7 +774,11 @@ void GlobalModulatorContainerVoice::calculateBlock(int startSample, int numSampl
 	{
 		for (auto& e : gs->envelopeCables)
 		{
-			e.send(getVoiceIndex(), true, startSample);
+			// APEX: startSample is in audio samples, the envelope buffers are control rate (the
+			// gain chain is not expanded). When an event (note, CC, a script timer tick) splits the
+			// block, the second part read the buffer 8x too far in: stale / zero data, so every
+			// ENV -> script-slider row (LFO RATE FREE...) snapped to 0 for that part of the block.
+			e.send(getVoiceIndex(), true, startSample / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR);
 		}
 	}
 
