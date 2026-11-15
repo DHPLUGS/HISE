@@ -478,6 +478,7 @@ void MoogLadderSubType::reset(int numChannels)
 {
 	memset(s,      0, sizeof(s));
 	memset(y4prev, 0, sizeof(double) * numChannels);
+	coeffInit = false;   // next block starts its coefficient glide at the target
 }
 
 void MoogLadderSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
@@ -566,6 +567,16 @@ double MoogLadderSubType::getPlotValue(void* obj, bool getMagnitude, double freq
 
 void MoogLadderSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
+	// APEX: first block of a voice. reset() cleared the state, but G_prev / fb_prev still hold
+	// whatever this voice slot played last, so the block swept in from that old cutoff - a
+	// click when the slot's last note was cut mid-sustain (mono retrigger, voice stealing).
+	if (!coeffInit)
+	{
+		G_prev = G;
+		fb_prev = fb;
+		coeffInit = true;
+	}
+
 	const double G_t  = G;
 	const double fb_t = fb;
 	const PreFilterDrive pd = driveStage;
@@ -727,6 +738,7 @@ void Korg35SubType::reset(int /*numChannels*/)
 	memset(s1, 0, sizeof(s1));
 	memset(s2, 0, sizeof(s2));
 	memset(s3, 0, sizeof(s3));
+	coeffInit = false;   // next block starts its coefficient glide at the target
 }
 
 void Korg35SubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
@@ -830,6 +842,14 @@ double Korg35SubType::getPlotValue(void* obj, bool getMagnitude, double freqNorm
 
 void Korg35SubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
+	// APEX: first block of a voice starts at the target, not at the cutoff this voice slot
+	// played last (see MoogLadderSubType::processSamples).
+	if (!coeffInit)
+	{
+		G_prev = G; K_prev = K; alpha0_prev = alpha0; B3_prev = B3; B2_prev = B2;
+		coeffInit = true;
+	}
+
 	// Snapshot current target coefficients
 	const double G_t      = G;
 	const double K_t      = K;
@@ -1547,6 +1567,7 @@ void TB303FilterSubType::reset(int numChannels)
     memset(y4prev,   0, sizeof(double) * numChannels);
     memset(hp_s,     0, sizeof(double) * numChannels);
     memset(hpf_prev, 0, sizeof(double) * numChannels);
+    coeffInit = false;   // next block starts its coefficient glide at the target
 }
 
 void TB303FilterSubType::updateCoefficients(double sampleRate, double frequency, double q, double /*gain*/)
@@ -1621,6 +1642,15 @@ double TB303FilterSubType::getPlotValue(void* obj, bool getMagnitude, double fre
 
 void TB303FilterSubType::processSamples(AudioSampleBuffer& buffer, int startSample, int numSamples)
 {
+    // APEX: first block of a voice starts at the target, not at the cutoff this voice slot
+    // played last (see MoogLadderSubType::processSamples).
+    if (!coeffInit)
+    {
+        G_prev = G;
+        fb_prev = fb;
+        coeffInit = true;
+    }
+
     const double G_t  = G;
     const double fb_t = fb;
     const PreFilterDrive pd = driveStage;
@@ -3117,6 +3147,7 @@ void ZDFDiodeLadderSubType::reset(int /*numChannels*/)
     memset(z1, 0, sizeof(z1));
     memset(z2, 0, sizeof(z2));
     memset(z3, 0, sizeof(z3));
+    coeffInit = false;   // next block starts its coefficient glide at the target
 }
 
 void ZDFDiodeLadderSubType::updateCoefficients(double sampleRate, double frequency,
@@ -3144,6 +3175,15 @@ void ZDFDiodeLadderSubType::updateCoefficients(double sampleRate, double frequen
 void ZDFDiodeLadderSubType::processSamples(AudioSampleBuffer& buffer,
                                             int startSample, int numSamples)
 {
+    // APEX: first block of a voice starts at the target, not at the resonance this voice slot
+    // played last (see MoogLadderSubType::processSamples).
+    if (!coeffInit)
+    {
+        k_prev = k;
+        amp_comp_prev = amp_comp;
+        coeffInit = true;
+    }
+
     const int numChannels = buffer.getNumChannels();
     const PreFilterDrive pd = driveStage;
 

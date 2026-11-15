@@ -918,6 +918,9 @@ private:
 	// Previous buffer coefficients for interpolation
 	double G_prev  = 0.0;
 	double fb_prev = 0.0;
+	// First block after reset(): start the coefficient glide at the target instead of the
+	// cutoff this voice slot last played (stale glide = click on a new note).
+	bool coeffInit = false;
 
 	// Stored for graph/coefficient queries
 	double storedSampleRate = 44100.0;
@@ -992,6 +995,9 @@ private:
 	double alpha0_prev = 1.0;
 	double B3_prev     = 0.0;
 	double B2_prev     = 0.0;
+	// First block after reset(): start the coefficient glide at the target instead of the
+	// cutoff this voice slot last played (stale glide = click on a new note).
+	bool coeffInit = false;
 
 	// Stored for graph/coefficient queries
 	double storedSampleRate = 44100.0;
@@ -1252,6 +1258,9 @@ private:
     // Previous buffer coefficients for per-sample interpolation
     double G_prev  = 0.0;
     double fb_prev = 0.0;
+    // First block after reset(): start the coefficient glide at the target instead of the
+    // cutoff this voice slot last played (stale glide = click on a new note).
+    bool coeffInit = false;
 
     // Stored for graph/coefficient queries
     double storedSampleRate = 44100.0;
@@ -1659,6 +1668,9 @@ private:
 	// Previous-buffer values for per-sample interpolation
 	double k_prev        = 0.0;
 	double amp_comp_prev = 1.0;
+	// First block after reset(): start the coefficient glide at the target instead of the
+	// cutoff this voice slot last played (stale glide = click on a new note).
+	bool coeffInit = false;
 
 	// Stored for graph queries
 	double storedSampleRate = 44100.0;
