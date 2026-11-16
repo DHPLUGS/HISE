@@ -622,6 +622,9 @@ void ScriptContentComponent::setNewContent(ScriptingApi::Content *c)
 
 	if (c == nullptr) return;
 
+	// APEX: the matrix tiles and sliders created below each ask for the modulation target list
+	MatrixIds::Helpers::ScopedTargetListCache targetListCache(p->getMainController());
+
 	currentTextBox = nullptr;
 	contentData = c;
 

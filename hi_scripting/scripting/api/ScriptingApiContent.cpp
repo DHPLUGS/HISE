@@ -8610,6 +8610,9 @@ Result ScriptingApi::Content::createComponentsFromValueTree(const ValueTree& new
 
 void ScriptingApi::Content::addComponentsFromValueTree(const ValueTree& v)
 {
+	// APEX: every component with a matrix target asks for the target type (setPropertiesFromJSON)
+	MatrixIds::Helpers::ScopedTargetListCache targetListCache(getScriptProcessor()->getMainController_());
+
 	try
 	{
 		static const Identifier co("Component");

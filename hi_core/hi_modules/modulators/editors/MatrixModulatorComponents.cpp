@@ -1762,6 +1762,9 @@ void MatrixContent::syncRowsWithData()
 	if(!data.isValid())
 		return;
 
+	// every new row builds the target list for its menu
+	MatrixIds::Helpers::ScopedTargetListCache targetListCache(getMainController());
+
 	// drop the rows whose connection is gone (virtual rows have no connection in the data yet)
 	for(int i = rows.size() - 1; i >= 0; i--)
 	{

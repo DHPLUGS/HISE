@@ -904,18 +904,41 @@ void StyleSheet::Collection::setPropertyVariable(Component* c, const Identifier&
 			c = simple_css::FlexboxComponent::Helpers::getComponentForStyleSheet(c);
 		}
 
+		// APEX: a value that every matching collection already holds changes nothing. Each call
+		// walks every stylesheet (forEach below), and the scripted CSS look and feel sends each
+		// property twice per tile when it is created (the direct init, then the listeners' first
+		// async update): about a second on the message thread right after the interface opens.
+		bool anyMatch = false;
+		bool anyChange = false;
+
 		for(auto& cc: childCollections)
 		{
 			if(cc.first == c)
 			{
-				cc.childProperties.set(id, newValue);
+				anyMatch = true;
+
+				auto existing = cc.childProperties.getVarPointer(id);
+
+				if(existing == nullptr || !existing->equalsWithSameType(newValue))
+				{
+					anyChange = true;
+					cc.childProperties.set(id, newValue);
+				}
 			}
 		}
 
+		if(anyMatch && !anyChange)
+			return;
 	}
 	else
 	{
 		jassert(c == nullptr);
+
+		auto existing = rootProperties.getVarPointer(id);
+
+		if(existing != nullptr && existing->equalsWithSameType(newValue))
+			return;
+
 		rootProperties.set(id, newValue);		
 	}
 
@@ -1282,6 +1305,24 @@ Result StyleSheet::Collection::performAtRules(DataProvider* d)
 
 bool StyleSheet::Collection::sameOrParent(Component* possibleParent, Component* componentToLookFor)
 {
+	// APEX: pointer compares first. forEach() asks this for every cached stylesheet on every
+	// variable update, and nearly all of them sit under another component: finding that out
+	// with a dynamic_cast per ancestor was about a second of the message thread right after
+	// the interface opens. Only an actual ancestor needs the root check below.
+	bool isAncestor = false;
+
+	for(auto p = componentToLookFor; p != nullptr; p = p->getParentComponent())
+	{
+		if(p == possibleParent)
+		{
+			isAncestor = true;
+			break;
+		}
+	}
+
+	if(!isAncestor)
+		return false;
+
 	while(componentToLookFor != nullptr)
 	{
 		if(componentToLookFor == possibleParent)

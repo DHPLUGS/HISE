@@ -181,6 +181,23 @@ struct Helpers
 	static void fillModSourceList(const MainController* mc, StringArray& items);
 	static void fillModTargetList(const MainController* mc, StringArray& items, TargetType t);
 
+	/** APEX: fillModTargetList() walks the whole module tree (a dynamic_cast per processor) and
+	    the interface's component tree for every call, and getTargetType() calls it for every
+	    component with a matrix target: several hundred identical walks while the interface is
+	    built. Put one of these on the stack around such a batch and the lists are built once per
+	    target type for its lifetime. Only for a synchronous scope in which no module is added,
+	    removed or renamed and no matrixTargetId changes. Nested scopes share the outer one. */
+	struct ScopedTargetListCache
+	{
+		ScopedTargetListCache(const MainController* mc_);
+		~ScopedTargetListCache();
+
+		const MainController* mc;
+		StringArray lists[3];
+		bool valid[3] = { false, false, false };
+		bool isActive = false;
+	};
+
 	static int getModulationSourceDragIndex(const var& data);
 	static void updateDragState(HiSlider* s, DragTargetType state);
 	static void repaintMatrixSlidersOnDrag(Component* c, const var& data, DragTargetType state);

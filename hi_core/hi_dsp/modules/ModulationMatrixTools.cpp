@@ -563,8 +563,47 @@ void Helpers::fillModSourceList(const MainController* mc, StringArray& items)
 	}
 }
 
+static thread_local Helpers::ScopedTargetListCache* currentTargetListCache = nullptr;
+
+Helpers::ScopedTargetListCache::ScopedTargetListCache(const MainController* mc_):
+	mc(mc_)
+{
+	if(currentTargetListCache == nullptr)
+	{
+		currentTargetListCache = this;
+		isActive = true;
+	}
+}
+
+Helpers::ScopedTargetListCache::~ScopedTargetListCache()
+{
+	if(isActive)
+		currentTargetListCache = nullptr;
+}
+
 void Helpers::fillModTargetList(const MainController* mc, StringArray& items, TargetType t)
 {
+	// APEX: see ScopedTargetListCache. A caller that passes a list with content keeps the
+	// uncached path (the result is merged into it and sorted as a whole).
+	if(auto cache = currentTargetListCache)
+	{
+		if(cache->mc == mc && items.isEmpty())
+		{
+			auto idx = (int)t;
+
+			if(!cache->valid[idx])
+			{
+				currentTargetListCache = nullptr;
+				fillModTargetList(mc, cache->lists[idx], t);
+				currentTargetListCache = cache;
+				cache->valid[idx] = true;
+			}
+
+			items = cache->lists[idx];
+			return;
+		}
+	}
+
 	if(t == TargetType::All || t == TargetType::Modulators)
 	{
 		Processor::Iterator<MatrixModulator> iter(mc->getMainSynthChain());
