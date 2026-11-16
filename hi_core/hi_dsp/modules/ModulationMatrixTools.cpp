@@ -689,22 +689,36 @@ void Helpers::startDragging(Component* c, int sourceIndex)
 		if(co == nullptr)
 			co = c->findParentComponentOfClass<ControlledObject>();
 
-		if(co != nullptr && rc != nullptr && dynamic_cast<ComponentWithMiddleMouseDrag*>(rc) != nullptr)
+		MainController* mc = co != nullptr ? co->getMainController() : nullptr;
+
+		// a held macro knob (HiSlider::startHoldDrag) is no ControlledObject and has none above
+		// it, so it took the plain picture below - the knob alone. Its processor knows the way.
+		if(mc == nullptr)
 		{
-			auto chain = co->getMainController()->getMainSynthChain();
+			if(auto mco = dynamic_cast<MacroControlledObject*>(c))
+			{
+				if(auto p = mco->getProcessor())
+					mc = p->getMainController();
+			}
+		}
+
+		if(mc != nullptr && rc != nullptr && dynamic_cast<ComponentWithMiddleMouseDrag*>(rc) != nullptr)
+		{
+			auto chain = mc->getMainSynthChain();
 
 			if(auto gc = ProcessorHelpers::getFirstProcessorWithType<GlobalModulatorContainer>(chain))
 			{
 				StringArray sources;
-				fillModSourceList(co->getMainController(), sources);
+				fillModSourceList(mc, sources);
 
 				auto area = gc->getMatrixSourceDragImageArea(sources[sourceIndex]);
 
 				if(!area.isEmpty())
 				{
-					// the component under the mouse is always inside the picture
-					area = area.getUnion(rc->getLocalArea(c, c->getLocalBounds()))
-					           .getIntersection(rc->getLocalBounds());
+					// the script's area is the whole picture: a union with the dragged component
+					// brought the knob's full height back, and the name label under it. The mouse
+					// point is clamped into the picture below.
+					area = area.getIntersection(rc->getLocalBounds());
 
 					if(!area.isEmpty())
 					{
