@@ -497,9 +497,16 @@ bool MainController::KillStateHandler::killVoicesAndWait(int* timeoutMillisecond
 	int timeout = timeoutMilliseconds != nullptr ? *timeoutMilliseconds : 1000;
 	int numRetries = timeout / 20 + 10;
 
+	// APEX: same total timeout, checked every 2 ms instead of every 20 ms
+	const bool fastPoll = HISE_GET_PREPROCESSOR(mc, HISE_FAST_VOICE_KILL) != 0;
+	const int pollMilliseconds = fastPoll ? 2 : 20;
+
+	if (fastPoll)
+		numRetries *= 10;
+
 	while (isAudioRunning() && safeguard < numRetries)
 	{
-		Thread::sleep(20);
+		Thread::sleep(pollMilliseconds);
 		safeguard++;
 	}
 

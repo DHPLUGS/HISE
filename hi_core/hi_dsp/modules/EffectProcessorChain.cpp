@@ -87,6 +87,14 @@ void EffectProcessorChain::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 	resetCounterStartValue = (int)(0.12 * sampleRate);
 
+	// APEX: the wait for the master effect fade follows the shorter fade
+	// (MasterEffectProcessor::prepareToPlay) plus two blocks of margin
+	if (HISE_GET_PREPROCESSOR(getMainController(), HISE_FAST_VOICE_KILL) && sampleRate > 0.0 && samplesPerBlock > 0)
+	{
+		auto fadeSeconds = jmax(0.03, 1.01 * (double)samplesPerBlock / sampleRate);
+		resetCounterStartValue = (int)(fadeSeconds * sampleRate) + 2 * samplesPerBlock;
+	}
+
 	for (auto fx : masterEffects)
 		fx->setKillBuffer(killBuffer);
 

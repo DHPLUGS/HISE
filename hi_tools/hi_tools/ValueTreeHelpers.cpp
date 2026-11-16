@@ -773,9 +773,18 @@ void ChildListener::sendAddMessageForAllChildren()
 
 void ChildListener::handleAsyncUpdate()
 {
-	ScopedLock sl(asyncLock);
+	// APEX: take the pending changes out under the lock and run the callbacks without it. The
+	// callbacks can be slow UI work (the modulation matrix table builds a row component per
+	// connection), and a thread that adds / removes children waits on this lock for every
+	// child: a user preset load (loading thread) spent about half its time blocked here.
+	Array<Change> changesToProcess;
 
-	for (auto& pc : pendingChanges)
+	{
+		ScopedLock sl(asyncLock);
+		changesToProcess.swapWith(pendingChanges);
+	}
+
+	for (auto& pc : changesToProcess)
 	{
 		if (pc.v == v)
 		{
@@ -787,8 +796,6 @@ void ChildListener::handleAsyncUpdate()
 		else
 			cb(pc.v, pc.wasAdded);
 	}
-
-	pendingChanges.clear();
 }
 
 void ChildListener::valueTreeChildAdded(ValueTree& p, ValueTree& c)

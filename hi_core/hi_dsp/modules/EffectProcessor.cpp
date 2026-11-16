@@ -249,7 +249,15 @@ void MasterEffectProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
 	EffectProcessor::prepareToPlay(sampleRate, samplesPerBlock);
 
 	if (sampleRate > 0.0 && samplesPerBlock > 0)
-		softBypassRamper.reset(sampleRate / (double)samplesPerBlock, 0.1);
+	{
+		auto fadeSeconds = 0.1;
+
+		// APEX: shorter fade, but never less than one block (no ramp step = a hard cut)
+		if (HISE_GET_PREPROCESSOR(getMainController(), HISE_FAST_VOICE_KILL))
+			fadeSeconds = jmax(0.03, 1.01 * (double)samplesPerBlock / sampleRate);
+
+		softBypassRamper.reset(sampleRate / (double)samplesPerBlock, fadeSeconds);
+	}
 
 	masterState.reset();
 

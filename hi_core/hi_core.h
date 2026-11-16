@@ -149,6 +149,19 @@ the IDE (project extra definitions) and at compile time in an export.
 #define HISE_ALL_NOTES_OFF_ON_USER_PRESET_LOAD 1
 #endif
 
+/** Config: HISE_FAST_VOICE_KILL
+
+APEX: before the engine is suspended (user preset load, anything deferred to the loading thread)
+the voices are faded out and every master effect with a tail is soft-bypassed. The effect fade is
+100 ms and the engine waits 120 ms for it, then the waiting thread polls every 20 ms: about
+150 ms before the load even starts. Set this to 1 for a 30 ms effect fade (also used when an
+effect is bypassed / enabled) and a 2 ms poll. Read at runtime in the IDE (project extra
+definitions) and at compile time in an export.
+*/
+#ifndef HISE_FAST_VOICE_KILL
+#define HISE_FAST_VOICE_KILL 0
+#endif
+
 /** Config: HISE_BACKEND_AS_FX
  
  Set this to 1 in order to use HISE as a effect plugin. This will simulate the processing setup of an FX plugin (so child sound generators will not be processed etc).

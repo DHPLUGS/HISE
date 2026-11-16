@@ -1691,6 +1691,18 @@ bool MatrixContent::matchesSource(const ValueTree& v) const
 
 void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 {
+	// APEX: during a user preset load (and for the changes of that load that are still queued
+	// when it ends) only note that the table is out of date, see timerCallback()
+	if(rowSyncPending || getMainController()->getUserPresetHandler().isPresetLoadInProgress())
+	{
+		rowSyncPending = true;
+
+		if(!isTimerRunning())
+			startTimer(30);
+
+		return;
+	}
+
 	if(MatrixIds::Helpers::matchesTarget(v, targetId) && matchesSource(v))
 	{
 		if(wasAdded)
@@ -1728,6 +1740,61 @@ void MatrixContent::onRowChange(ValueTree v, bool wasAdded)
 		topUpVirtualRows();
 		refreshLayout();
 	}
+}
+
+void MatrixContent::timerCallback()
+{
+	// the loading thread is still rebuilding the matrix data: do not walk it
+	if(getMainController()->getUserPresetHandler().isPresetLoadInProgress())
+		return;
+
+	// a table that is not on screen waits until it is shown
+	if(!isShowing())
+		return;
+
+	stopTimer();
+	rowSyncPending = false;
+	syncRowsWithData();
+}
+
+void MatrixContent::syncRowsWithData()
+{
+	if(!data.isValid())
+		return;
+
+	// drop the rows whose connection is gone (virtual rows have no connection in the data yet)
+	for(int i = rows.size() - 1; i >= 0; i--)
+	{
+		if(!rows[i]->isVirtual && rows[i]->data.getParent() != data)
+			rows.remove(i);
+	}
+
+	// a row for every connection of this table that has none
+	for(auto c: data)
+	{
+		if(!(MatrixIds::Helpers::matchesTarget(c, targetId) && matchesSource(c)))
+			continue;
+
+		Row* existing = nullptr;
+
+		for(auto r: rows)
+		{
+			if(r->data == c)
+			{
+				existing = r;
+				break;
+			}
+		}
+
+		if(existing != nullptr)
+			existing->isVirtual = false;
+		else
+			createRow(c);
+	}
+
+	sortRows();
+	topUpVirtualRows();
+	refreshLayout();
 }
 
 void MatrixContent::refreshLayout()

@@ -307,7 +307,8 @@ struct MatrixBase: public Component,
 	JUCE_DECLARE_WEAK_REFERENCEABLE(MatrixBase);
 };
 
-struct MatrixContent: public MatrixBase
+struct MatrixContent: public MatrixBase,
+					  public Timer
 {
 	static constexpr int RowHeight = 48;
 
@@ -580,6 +581,14 @@ struct MatrixContent: public MatrixBase
 	MatrixContent(MainController* mc, const String& targetId_, bool useViewport_, const String& sourceId_ = String());
 
 	void onRowChange(ValueTree v, bool wasAdded);
+
+	/** APEX: a user preset load removes and re-adds every connection. The row changes that arrive
+	    during the load are not applied one by one (a row component per connection, per table, with
+	    a sort and a layout each time): the table is brought in line with the matrix data once, after
+	    the load, and only when it is on screen. */
+	void timerCallback() override;
+	void syncRowsWithData();
+
 	bool matchesSource(const ValueTree& v) const;
 	int getHeightToUse(int parentHeight) const;
 	void resized() override;
@@ -624,6 +633,7 @@ struct MatrixContent: public MatrixBase
 
 	int minRows = 0;
 	int virtualSerialCounter = 0;
+	bool rowSyncPending = false;   // APEX: see timerCallback()
 };
 
 
