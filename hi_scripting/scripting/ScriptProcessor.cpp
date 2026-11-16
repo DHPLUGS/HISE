@@ -49,11 +49,22 @@ namespace hise { using namespace juce;
 			content->resetContentProperties();
 		}
 
-		for (int i = 0; i < content->getNumComponents(); i++)
+		// APEX: appended in place. withParameter() returns a copy of the whole metadata, so one
+		// call per component copied the growing parameter list every time (quadratic: about
+		// 80 ms per call with APEX's 1100 components, and this runs several times at start-up).
+		const int numComponents = content->getNumComponents();
+
+		md.parameters.ensureStorageAllocated(md.parameters.size() + numComponents);
+
+		for (int i = 0; i < numComponents; i++)
 		{
 			auto sc = content->getComponent(i);
+			auto pm = sc->createParameterMetadata(i);
 
-			md = md.withParameter(sc->createParameterMetadata(i));
+			// same contract as withParameter(): the index is the position in the array
+			jassert(pm.parameterIndex == md.parameters.size());
+
+			md.parameters.add(pm);
 		}
 
 		return md;

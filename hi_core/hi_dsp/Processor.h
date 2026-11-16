@@ -842,6 +842,11 @@ private:
 
     std::pair<bool, ProcessorMetadata> metadata;
 
+	// APEX: keeps the shared metadata table alive for as long as a processor exists. The registry
+	// frees its table with its last instance, and getMetadata() only makes a temporary one, so
+	// the table of every processor type was built again for each module created while loading.
+	ProcessorMetadataRegistry metadataRegistry;
+
     bool forceDeactivateUpdates = false;
 
     struct OldBroadcaster: public SafeChangeBroadcaster
