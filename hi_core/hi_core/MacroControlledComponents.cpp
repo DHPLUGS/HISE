@@ -1200,7 +1200,15 @@ void HiSlider::ModUpdater::timerCallback()
 
 			if(lastValue != mv || shouldSmooth)
 			{
-				mv.lastModValue = lastModValue * 0.9 + thisModValue * 0.1;
+				// APEX: the glide is for a mod thumb that follows a live source. A slider nobody
+				// modulates, or any slider while no voice sounds (the thumb sits on the base value
+				// then, see above), has nothing to glide to: take the new value at once. The glide
+				// needs ~44 ticks to settle and stores (= repaints) on every one, so a user preset
+				// load, which moves most sliders, kept them all repainting for about 3 seconds -
+				// and sliders spread over the page make every one of those a full-window paint.
+				const bool snap = !mv.modulationActive || p->getMainController()->getNumActiveVoices() == 0;
+
+				mv.lastModValue = snap ? thisModValue : lastModValue * 0.9 + thisModValue * 0.1;
 				mv.storeToComponent(parent);
 				lastValue = mv;
 			}
