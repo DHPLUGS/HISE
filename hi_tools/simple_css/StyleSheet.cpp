@@ -807,7 +807,10 @@ StyleSheet::Ptr StyleSheet::Collection::getWithAllStates(Component* c, const Sel
 
 	for(const auto& existing: cachedMapForAllStates)
 	{
-		if(existing.first.second.exactMatch(s) && existing.first.first == c)
+		// APEX: component first - a pointer compare, where the selector match compares strings.
+		// Every getForComponent() runs this over the whole cache for "*", so with a few hundred
+		// entries the string compares cost about 0.2 s of the editor start-up.
+		if(existing.first.first == c && existing.first.second.exactMatch(s))
 			return existing.second;
 	}
 
